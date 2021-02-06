@@ -1,0 +1,5 @@
+.vscode
+BACKUPS
+build
+compBLZ.exe.idb
+CMakeSettings.json
