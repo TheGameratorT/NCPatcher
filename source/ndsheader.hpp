@@ -2,12 +2,12 @@
 
 #include <filesystem>
 
-#include "Common.hpp"
+#include "common.hpp"
 
 class NDSHeader
 {
 public:
-	NDSHeader(const std::filesystem::path& path);
+	void load(const std::filesystem::path& path);
 
 	struct ARMBinaryInfo
 	{

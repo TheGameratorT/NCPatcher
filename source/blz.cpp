@@ -1,4 +1,4 @@
-#include "BLZ.hpp"
+#include "blz.hpp"
 
 #include <stdexcept>
 

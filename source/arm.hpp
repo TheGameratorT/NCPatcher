@@ -1,16 +1,17 @@
 #pragma once
 
+#include <sstream>
 #include <filesystem>
 #include <vector>
 #include <exception>
 
-#include "NDSHeader.hpp"
-#include "Common.hpp"
+#include "ndsheader.hpp"
+#include "common.hpp"
 
 class ARM
 {
 public:
-	ARM(const std::filesystem::path& path, u32 entryAddr, u32 ramAddr, u32 num);
+	ARM(const std::filesystem::path& path, u32 entryAddr, u32 ramAddr, u32 autoLoadHookOff, u32 target);
 
 	template<typename T>
 	T read(u32 address) const
@@ -24,11 +25,9 @@ public:
 				return *reinterpret_cast<const T*>(&autoload.data[address - autoload.address]);
 		}
 
-		std::stringstream stream;
-		stream << "Address 0x";
-		stream << std::uppercase << std::hex << address << std::nouppercase;
-		stream << " out of range.";
-		throw std::out_of_range(stream.str());
+		std::ostringstream oss;
+		oss << "Address 0x" << std::uppercase << std::hex << address << std::nouppercase << " out of range.";
+		throw std::out_of_range(oss.str());
 	}
 
 	template<typename T>
@@ -49,11 +48,9 @@ public:
 			}
 		}
 
-		std::stringstream stream;
-		stream << "Address 0x";
-		stream << std::uppercase << std::hex << address << std::nouppercase;
-		stream << " out of range.";
-		throw std::out_of_range(stream.str());
+		std::ostringstream oss;
+		oss << "Address 0x" << std::uppercase << std::hex << address << std::nouppercase << " out of range.";
+		throw std::out_of_range(oss.str());
 	}
 
 private:
@@ -80,6 +77,7 @@ private:
 
 	u32 ramAddr; //The offset of this binary in memory
 	u32 entryAddr; //The address of the entry point
+	u32 autoLoadHookOff;
 	u32 moduleParamsOff;
 	u32 target;
 

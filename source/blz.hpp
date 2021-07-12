@@ -2,7 +2,7 @@
 
 #include <vector>
 
-#include "Common.hpp"
+#include "common.hpp"
 
 namespace BLZ
 {

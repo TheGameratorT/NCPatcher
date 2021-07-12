@@ -1,24 +1,26 @@
-#include "ARM.hpp"
+#include "arm.hpp"
 
 #include <iostream>
 #include <fstream>
+#include <string>
+#include <algorithm>
 
-#include "NCException.hpp"
-#include "BLZ.hpp"
+#include "global.hpp"
+#include "oansistream.hpp"
+#include "except.hpp"
+#include "blz.hpp"
 
 namespace fs = std::filesystem;
-
-constexpr int NitroCodeLE = 0x2106C0DE;
-constexpr int NitroCodeBE = 0xDEC00621;
 
 static const char* LoadInf = "Loading ARM|...";
 static const char* LoadErr = "Could not load ARM|.";
 static const char* InvResn = "Invalid ARM| file.";
 
-ARM::ARM(const std::filesystem::path& path, u32 entryAddr, u32 ramAddr, u32 target)
+ARM::ARM(const fs::path& path, u32 entryAddr, u32 ramAddr, u32 autoLoadHookOff, u32 target)
 {
 	this->ramAddr = ramAddr;
 	this->entryAddr = entryAddr;
+	this->autoLoadHookOff = autoLoadHookOff;
 	this->target = target;
 
 	load(path);
@@ -26,28 +28,22 @@ ARM::ARM(const std::filesystem::path& path, u32 entryAddr, u32 ramAddr, u32 targ
 
 void ARM::load(const fs::path& path)
 {
-	std::cout << OINFO << getString(LoadInf) << std::endl;
+	ansi::cout << OINFO << getString(LoadInf) << std::endl;
 
 	// READ FILE ================================
 
-	std::string pathQ = path.string();
+	ncp::setErrorMsg(getString(LoadErr));
 
 	if (!fs::exists(path))
-	{
-		throw NC::file_error(getString(LoadErr), path, NC::file_error::find);
-	}
+		throw ncp::file_error(path, ncp::file_error::find);
 
 	uintmax_t fileSize = fs::file_size(path);
 	if (fileSize < 4)
-	{
-		throw NC::exception(getString(LoadErr), getString(InvResn));
-	}
+		throw ncp::exception(getString(InvResn));
 
 	std::ifstream file(path, std::ios::binary);
 	if (!file.is_open())
-	{
-		throw NC::file_error(getString(LoadErr), path, NC::file_error::read);
-	}
+		throw ncp::file_error(path, ncp::file_error::read);
 
 	bytes.resize(fileSize);
 	file.read(reinterpret_cast<char*>(bytes.data()), fileSize);
@@ -55,34 +51,16 @@ void ARM::load(const fs::path& path)
 
 	// FIND MODULE PARAMS ================================
 
-	u32 entryOff = entryAddr - ramAddr;
+	moduleParamsOff = *reinterpret_cast<u32*>(&bytes[autoLoadHookOff - ramAddr - 4]) - ramAddr;
 
-	moduleParamsOff = 0;
-	for (int i = entryOff; (i < fileSize - 4) && (i < (entryOff + 0x400)); i += 4)
-	{
-		u32 be = *reinterpret_cast<u32*>(&bytes[i]);
-		u32 le = *reinterpret_cast<u32*>(&bytes[i + 4]);
-
-		if (be == NitroCodeBE && le == NitroCodeLE)
-		{
-			moduleParamsOff = i - 0x1C;
-			break;
-		}
-	}
-
-	if (!moduleParamsOff) // ModuleParams will never be 0 unless some troll moves it there.
-	{
-		throw NC::exception(getString(LoadErr), "Unable to find ModuleParams.");
-	}
-
-	std::cout << OINFO << "Found ModuleParams at: 0x" << std::uppercase << std::hex << moduleParamsOff << std::endl;
+	ansi::cout << OINFO << "Found ModuleParams at: 0x" << std::uppercase << std::hex << moduleParamsOff << std::endl;
 	memcpy(&moduleParams, &bytes[moduleParamsOff], sizeof(ModuleParams));
 
 	// DECOMPRESS ================================
 
 	if (moduleParams.compStaticEnd)
 	{
-		std::cout << OINFO << "Decompressing..." << std::endl;
+		ansi::cout << OINFO << "Decompressing..." << std::endl;
 
 		u32 decompSize = fileSize + *reinterpret_cast<u32*>(&bytes[moduleParams.compStaticEnd - ramAddr - 4]);
 
@@ -96,11 +74,11 @@ void ARM::load(const fs::path& path)
 		{
 			std::ostringstream oss;
 			oss << "Failed to decompress the binary: " << e.what();
-			throw NC::exception(getString(LoadErr), oss.str());
+			throw ncp::exception(oss.str());
 		}
 
-		std::cout << OINFO << "  Old size: 0x" << fileSize << std::endl;
-		std::cout << OINFO << "  New size: 0x" << decompSize << std::endl;
+		ansi::cout << OINFO << "  Old size: 0x" << fileSize << std::endl;
+		ansi::cout << OINFO << "  New size: 0x" << decompSize << std::endl;
 
 		moduleParams.compStaticEnd = 0;
 	}
@@ -135,5 +113,5 @@ void ARM::load(const fs::path& path)
 
 std::string ARM::getString(const std::string& str)
 {
-	return Util::str_repl(str, '|', '0' + target);
+	return util::str_repl(str, '|', '0' + target);
 }
