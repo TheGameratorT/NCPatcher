@@ -148,8 +148,13 @@ void JsonMember::assertMember(const char* member) const
 {
 	if (!hasMember(member))
 	{
+		std::string path = getPathToSelf();
+		if (path != "")
+			path = path + "/" + member;
+		else
+			path = member;
 		std::ostringstream oss;
-		oss << OSTR(member) << " was not found.";
+		oss << OSTR(path) << " was not found.";
 		throw ncp::exception(oss.str());
 	}
 }
@@ -159,7 +164,7 @@ void JsonMember::assertArray() const
 	if (!isArray())
 	{
 		std::ostringstream oss;
-		oss << OSTR(name) << " is not an array.";
+		oss << OSTR(getPathToSelf()) << " is not an array.";
 		throw ncp::exception(oss.str());
 	}
 }
@@ -169,7 +174,7 @@ void JsonMember::assertObject() const
 	if (!isObject())
 	{
 		std::ostringstream oss;
-		oss << OSTR(name) << " is not an object.";
+		oss << OSTR(getPathToSelf()) << " is not an object.";
 		throw ncp::exception(oss.str());
 	}
 }

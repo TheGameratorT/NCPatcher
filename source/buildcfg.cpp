@@ -21,8 +21,13 @@ void BuildCfg::load(const fs::path& path)
 	JsonReader json(path);
 
 	backup = json["backup"].getString();
+	prefix = json["prefix"].getString();
 	arm7 = json["arm7"].getString();
 	arm9 = json["arm9"].getString();
+
+	backup.make_preferred();
+	arm7.make_preferred();
+	arm9.make_preferred();
 
 	ansi::cout << OINFO << "Backup directory: " << OSTR(backup.string()) << std::endl;
 

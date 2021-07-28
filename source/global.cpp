@@ -2,8 +2,10 @@
 
 namespace ncp
 {
+	std::filesystem::path exe_dir;
 	std::filesystem::path asm_path;
 	std::filesystem::path rom_path;
+	BuildCfg build_cfg;
 	NDSHeader header_bin;
 	
 	std::string _errorMsg;

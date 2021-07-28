@@ -12,6 +12,8 @@ namespace rj = rapidjson;
 
 typedef std::vector<std::tuple<std::string, std::string>> varmap_t;
 
+static const char* region_mode_strs[] = { "append", "replace", "create" };
+
 /*static void print_map(const varmap_t& m)
 {
 	for (const auto& n : m)
@@ -50,6 +52,7 @@ static void add_path_recursively(const fs::path& path, std::vector<fs::path>& ou
 		if (subdir.is_directory())
 		{
 			fs::path newPath = subdir.path();
+			newPath.make_preferred();
 			out.push_back(newPath);
 			add_path_recursively(newPath, out);
 		}
@@ -63,10 +66,11 @@ static void get_directory_array(const varmap_t& varmap, const JsonMember& member
 	{
 		JsonMember info = member[i];
 		fs::path path = get_string(varmap, info[0]);
+		path.make_preferred();
 		if (!fs::exists(path))
 		{
 			ansi::cout << OWARN << "Ignored non-existent directory: " << OSTR(path.string()) << std::endl;
-			return;
+			continue;
 		}
 
 		bool recursive = info[1].getBool();
@@ -74,6 +78,25 @@ static void get_directory_array(const varmap_t& varmap, const JsonMember& member
 		if (recursive)
 			add_path_recursively(path, out);
 	}
+}
+
+static void read_region_mode(BuildTarget::Region& region, const JsonMember& member)
+{
+	if (member.hasMember("mode"))
+	{
+		const char* modeStr = member["mode"].getString();
+		size_t index = util::index_of(modeStr, region_mode_strs, 3);
+		if (index != -1)
+		{
+			region.mode = static_cast<BuildTarget::Mode>(index);
+			return;
+		}
+		
+		std::ostringstream oss;
+		oss << OERROR << "Invalid mode " << modeStr << ".";
+		throw ncp::exception(oss.str());
+	}
+	region.mode = BuildTarget::Mode::append;
 }
 
 BuildTarget::BuildTarget(const fs::path& path)
@@ -96,6 +119,25 @@ BuildTarget::BuildTarget(const fs::path& path)
 
 	arenaLo = json["arenaLo"].getInt();
 	symbols = get_string(varmap, json["symbols"]);
+	build = get_string(varmap, json["build"]);
+
+	symbols.make_preferred();
+	build.make_preferred();
 
 	get_directory_array(varmap, json["includes"], includes);
+
+	const std::vector<JsonMember> regionObjs = json["regions"].getObjectArray();
+	for (const JsonMember& regionObj : regionObjs)
+	{
+		Region region;
+		get_directory_array(varmap, regionObj["sources"], region.sources);
+		region.destination = get_string(varmap, regionObj["destination"]);
+		region.compress = regionObj["compress"].getBool();
+		region.cFlags = get_string(varmap, regionObj["c_flags"]);
+		region.cppFlags = get_string(varmap, regionObj["cpp_flags"]);
+		region.asmFlags = get_string(varmap, regionObj["asm_flags"]);
+		region.ldFlags = get_string(varmap, regionObj["ld_flags"]);
+		read_region_mode(region, regionObj);
+		regions.push_back(region);
+	}
 }

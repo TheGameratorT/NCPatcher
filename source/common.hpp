@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <string>
 #include <algorithm>
+#include <cstring>
 
 #include "oansistream.hpp"
 
@@ -51,12 +52,34 @@ std::vector<O> vec_static_cast(const std::vector<I>& in)
 	return out;
 }*/
 
+int exec(const char* cmd, std::ostream& out);
+
 namespace util
 {
+	constexpr size_t index_of(const char* val, const char* vals[], size_t size) noexcept
+	{
+		for (size_t index = 0; index < size; index++)
+			if (strcmp(val, vals[index]) == 0)
+				return index;
+		return -1;
+	}
+
+	template <class T1, class T2>
+	constexpr size_t index_of(const T1 val, const T2* vals, size_t size) noexcept
+	{
+		for (size_t index = 0; index < size; index++)
+			if (val == vals[index])
+				return index;
+		return -1;
+	}
+
 	static inline std::string str_repl(const std::string& str, char chr, char new_chr)
 	{
 		std::string new_str = str;
 		std::replace(new_str.begin(), new_str.end(), chr, new_chr);
 		return new_str;
 	}
+
+	int addr_to_int(const std::string& in);
+	std::string int_to_addr(int in, int align);
 }
