@@ -17,6 +17,7 @@ public:
 	{
 		const BuildTarget::Region* region;
 		std::vector<std::filesystem::path> objects;
+		bool rebuildElf;
 	};
 
 	const std::vector<BuiltRegion>& getBuiltRegions() const;
@@ -48,6 +49,7 @@ private:
 	};
 
 	const BuildTarget& target;
+	std::mutex mtx;
 
 	std::string includeFlags;
 	std::vector<BuildSourceFile> buildFiles;
@@ -57,5 +59,5 @@ private:
 	void make();
 	void getSrcFiles(std::vector<SourceFile>& srcFiles, const BuildTarget::Region& region, bool rebuildAll);
 	void pushBuildFiles(std::vector<SourceFile>& srcFiles, const BuildTarget::Region& region, BuiltRegion& bregion);
-	void buildSource(bool& failed, std::mutex& mtx, const BuildSourceFile& src);
+	void buildSource(bool& failed, const BuildSourceFile& src);
 };

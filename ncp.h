@@ -27,15 +27,15 @@
 
 // NCP Variables
 
-#define __ncp_main_setxxxx(opcode, address, function) void* ncp_set##opcode##_##address __attribute__((section(".ncp_setxxxx"), used)) = (void*)function;
-#define __ncp_ovxx_setxxxx(opcode, address, overlay, function) void* ncp_set##opcode##_##address##_ov##overlay __attribute__((section(".ncp_setxxxx"), used)) = (void*)function;
+#define __ncp_main_set(opcode, address, function) void* ncp_set##opcode##_##address __attribute__((section(".ncp_set"), used)) = (void*)function;
+#define __ncp_ovxx_set(opcode, address, overlay, function) void* ncp_set##opcode##_##address##_ov##overlay __attribute__((section(".ncp_set"), used)) = (void*)function;
 
-#define __ncp_main_set_jump(address, function) __ncp_main_setxxxx(jump, address, function)
-#define __ncp_main_set_call(address, function) __ncp_main_setxxxx(call, address, function)
-#define __ncp_main_set_hook(address, function) __ncp_main_setxxxx(hook, address, function)
-#define __ncp_ovxx_set_jump(address, overlay, function) __ncp_ovxx_setxxxx(jump, address, overlay, function)
-#define __ncp_ovxx_set_call(address, overlay, function) __ncp_ovxx_setxxxx(call, address, overlay, function)
-#define __ncp_ovxx_set_hook(address, overlay, function) __ncp_ovxx_setxxxx(hook, address, overlay, function)
+#define __ncp_main_set_jump(address, function) __ncp_main_set(jump, address, function)
+#define __ncp_main_set_call(address, function) __ncp_main_set(call, address, function)
+#define __ncp_main_set_hook(address, function) __ncp_main_set(hook, address, function)
+#define __ncp_ovxx_set_jump(address, overlay, function) __ncp_ovxx_set(jump, address, overlay, function)
+#define __ncp_ovxx_set_call(address, overlay, function) __ncp_ovxx_set(call, address, overlay, function)
+#define __ncp_ovxx_set_hook(address, overlay, function) __ncp_ovxx_set(hook, address, overlay, function)
 
 #define ncp_set_jump(...) __ncp_get_macro(__VA_ARGS__, __ncp_ovxx_set_jump, __ncp_main_set_jump, )(__VA_ARGS__)
 #define ncp_set_call(...) __ncp_get_macro(__VA_ARGS__, __ncp_ovxx_set_call, __ncp_main_set_call, )(__VA_ARGS__)

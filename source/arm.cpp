@@ -81,6 +81,7 @@ void ARM::load(const fs::path& path)
 		ansi::cout << OINFO << "  New size: 0x" << decompSize << std::endl;
 
 		moduleParams.compStaticEnd = 0;
+		*reinterpret_cast<u32*>(&bytes[moduleParamsOff + 20]) = 0;
 	}
 
 	// AUTO LOAD ================================
@@ -102,13 +103,11 @@ void ARM::load(const fs::path& path)
 		alIter += 3;
 		alDataIter += entry.size;
 	}
+}
 
-	// SAVE DEBUG BACKUP ================================
-
-	fs::path patho = path.parent_path() / "backup" / path.filename();
-	std::ofstream fileo(patho, std::ios::binary);
-	fileo.write(reinterpret_cast<char*>(bytes.data()), bytes.size());
-	fileo.close();
+std::vector<u8>& ARM::data()
+{
+	return bytes;
 }
 
 std::string ARM::getString(const std::string& str)

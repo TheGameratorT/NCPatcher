@@ -1,4 +1,4 @@
-#ifdef _WIN32
+#ifndef _WIN32
 
 #include "oansistream.hpp"
 
@@ -29,7 +29,7 @@ public:
 	int sync() override;
 
 	void flushBuffer(const std::string& buf);
-	void applyCode(long val, long arg);
+	void applyCode(long val);
 
 private:
 	HANDLE hOut;
@@ -67,60 +67,37 @@ int oansistreambuf::sync()
 void oansistreambuf::flushBuffer(const std::string& buf)
 {
 	size_t bufl = buf.length();
-	size_t ppos = 0; // previous pos
-	size_t pos = 0; // current pos
-	while ((pos = buf.find('\x1b', pos)) != std::string::npos)
+	size_t cpos = 0;
+	size_t lpos = 0;
+	while ((cpos = buf.find('\x1b', cpos)) != std::string::npos)
 	{
-		std::cout << buf.substr(ppos, pos - ppos) << std::flush;
-
-		// parse val
-
-		size_t valoff = pos + 2;
-		if (valoff >= bufl) {
-			break;
+		std::cout << std::string_view(buf).substr(lpos, cpos - lpos) << std::flush;
+		cpos += 2;
+		while (cpos < bufl)
+		{
+			char c = buf[cpos++];
+			if ((c < '0' || c > '9') && c != ';')
+				break;
 		}
-
-		size_t vall;
-		long val = std::stoul(&buf[valoff], &vall, 10);
-
-		// parse arg
-
-		size_t next = valoff + vall;
-
-		size_t argoff = next + 1;
-		size_t argl = 0;
-		long arg = 0;
-
-		if (argoff < bufl) {
-			if (buf[argoff - 1] == ';') {
-				arg = std::stoul(&buf[argoff], &argl, 10);
-				next = argoff + argl;
-			}
-		}
-
-		applyCode(val, arg);
-
-		pos = next + 1;
-		ppos = pos;
+		lpos = cpos;
 	}
-	std::cout << &buf[ppos] << std::flush;
+	std::cout << &buf[lpos] << std::flush;
 }
 
-void oansistreambuf::applyCode(long val, long arg)
+void oansistreambuf::applyCode(long val)
 {
 	if (val == 0) {
 		txtAttr = 7;
 		SetConsoleTextAttribute(hOut, 7);
 	}
 	else if (val >= 30) {
-		int bright = arg * 8;
 		if (val < 40) {
 			txtAttr &= ~0xF;
-			txtAttr |= wincolors[val - 30] + bright;
+			txtAttr |= wincolors[val - 30];
 		}
 		else {
 			txtAttr &= ~0xF0;
-			txtAttr |= wincolors[val - 40] + bright;
+			txtAttr |= wincolors[val - 40];
 		}
 		SetConsoleTextAttribute(hOut, txtAttr);
 	}

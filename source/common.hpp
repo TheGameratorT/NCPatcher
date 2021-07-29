@@ -34,12 +34,14 @@ extern const char* __ncp_OERROR;
 extern const char* __ncp_OWARN;
 extern const char* __ncp_OINFO;
 extern const char* __ncp_OBUILD;
+extern const char* __ncp_OLINK;
 extern const char* __ncp_OREASON;
 
 #define OERROR __ncp_OERROR
 #define OWARN __ncp_OWARN
 #define OINFO __ncp_OINFO
 #define OBUILD __ncp_OBUILD
+#define OLINK __ncp_OLINK
 #define OREASON __ncp_OREASON
 
 /*template<typename O, typename I>
@@ -51,8 +53,6 @@ std::vector<O> vec_static_cast(const std::vector<I>& in)
 		out[i] = in[i];
 	return out;
 }*/
-
-int exec(const char* cmd, std::ostream& out);
 
 namespace util
 {

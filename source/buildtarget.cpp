@@ -99,10 +99,8 @@ static void read_region_mode(BuildTarget::Region& region, const JsonMember& memb
 	region.mode = BuildTarget::Mode::append;
 }
 
-BuildTarget::BuildTarget(const fs::path& path)
+BuildTarget::BuildTarget()
 {
-	fs::current_path(path);
-
 	JsonReader json("target.json");
 
 	varmap_t varmap;

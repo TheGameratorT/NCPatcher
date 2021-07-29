@@ -26,7 +26,21 @@ static bool GetExePath(fs::path& out);
 
 int main(int argc, char* argv[])
 {
-	std::cout.sync_with_stdio(false); // Enable buffered printing
+#ifdef _WIN32
+	// Set output mode to handle virtual terminal sequences
+	HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+	if (hOut != INVALID_HANDLE_VALUE)
+	{
+		DWORD dwMode = 0;
+		if (GetConsoleMode(hOut, &dwMode))
+		{
+			dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+			SetConsoleMode(hOut, dwMode);
+		}
+	}
+#endif
+
+	std::ios_base::sync_with_stdio(false); // Enable buffered printing
 
 	ansi::cout << ANSI_bWHITE "[" ANSI_bGREEN "Nitro Code Patcher" ANSI_bWHITE "]" ANSI_RESET "\n" << std::flush;
 
@@ -37,10 +51,10 @@ int main(int argc, char* argv[])
 	}
 	ncp::exe_dir = ncp::exe_dir.parent_path();
 
-	if (argc == 3)
+	if (argc == 2)
 	{
-		ncp::asm_path = argv[1];
-		ncp::rom_path = argv[2];
+		ncp::asm_path = fs::current_path();
+		ncp::rom_path = argv[1];
 
 		try
 		{
@@ -54,9 +68,9 @@ int main(int argc, char* argv[])
 	}
 	else
 	{
-		ansi::cout << OINFO << "Usage is \"ncpatcher <asm_path> <rom_path>\"\n" << std::flush;
+		ansi::cout << OINFO << "Usage is \"ncpatcher <rom_path>\"\n" << std::flush;
 	}
-	
+
 	return 0;
 }
 
@@ -77,7 +91,7 @@ static void WorkMain()
 		throw ncp::dir_error(ncp::rom_path, ncp::dir_error::find);
 	}
 
-	fs::current_path(ncp::asm_path);
+	//fs::current_path(ncp::asm_path);
 
 	BuildCfg& buildCfg = ncp::build_cfg;
 	buildCfg.load("build.json");
@@ -87,20 +101,20 @@ static void WorkMain()
 
 	if (buildCfg.arm7 != "")
 	{
-		BuildTarget target(buildCfg.arm7);
+		fs::current_path(buildCfg.arm7);
+		BuildTarget target;
 		ncp::setErrorMsg("Could not compile the ARM7 sources.");
 		CodeMaker maker(target);
-		ARM arm(ncp::rom_path / "arm7.bin", header.arm7.entryAddress, header.arm7.ramAddress, header.arm7AutoLoadListHookOffset, 7);
-		CodePatcher patcher(target, maker.getBuiltRegions(), arm);
+		CodePatcher patcher(target, maker.getBuiltRegions(), 7);
 	}
 
 	if (buildCfg.arm9 != "")
 	{
-		BuildTarget target(buildCfg.arm9);
+		fs::current_path(buildCfg.arm9);
+		BuildTarget target;
 		ncp::setErrorMsg("Could not compile the ARM9 sources.");
 		CodeMaker maker(target);
-		ARM arm(ncp::rom_path / "arm9.bin", header.arm9.entryAddress, header.arm9.ramAddress, header.arm9AutoLoadListHookOffset, 9);
-		CodePatcher patcher(target, maker.getBuiltRegions(), arm);
+		CodePatcher patcher(target, maker.getBuiltRegions(), 9);
 	}
 }
 

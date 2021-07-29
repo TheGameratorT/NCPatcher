@@ -42,7 +42,7 @@
 
 #endif
 
-#ifdef _WIN32
+#ifndef _WIN32
 
 #include <ostream>
 #include <sstream>

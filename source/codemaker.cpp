@@ -6,6 +6,7 @@
 
 #include "global.hpp"
 #include "except.hpp"
+#include "process.hpp"
 
 // GCC 10 has a bug in Windows where the
 // paths break during dependency generation,
@@ -41,20 +42,24 @@ void CodeMaker::setup()
 	{
 		BuiltRegion bregion;
 		bregion.region = &region;
+		bregion.rebuildElf = false;
 		std::vector<SourceFile> srcFiles;
 		getSrcFiles(srcFiles, region, false);
 		pushBuildFiles(srcFiles, region, bregion);
 		builtRegions.push_back(bregion);
 	}
 
-	includeFlags += "-include\"" + (ncp::exe_dir / "ncp.h").string() + "\" ";
+	fs::path ncpInclude = ncp::exe_dir / "ncp.h";
+	if (!fs::exists(ncpInclude))
+		throw ncp::file_error(ncpInclude, ncp::file_error::find);
+
+	includeFlags += "-include\"" + ncpInclude.string() + "\" ";
 	for (const fs::path& include : target.includes)
 		includeFlags += "-I\"" + include.string() + "\" ";
 }
 
 void CodeMaker::make()
 {
-	std::mutex mtx;
 	std::vector<std::thread> threads;
 	bool failed = false;
 
@@ -71,7 +76,7 @@ void CodeMaker::make()
 			}
 		}
 
-		threads.emplace_back(buildSource, this, std::ref(failed), std::ref(mtx), std::ref(file));
+		threads.emplace_back(buildSource, this, std::ref(failed), std::ref(file));
 	}
 
 	for (std::thread& th : threads)
@@ -81,7 +86,7 @@ void CodeMaker::make()
 		throw ncp::exception("Build failed.");
 }
 
-void CodeMaker::buildSource(bool& failed, std::mutex& mtx, const BuildSourceFile& file)
+void CodeMaker::buildSource(bool& failed, const BuildSourceFile& file)
 {
 	std::ostringstream out;
 
@@ -89,7 +94,7 @@ void CodeMaker::buildSource(bool& failed, std::mutex& mtx, const BuildSourceFile
 	std::string objS = file.obj.string();
 	std::string depS = file.dep.string();
 
-	out << OBUILD << "Building " << ObjNameTypeForSourceFileType[file.type] << " object " << OSTR(srcS) << " -> " << OSTR(objS) << std::endl;
+	out << OBUILD << "Building " << ObjNameTypeForSourceFileType[file.type] << " object " << OSTR(srcS) << " -> " << OSTR(objS) << "\n";
 
 	std::string ccmd = ncp::build_cfg.prefix;
 	ccmd += CompilerForSourceFileType[file.type];
@@ -97,17 +102,16 @@ void CodeMaker::buildSource(bool& failed, std::mutex& mtx, const BuildSourceFile
 	ccmd += "-c -fdiagnostics-color -MMD -MF \"" + depS + "\" ";
 	ccmd += "\"" + srcS + "\" -o \"" + objS + "\"";
 
-	int retcode = exec(ccmd.c_str(), out);
-	out << std::flush;
+	int retcode = process::start(ccmd.c_str(), &out);
 
 	{
 		std::lock_guard<std::mutex> lock(mtx);
 		if (retcode != 0)
 		{
 			failed = true;
-			out << "Error code: " << retcode << std::endl;
+			out << "Error code: " << retcode << "\n";
 		}
-		ansi::cout << out.str();
+		ansi::cout << out.str() << std::flush;
 	}
 }
 
@@ -251,6 +255,8 @@ void CodeMaker::pushBuildFiles(std::vector<SourceFile>& srcFiles, const BuildTar
 
 		if (!srcFile.rebuild)
 			continue;
+
+		bregion.rebuildElf = true;
 
 		std::string flags;
 		switch (srcFile.type)

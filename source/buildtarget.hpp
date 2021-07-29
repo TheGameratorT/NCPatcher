@@ -33,5 +33,5 @@ public:
 	std::filesystem::path symbols;
 	std::filesystem::path build;
 
-	BuildTarget(const std::filesystem::path& path);
+	BuildTarget();
 };

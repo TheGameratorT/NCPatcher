@@ -53,6 +53,8 @@ public:
 		throw std::out_of_range(oss.str());
 	}
 
+	std::vector<u8>& data();
+
 private:
 	struct ModuleParams
 	{
