@@ -17,7 +17,7 @@ public:
 	struct Region
 	{
 		std::vector<std::filesystem::path> sources;
-		std::string destination;
+		int destination;
 		Mode mode;
 		bool compress;
 		std::string cFlags;

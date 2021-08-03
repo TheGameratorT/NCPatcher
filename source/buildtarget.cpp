@@ -80,6 +80,27 @@ static void get_directory_array(const varmap_t& varmap, const JsonMember& member
 	}
 }
 
+static void read_destination(BuildTarget::Region& region, const JsonMember& member)
+{
+	const char* destStr = member.getString();
+	std::string_view destStrV = std::string_view(destStr);
+	if (destStrV.starts_with("overlay_"))
+	{
+		try {
+			region.destination = std::stoi(&destStr[8], nullptr, 10);
+		} catch (const std::exception& e) {
+			throw ncp::exception("Invalid overlay ID for destination.");
+		}
+		return;
+	}
+	if (destStrV == "main")
+	{
+		region.destination = -1;
+		return;
+	}
+	throw ncp::exception("Invalid destination, use either \"main\" or \"overlay_XX\".");
+}
+
 static void read_region_mode(BuildTarget::Region& region, const JsonMember& member)
 {
 	if (member.hasMember("mode"))
@@ -129,7 +150,7 @@ BuildTarget::BuildTarget()
 	{
 		Region region;
 		get_directory_array(varmap, regionObj["sources"], region.sources);
-		region.destination = get_string(varmap, regionObj["destination"]);
+		read_destination(region, regionObj["destination"]);
 		region.compress = regionObj["compress"].getBool();
 		region.cFlags = get_string(varmap, regionObj["c_flags"]);
 		region.cppFlags = get_string(varmap, regionObj["cpp_flags"]);

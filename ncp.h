@@ -1,8 +1,12 @@
 #pragma once
 
-#include <string>
-
 // NCP Common
+
+#ifdef __cplusplus
+#define __ncp_extern extern "C"
+#else
+#define __ncp_extern
+#endif
 
 #define __ncp_get_macro(_1, _2, _3, NAME, ...) NAME
 
@@ -57,9 +61,12 @@ static inline void ncprt_set(int address, int value) { *(int*)address = value; }
 static inline void ncprt_set_jump(int address, void* function) { *(int*)address = (arm_opcode_b | (((*(int*)function >> 2) - (address >> 2) - 2) & 0xFFFFFF)); }
 static inline void ncprt_set_call(int address, void* function) { *(int*)address = (arm_opcode_bl | (((*(int*)function >> 2) - (address >> 2) - 2) & 0xFFFFFF)); }
 
-#define ncprt_repl(address, name) \
+#define ncprt_repl_type(name) __attribute__((section(".ncp_rtrepl_" #name)))
+
+__ncp_extern void __ncp_ncprt_repl(void* dest, void* start, void* end);
+
+#define ncprt_repl(address, name) { \
 extern char ncp_rtrepl_##name##_start[]; \
 extern char ncp_rtrepl_##name##_end[]; \
-memcpy((void*)address, ncp_rtrepl_##name##_start, ncp_rtrepl_##name##_start - ncp_rtrepl_##name##_end)
-
-#define ncprt_repl_type(name) __attribute__((section(".ncp_rtrepl_" #name)))
+__ncp_ncprt_repl((void*)address, ncp_rtrepl_##name##_start, ncp_rtrepl_##name##_end); \
+}

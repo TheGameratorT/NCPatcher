@@ -188,6 +188,15 @@ namespace BLZ
 		return dest;
 	}
 
+	void uncompress(std::vector<u8>& data)
+	{
+		size_t dataSize = data.size();
+		u32 destSize = dataSize + *reinterpret_cast<u32*>(&data[dataSize - 4]);
+		data.resize(destSize);
+		
+		UncompressBackward(&data[dataSize]);
+	}
+
 	void uncompress(u8* data_end)
 	{
 		UncompressBackward(data_end);

@@ -1,5 +1,6 @@
 #include "process.hpp"
 
+#include <string>
 #include <stdexcept>
 
 #ifdef _WIN32
@@ -73,7 +74,15 @@ int process::start(const char* cmd, std::ostream* out)
 			break;
 
 		if (out != nullptr)
-			out->write(chBuf, dwRead);
+		{
+			std::string chBufS(chBuf, dwRead);
+
+			size_t errPos = 0;
+			while ((errPos = chBufS.find("\r\n", errPos)) != std::string::npos)
+				chBufS.replace(errPos, 2, "\n");
+
+			*out << chBufS;
+		}
 	}
 
 	// Close the read handle.
