@@ -1,0 +1,123 @@
+
+================================ Static Patching ================================
+
+C/C++:
+	Patching jumps and calls can be done through function tags (not stackable)
+
+		ncp_jump(int address, [int overlay])
+		ncp_call(int address, [int overlay])
+		ncp_hook(int address, [int overlay])
+
+		Example:
+
+			ncp_jump(0x02000000)
+			void MyFunction1() {
+				// A jump to this function will be placed at 0x02000000
+			}
+
+			ncp_call(0x02010000, 0)
+			void MyFunction2() {
+				// A call to this function will be placed at 0x02010000 in overlay 0
+			}
+
+	or through labels (stackable)
+
+		ncp_set_jump(int address, [int overlay], void* function)
+		ncp_set_call(int address, [int overlay], void* function)
+		ncp_set_hook(int address, [int overlay], void* function)
+
+		Example:
+
+			void MyFunction() {}
+
+			ncp_set_jump(0x02000000, MyFunction)    // A jump to MyFunction will be placed at 0x02000000
+			ncp_set_jump(0x02000004, MyFunction)    // A jump to MyFunction will be placed at 0x02000004
+			ncp_set_call(0x02010000, 0, MyFunction) // A call to MyFunction will be placed at 0x02010000 in overlay 0
+			ncp_set_call(0x02010004, 0, MyFunction) // A call to MyFunction will be placed at 0x02010004 in overlay 0
+
+	Patching chunks of data can be done using
+
+		ncp_over(int address, [int overlay])
+		ncp_repl(int address, [int overlay], char assembly[])
+
+		Example:
+
+			ncp_over(0x02000000)
+			void MyFunction() {} // This function will be placed at 0x02000000
+		
+			ncp_over(0x02010000, 4)
+			int MyArray[] = {}; // This array will be placed at 0x02010000 in overlay 0
+			
+			ncp_repl(0x02000000, "MOV R0, R0") // This instruction will be placed at 0x02000000
+			
+			ncp_repl(0x02010000, 0, R"(
+				MOV     R0, R0
+				BX      LR
+				.int    0
+				.int    0
+			)") // This assembly code will be placed at 0x02010000 in overlay 0
+
+Assembly:
+	Patching in assembly is done with labels
+
+		ncp_jump_address[_ovXX]
+		ncp_call_address[_ovXX]
+		ncp_hook_address[_ovXX]
+		ncp_over_address[_ovXX]
+		ncp_over_address[_ovXX]_end
+
+		Example:
+
+			ncp_jump_0x02000000:     // A jump to MyFunction will be placed at 0x02000000
+			ncp_jump_0x02000004:     // A jump to MyFunction will be placed at 0x02000004
+			ncp_jump_0x02010000_ov0: // A call to MyFunction will be placed at 0x02010000 in overlay 0
+			MyFunction:
+				BX      LR
+
+			ncp_over_0x02000000:     // Places the following code at 0x02000000
+				MOV     R0, #1
+				MOV     R1, R0
+				BX      LR
+			ncp_over_0x02000000_end:
+
+================================ Real Time Patching ================================
+
+C/C++:
+	
+	void ncprt_set(int address, int value);
+	void ncprt_set_jump(int address, void* function);
+	void ncprt_set_call(int address, void* function);
+	void ncprt_repl(int address, char name[]);
+	
+	ncprt_repl_type(name)
+	
+	Example:
+		
+		class MyClass
+		{
+		public:
+			static void MyFunction(); // Function must be static, otherwise it can't be used as pointer
+		}
+		
+		void MyFunction() {}
+		void MyClass::MyFunction() {}
+		
+		ncprt_repl_type(patch0) // Must be a unique name for each patch
+		void MyPatch()
+		{
+		asm(R"(
+			MOV     R0, #0
+			BX      LR
+		)");
+		}
+	
+		void MyPatcher()
+		{
+			ncprt_set(0x02000000, 0);                        // Sets the value at 0x02000000 to 0
+			ncprt_set_jump(0x02000004, MyFunction);          // Sets the value at 0x02000004 to a jump to MyFunction
+			ncprt_set_call(0x02000008, MyClass::MyFunction); // Sets the value at 0x02000008 to a jump to MyClass::MyFunction
+			ncprt_repl(0x0200000C, patch0);                  // Writes the contents of patch0 (MyPatch) to 0x0200000C
+		}
+
+Assembly:
+	Not supported.
