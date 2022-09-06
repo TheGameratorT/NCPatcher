@@ -1,7 +1,7 @@
 #include "main.hpp"
 
-#include <filesystem>
 #include <vector>
+#include <filesystem>
 
 #include "types.hpp"
 #include "process.hpp"
@@ -10,7 +10,9 @@
 #include "config/buildtarget.hpp"
 #include "ndsbin/headerbin.hpp"
 #include "ndsbin/armbin.hpp"
+#include "build/sourcefilejob.hpp"
 #include "build/objmaker.hpp"
+#include "patch/patchmaker.hpp"
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -29,10 +31,12 @@ namespace Main {
 
 static std::filesystem::path s_appPath;
 static std::filesystem::path s_workPath;
+static std::filesystem::path s_romPath;
 static const char* s_errorContext = nullptr;
 
 const std::filesystem::path& getAppPath() { return s_appPath; }
 const std::filesystem::path& getWorkPath() { return s_workPath; }
+const std::filesystem::path& getRomPath() { return s_romPath; }
 void setErrorContext(const char* errorContext) { s_errorContext = errorContext; }
 
 }
@@ -44,10 +48,10 @@ static void ncpMain()
 	BuildConfig::load();
 
 	const fs::path& workDir = Main::getWorkPath();
-	const fs::path& fsDir = BuildConfig::getFilesystemDir();
+	Main::s_romPath = fs::absolute(BuildConfig::getFilesystemDir());
 
 	HeaderBin header;
-	header.load(fsDir / "header.bin");
+	header.load(Main::s_romPath / "header.bin");
 
 	auto doWorkOnTarget = [&](bool isArm9){
 		Log::info(isArm9 ?
@@ -63,22 +67,20 @@ static void ncpMain()
 		buildTarget.load(targetPath, isArm9);
 		Main::setErrorContext(nullptr);
 
-		const char* armFile = isArm9 ? "arm9.bin" : "arm7.bin";
-		u32 entryAddress = isArm9 ? header.arm9.entryAddress : header.arm7.entryAddress;
-		u32 ramAddress = isArm9 ? header.arm9.ramAddress : header.arm7.ramAddress;
-		u32 autoLoadListHookOff = isArm9 ? header.arm9AutoLoadListHookOffset : header.arm7AutoLoadListHookOffset;
-
-		ArmBin armBin;
-		armBin.load(fsDir / armFile, entryAddress, ramAddress, autoLoadListHookOff, isArm9);
-
 		Main::setErrorContext(isArm9 ?
 			"Could not compile the ARM9 target." :
 			"Could not compile the ARM7 target.");
 
-		const fs::path& buildPath = isArm9 ? BuildConfig::getArm9BuildDir() : BuildConfig::getArm7BuildDir();
+		fs::path targetDir = targetPath.parent_path();
+		fs::path buildPath = fs::absolute(isArm9 ? BuildConfig::getArm9BuildDir() : BuildConfig::getArm7BuildDir());
 
-		ObjMaker maker;
-		maker.makeTarget(buildTarget, targetPath.parent_path(), fs::absolute(buildPath));
+		std::vector<std::unique_ptr<SourceFileJob>> srcFileJobs;
+
+		ObjMaker objMaker;
+		objMaker.makeTarget(buildTarget, targetDir, buildPath, srcFileJobs);
+
+		PatchMaker patchMaker;
+		patchMaker.makeTarget(buildTarget, targetDir, buildPath, header, srcFileJobs);
 
 		Main::setErrorContext(nullptr);
 	};

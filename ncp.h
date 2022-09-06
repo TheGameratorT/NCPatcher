@@ -57,7 +57,7 @@ asm("#include \"ncp_asm.h\"");
 
 #define ncp_file(path, sym) \
 asm(#sym":\n.incbin \"" path "\""); \
-extern "C" const char sym[];
+__ncp_extern const char sym[];
 
 // NCP Real Time
 
@@ -84,5 +84,7 @@ __ncp_ncprt_repl((void*)address, ncp_rtrepl_##name##_start, ncp_rtrepl_##name##_
 #include "ncp_asm.h"
 
 #else
+	
 #error "Fatal NCPatcher error: No language target set"
+
 #endif

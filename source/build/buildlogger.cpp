@@ -4,15 +4,6 @@
 
 #include "../log.hpp"
 
-enum class BuildState
-{
-	Waiting,
-	Started,
-	Building,
-	Built,
-	Finished
-};
-
 static char s_progAnimFrames[] = { '-', '\\', '|', '/', '-', '\\', '|', '/' };
 
 BuildLogger::BuildLogger() = default;

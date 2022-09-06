@@ -16,7 +16,8 @@ public:
 	void makeTarget(
 		const BuildTarget& target,
 		const std::filesystem::path& targetWorkDir,
-		const std::filesystem::path& buildDir
+		const std::filesystem::path& buildDir,
+		std::vector<std::unique_ptr<SourceFileJob>>& jobs
 	);
 
 private:
@@ -24,7 +25,7 @@ private:
 	const std::filesystem::path* m_targetWorkDir;
 	const std::filesystem::path* m_buildDir;
 	std::string m_includeFlags;
-	std::vector<std::unique_ptr<SourceFileJob>> m_jobs;
+	std::vector<std::unique_ptr<SourceFileJob>>* m_jobs;
 
 	void getSourceFiles();
 	void checkIfSourcesNeedRebuild();

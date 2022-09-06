@@ -29,12 +29,12 @@ namespace BLZ
 	 * 
 	 * @param data The data to uncompress.
 	 */
-	void uncompress(std::vector<u8>& data);
+	void uncompressInplace(std::vector<u8>& data);
 
 	/**
 	 * @brief Uncompress module data in-place.
 	 * 
 	 * @param data_end The pointer to the end of the data to uncompress.
 	 */
-	void uncompress(u8* data_end);
+	void uncompressInplace(u8* data_end);
 }

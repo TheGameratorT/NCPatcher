@@ -70,7 +70,7 @@ void ArmBin::load(const fs::path& path, u32 entryAddr, u32 ramAddr, u32 autoLoad
 
 		try
 		{
-			BLZ::uncompress(&bytesData[moduleParams.compStaticEnd - ramAddr]);
+			BLZ::uncompressInplace(&bytesData[moduleParams.compStaticEnd - ramAddr]);
 		}
 		catch (const std::exception& e)
 		{

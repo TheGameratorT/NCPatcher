@@ -26,7 +26,7 @@ public:
 		std::string cFlags;
 		std::string cppFlags;
 		std::string asmFlags;
-		std::string ldFlags;
+		//std::string ldFlags;
 	};
 
 	std::unordered_map<std::string, std::string> varmap;

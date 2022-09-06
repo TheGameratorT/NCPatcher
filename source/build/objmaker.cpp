@@ -42,11 +42,17 @@ struct SourceFileType {
 
 ObjMaker::ObjMaker() = default;
 
-void ObjMaker::makeTarget(const BuildTarget& target, const fs::path& targetWorkDir, const fs::path& buildDir)
+void ObjMaker::makeTarget(
+	const BuildTarget& target,
+	const fs::path& targetWorkDir,
+	const fs::path& buildDir,
+	std::vector<std::unique_ptr<SourceFileJob>>& jobs
+	)
 {
 	m_target = &target;
 	m_targetWorkDir = &targetWorkDir;
 	m_buildDir = &buildDir;
+	m_jobs = &jobs;
 
 	fs::path curPath = fs::current_path();
 
@@ -63,7 +69,19 @@ void ObjMaker::makeTarget(const BuildTarget& target, const fs::path& targetWorkD
 
 	getSourceFiles();
 	checkIfSourcesNeedRebuild();
-	compileSources();
+
+	bool atLeastOneNeedsRebuild = false;
+	for (std::unique_ptr<SourceFileJob>& srcFile : *m_jobs)
+	{
+		if (!srcFile->rebuild)
+			continue;
+		atLeastOneNeedsRebuild = true;
+	}
+
+	if (atLeastOneNeedsRebuild)
+		compileSources();
+	else
+		Log::out << OBUILD << "Nothing needs building." << std::endl;
 
 	fs::current_path(curPath);
 }
@@ -110,7 +128,7 @@ void ObjMaker::getSourceFiles()
 					srcFile->fileType = fileType;
 					srcFile->region = &region;
 					srcFile->rebuild = buildSrc;
-					m_jobs.emplace_back(std::move(srcFile));
+					m_jobs->emplace_back(std::move(srcFile));
 				}
 			}
 		}
@@ -123,7 +141,7 @@ void ObjMaker::checkIfSourcesNeedRebuild()
 
 	std::unordered_map<std::string, fs::file_time_type> timeForDep;
 
-	for (std::unique_ptr<SourceFileJob>& srcFile : m_jobs)
+	for (std::unique_ptr<SourceFileJob>& srcFile : *m_jobs)
 	{
 		// Previously set as needing rebuild, no need to check.
 		if (srcFile->rebuild)
@@ -220,11 +238,11 @@ void ObjMaker::compileSources()
 	BS::thread_pool pool(BuildConfig::getThreadCount());
 
 	BuildLogger logger;
-	logger.setJobs(m_jobs);
+	logger.setJobs(*m_jobs);
 	logger.start(*m_targetWorkDir);
 
 	std::size_t jobID = 0;
-	for (std::unique_ptr<SourceFileJob>& srcFile : m_jobs)
+	for (std::unique_ptr<SourceFileJob>& srcFile : *m_jobs)
 	{
 		if (!srcFile->rebuild)
 			continue;
@@ -257,31 +275,28 @@ void ObjMaker::compileSources()
 
 			const BuildTarget::Region* region = srcFile->region;
 
-			const std::string* flags;
-			switch (srcFile->fileType)
-			{
-			case SourceFileType::C:
-				flags = &region->cFlags;
-				break;
-			case SourceFileType::CPP:
-				flags = &region->cppFlags;
-				break;
-			case SourceFileType::ASM:
-				flags = &region->asmFlags;
-				break;
-			}
+			const std::string& flags = [&](){
+				switch (srcFile->fileType)
+				{
+				case SourceFileType::C:
+					return region->cFlags;
+				case SourceFileType::CPP:
+					return region->cppFlags;
+				case SourceFileType::ASM:
+					return region->asmFlags;
+				default:
+					throw ncp::exception("Tried to get flags of invalid file type.");
+				}
+			}();
 
 			std::string ccmd = Util::concat(256,
 				BuildConfig::getToolchain(),
 				CompilerForSourceFileType[srcFile->fileType],
-				*flags, " -D", DefineForSourceFileType[srcFile->fileType], " ", m_includeFlags,
-				"-c -fdiagnostics-color -MMD -MF \"", depS, "\" ",
-				"\"", srcS, "\" -o \"", objS, "\""
+				flags, " -D", DefineForSourceFileType[srcFile->fileType], " ", m_includeFlags,
+				"-c -fdiagnostics-color -MMD -MF \"", depS, "\" \"", srcS, "\" -o \"", objS, "\""
 			);
 
 			int retcode = Process::start(ccmd.c_str(), &out);
-			if (out.tellp() != 0)
-				out << ANSI_RESET;
 			if (retcode != 0)
 			{
 				srcFile->failed = true;
@@ -292,10 +307,15 @@ void ObjMaker::compileSources()
 		});
 	}
 
+	auto timeStart = std::chrono::high_resolution_clock::now();
 	while (pool.get_tasks_total() != 0)
 	{
-		logger.update();
-		std::this_thread::sleep_for(250ms);
+		auto timeNow = std::chrono::high_resolution_clock::now();
+		if (timeNow >= timeStart + 250ms)
+		{
+			logger.update();
+			timeStart = timeNow;
+		}
 	}
 
 	pool.wait_for_tasks();

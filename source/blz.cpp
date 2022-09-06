@@ -183,21 +183,21 @@ namespace BLZ
 		std::vector<u8> dest(destSize);
 		std::copy(data.begin(), data.end(), dest.begin());
 		
-		UncompressBackward(&dest[dataSize]);
+		UncompressBackward(dest.data() + dataSize);
 
 		return dest;
 	}
 
-	void uncompress(std::vector<u8>& data)
+	void uncompressInplace(std::vector<u8>& data)
 	{
 		size_t dataSize = data.size();
 		u32 destSize = dataSize + *reinterpret_cast<u32*>(&data[dataSize - 4]);
 		data.resize(destSize);
 		
-		UncompressBackward(&data[dataSize]);
+		UncompressBackward(data.data() + dataSize);
 	}
 
-	void uncompress(u8* data_end)
+	void uncompressInplace(u8* data_end)
 	{
 		UncompressBackward(data_end);
 	}

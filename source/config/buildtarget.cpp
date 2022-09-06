@@ -60,7 +60,7 @@ void BuildTarget::load(const fs::path& targetFilePath, bool isArm9)
 		region.cFlags = regionObj.hasMember("c_flags") ? getString(regionObj["c_flags"]) : cFlags;
 		region.cppFlags = regionObj.hasMember("cpp_flags") ? getString(regionObj["cpp_flags"]) : cppFlags;
 		region.asmFlags = regionObj.hasMember("asm_flags") ? getString(regionObj["asm_flags"]) : asmFlags;
-		region.ldFlags = regionObj.hasMember("ld_flags") ? getString(regionObj["ld_flags"]) : ldFlags;
+		//region.ldFlags = regionObj.hasMember("ld_flags") ? getString(regionObj["ld_flags"]) : ldFlags;
 		readRegionMode(region, regionObj);
 		regions.push_back(region);
 	}
