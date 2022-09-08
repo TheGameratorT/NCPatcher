@@ -6,6 +6,7 @@
 #include <unordered_map>
 
 #include "json.hpp"
+#include "../types.hpp"
 
 class BuildTarget
 {
@@ -23,6 +24,8 @@ public:
 		int destination;
 		Mode mode;
 		bool compress;
+		u32 address;
+		int length;
 		std::string cFlags;
 		std::string cppFlags;
 		std::string asmFlags;
@@ -51,7 +54,6 @@ private:
 	static void addPathRecursively(const std::filesystem::path& path, std::vector<std::filesystem::path>& out);
 	void getDirectoryArray(const JsonMember& member, std::vector<std::filesystem::path>& out);
 	static void readDestination(BuildTarget::Region& region, const JsonMember& member);
-	static size_t getRegionModeForString(const char* modeStr);
 	static void readRegionMode(BuildTarget::Region& region, const JsonMember& member);
 
 	bool m_isArm9{};

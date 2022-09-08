@@ -3,7 +3,16 @@
 #include <string>
 #include <vector>
 #include <filesystem>
+
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
 #include <rapidjson/document.h>
+#ifdef __GNUC__
+#pragma
+#pragma GCC diagnostic pop
+#endif
 
 class JsonMember
 {

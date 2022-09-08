@@ -43,6 +43,6 @@ constexpr std::string concat(std::size_t preAllocSz, const Args&... args)
 }
 
 int addrToInt(const std::string& in);
-std::string intToAddr(int in, int align);
+std::string intToAddr(int in, int align, bool prefix = true);
 
 }

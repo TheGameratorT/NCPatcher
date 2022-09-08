@@ -12,7 +12,8 @@
 #include "../ndsbin/armbin.hpp"
 #include "../ndsbin/overlaybin.hpp"
 
-struct PatchSymbolInfo;
+struct GenericPatchInfo;
+struct RtReplPatchInfo;
 
 class PatchMaker
 {
@@ -38,12 +39,17 @@ private:
 	std::unordered_map<std::size_t, std::unique_ptr<OverlayBin>> m_loadedOverlays;
 	std::vector<std::unique_ptr<OvtEntry>> m_ovtEntries;
 	u32 m_newcodeAddr;
-	std::vector<std::unique_ptr<PatchSymbolInfo>> m_patchInfo;
+	std::vector<std::unique_ptr<GenericPatchInfo>> m_patchInfo;
+	std::vector<std::unique_ptr<RtReplPatchInfo>> m_rtreplPatches;
 	std::vector<std::string> m_externSymbols;
+	std::filesystem::path m_ldscriptPath;
+	std::filesystem::path m_elfPath;
 
 	[[nodiscard]] inline ArmBin* getArm() const { return m_arm.get(); }
 
 	void gatherInfoFromObjects();
+	void linkElfFile();
+	void gatherInfoFromElf();
 
 	void createBackupDirectory();
 	void loadArmBin();
@@ -54,5 +60,5 @@ private:
 	OverlayBin* getOverlay(std::size_t ovID);
 	void saveOverlayBins();
 
-	std::string createLinkerScript();
+	void createLinkerScript();
 };
