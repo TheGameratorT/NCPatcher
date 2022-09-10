@@ -12,6 +12,7 @@
 #include "../ndsbin/armbin.hpp"
 #include "../ndsbin/overlaybin.hpp"
 
+class Elf32;
 struct GenericPatchInfo;
 struct RtReplPatchInfo;
 
@@ -41,15 +42,22 @@ private:
 	u32 m_newcodeAddr;
 	std::vector<std::unique_ptr<GenericPatchInfo>> m_patchInfo;
 	std::vector<std::unique_ptr<RtReplPatchInfo>> m_rtreplPatches;
+	std::vector<int> m_destWithNcpSet;
+	std::vector<const SourceFileJob*> m_jobsWithNcpSet;
 	std::vector<std::string> m_externSymbols;
 	std::filesystem::path m_ldscriptPath;
 	std::filesystem::path m_elfPath;
+	std::unique_ptr<Elf32> m_elf;
 
 	[[nodiscard]] inline ArmBin* getArm() const { return m_arm.get(); }
 
 	void gatherInfoFromObjects();
 	void linkElfFile();
+	void applyPatchesToRom();
 	void gatherInfoFromElf();
+
+	void loadElfFile();
+	void unloadElfFile();
 
 	void createBackupDirectory();
 	void loadArmBin();

@@ -35,8 +35,8 @@ asm("#include \"ncp_asm.h\"");
 
 // NCP Variables
 
-#define __ncp_main_set(opcode, address, function) static void* ncp_set##opcode##_##address __attribute__((section(".ncp_set"), used)) = (void*)function;
-#define __ncp_ovxx_set(opcode, address, overlay, function) static void* ncp_set##opcode##_##address##_ov##overlay __attribute__((section(".ncp_set"), used)) = (void*)function;
+#define __ncp_main_set(opcode, address, function) void* ncp_set##opcode##_##address __attribute__((section(".ncp_set"), used)) = (void*)function;
+#define __ncp_ovxx_set(opcode, address, overlay, function) void* ncp_set##opcode##_##address##_ov##overlay __attribute__((section(".ncp_set"), used)) = (void*)function;
 
 #define __ncp_main_set_jump(address, function) __ncp_main_set(jump, address, function)
 #define __ncp_main_set_call(address, function) __ncp_main_set(call, address, function)

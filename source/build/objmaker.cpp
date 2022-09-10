@@ -169,6 +169,8 @@ void ObjMaker::checkIfSourcesNeedRebuild()
 		std::string line;
 		while (std::getline(depStrm, line))
 		{
+			// TODO: Fix this crap once again because GCC's dependency file formatting sucks
+
 #ifdef GCC_HAS_DEP_PATH_BUG
 			if (line.ends_with(':'))
 				continue;
@@ -293,7 +295,8 @@ void ObjMaker::compileSources()
 				BuildConfig::getToolchain(),
 				CompilerForSourceFileType[srcFile->fileType],
 				flags, " -D", DefineForSourceFileType[srcFile->fileType], " ", m_includeFlags,
-				"-c -fdiagnostics-color -MMD -MF \"", depS, "\" \"", srcS, "\" -o \"", objS, "\""
+				"-c -fdiagnostics-color -fdata-sections -ffunction-sections -MMD -MF \"",
+				depS, "\" \"", srcS, "\" -o \"", objS, "\""
 			);
 
 			int retcode = Process::start(ccmd.c_str(), &out);
