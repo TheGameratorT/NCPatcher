@@ -1211,7 +1211,7 @@ void PatchMaker::applyPatchesToRom()
 
 			u32 hookBridgeAddr = info->address;
 
-			u8* hookDataPtr = hookData.data();
+			u8* hookDataPtr = hookData.data() + offset;
 
 			auto writeHookData = [&hookDataPtr](u32 value){
 				std::memcpy(hookDataPtr, &value, 4);
