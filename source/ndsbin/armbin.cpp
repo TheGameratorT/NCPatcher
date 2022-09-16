@@ -22,10 +22,10 @@ ArmBin::ArmBin() = default;
 
 void ArmBin::load(const fs::path& path, u32 entryAddr, u32 ramAddr, u32 autoLoadHookOff, bool isArm9)
 {
-	this->ramAddr = ramAddr;
-	this->entryAddr = entryAddr;
-	this->autoLoadHookOff = autoLoadHookOff;
-	this->isArm9 = isArm9;
+	m_ramAddr = ramAddr;
+	m_entryAddr = entryAddr;
+	m_autoLoadHookOff = autoLoadHookOff;
+	m_isArm9 = isArm9;
 
 	Log::info(getString(LoadInf));
 
@@ -44,33 +44,33 @@ void ArmBin::load(const fs::path& path, u32 entryAddr, u32 ramAddr, u32 autoLoad
 	if (!file.is_open())
 		throw ncp::file_error(path, ncp::file_error::read);
 
-	bytes.resize(fileSize);
-	file.read(reinterpret_cast<char*>(bytes.data()), std::streamsize(fileSize));
+	m_bytes.resize(fileSize);
+	file.read(reinterpret_cast<char*>(m_bytes.data()), std::streamsize(fileSize));
 	file.close();
 
-	u8* bytesData = bytes.data();
+	u8* bytesData = m_bytes.data();
 
 	// FIND MODULE PARAMS ================================
 
-	moduleParamsOff = *reinterpret_cast<u32*>(&bytesData[autoLoadHookOff - ramAddr - 4]) - ramAddr;
+	m_moduleParamsOff = *reinterpret_cast<u32*>(&bytesData[autoLoadHookOff - ramAddr - 4]) - ramAddr;
 
-	Log::out << OINFO << "Found ModuleParams at: 0x" << std::uppercase << std::hex << moduleParamsOff << std::endl;
-	memcpy(&moduleParams, &bytesData[moduleParamsOff], sizeof(ModuleParams));
+	Log::out << OINFO << "Found ModuleParams at: 0x" << std::uppercase << std::hex << m_moduleParamsOff << std::endl;
+	memcpy(&m_moduleParams, &bytesData[m_moduleParamsOff], sizeof(ModuleParams));
 
 	// DECOMPRESS ================================
 
-	if (moduleParams.compStaticEnd)
+	if (m_moduleParams.compStaticEnd)
 	{
 		Log::out << OINFO << "Decompressing..." << std::endl;
 
-		u32 decompSize = fileSize + *reinterpret_cast<u32*>(&bytesData[moduleParams.compStaticEnd - ramAddr - 4]);
+		u32 decompSize = fileSize + *reinterpret_cast<u32*>(&bytesData[m_moduleParams.compStaticEnd - ramAddr - 4]);
 
-		bytes.resize(decompSize);
-		bytesData = bytes.data();
+		m_bytes.resize(decompSize);
+		bytesData = m_bytes.data();
 
 		try
 		{
-			BLZ::uncompressInplace(&bytesData[moduleParams.compStaticEnd - ramAddr]);
+			BLZ::uncompressInplace(&bytesData[m_moduleParams.compStaticEnd - ramAddr]);
 		}
 		catch (const std::exception& e)
 		{
@@ -82,15 +82,15 @@ void ArmBin::load(const fs::path& path, u32 entryAddr, u32 ramAddr, u32 autoLoad
 		Log::out << OINFO << "  Old size: 0x" << fileSize << std::endl;
 		Log::out << OINFO << "  New size: 0x" << decompSize << std::endl;
 
-		moduleParams.compStaticEnd = 0;
-		*reinterpret_cast<u32*>(&bytesData[moduleParamsOff + 20]) = 0;
+		m_moduleParams.compStaticEnd = 0;
+		*reinterpret_cast<u32*>(&bytesData[m_moduleParamsOff + 20]) = 0;
 	}
 
 	// AUTO LOAD ================================
 
-	u32* alIter = reinterpret_cast<u32*>(&bytesData[moduleParams.autoloadListStart - ramAddr]);
-	u32* alEnd = reinterpret_cast<u32*>(&bytesData[moduleParams.autoloadListEnd - ramAddr]);
-	u8* alDataIter = &bytesData[moduleParams.autoloadStart - ramAddr];
+	u32* alIter = reinterpret_cast<u32*>(&bytesData[m_moduleParams.autoloadListStart - ramAddr]);
+	u32* alEnd = reinterpret_cast<u32*>(&bytesData[m_moduleParams.autoloadListEnd - ramAddr]);
+	u8* alDataIter = &bytesData[m_moduleParams.autoloadStart - ramAddr];
 
 	while (alIter < alEnd)
 	{
@@ -101,7 +101,7 @@ void ArmBin::load(const fs::path& path, u32 entryAddr, u32 ramAddr, u32 autoLoad
 		entry.data.resize(entry.size);
 		memcpy(entry.data.data(), alDataIter, entry.size);
 
-		autoloadList.push_back(entry);
+		m_autoloadList.push_back(entry);
 
 		alIter += 3;
 		alDataIter += entry.size;
@@ -110,12 +110,84 @@ void ArmBin::load(const fs::path& path, u32 entryAddr, u32 ramAddr, u32 autoLoad
 	Main::setErrorContext(nullptr);
 }
 
+void ArmBin::readBytes(u32 address, void* out, u32 size) const
+{
+	auto failDueToSizeExceed = [&](){
+		std::ostringstream oss;
+		oss << "Failed to read from arm, reading " << size << " byte(s) from address 0x" <<
+			std::uppercase << std::hex << address << std::nouppercase << " exceeds range.";
+		throw std::out_of_range(oss.str());
+	};
+
+	if (address >= m_ramAddr && address < m_moduleParams.autoloadStart)
+	{
+		u32 binAddress = address - m_ramAddr;
+		if (binAddress + size > m_moduleParams.autoloadStart)
+			failDueToSizeExceed();
+		std::memcpy(out, &m_bytes[binAddress], size);
+		return;
+	}
+
+	for (const AutoLoadEntry& autoload : m_autoloadList)
+	{
+		u32 autoloadEnd = autoload.address + autoload.size;
+		if (address >= autoload.address && address < autoloadEnd)
+		{
+			u32 binAddress = address - autoload.address;
+			if (binAddress + size > autoloadEnd)
+				failDueToSizeExceed();
+			std::memcpy(out, &autoload.data[binAddress], size);
+			return;
+		}
+	}
+
+	std::ostringstream oss;
+	oss << "Address 0x" << std::uppercase << std::hex << address << std::nouppercase << " out of range.";
+	throw std::out_of_range(oss.str());
+}
+
+void ArmBin::writeBytes(u32 address, const void* data, u32 size)
+{
+	auto failDueToSizeExceed = [&](){
+		std::ostringstream oss;
+		oss << "Failed to write to arm, writing " << size << " byte(s) to address 0x" <<
+			std::uppercase << std::hex << address << std::nouppercase << " exceeds range.";
+		throw std::out_of_range(oss.str());
+	};
+
+	if (address >= m_ramAddr && address < m_moduleParams.autoloadStart)
+	{
+		u32 binAddress = address - m_ramAddr;
+		if (binAddress + size > m_moduleParams.autoloadStart)
+			failDueToSizeExceed();
+		std::memcpy(&m_bytes[binAddress], data, size);
+		return;
+	}
+
+	for (AutoLoadEntry& autoload : m_autoloadList)
+	{
+		u32 autoloadEnd = autoload.address + autoload.size;
+		if (address >= autoload.address && address < autoloadEnd)
+		{
+			u32 binAddress = address - autoload.address;
+			if (binAddress + size > autoloadEnd)
+				failDueToSizeExceed();
+			std::memcpy(&autoload.data[binAddress], data, size);
+			return;
+		}
+	}
+
+	std::ostringstream oss;
+	oss << "Address 0x" << std::uppercase << std::hex << address << std::nouppercase << " out of range.";
+	throw std::out_of_range(oss.str());
+}
+
 std::vector<u8>& ArmBin::data()
 {
-	return bytes;
+	return m_bytes;
 }
 
 std::string ArmBin::getString(const std::string& str) const
 {
-	return Util::strRepl(str, '|', char('0' + (isArm9 ? 9 : 7)));
+	return Util::strRepl(str, '|', char('0' + (m_isArm9 ? 9 : 7)));
 }

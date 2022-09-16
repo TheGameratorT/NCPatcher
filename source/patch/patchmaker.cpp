@@ -23,6 +23,8 @@ namespace fs = std::filesystem;
 constexpr bool PRINT_PATCH_TABLE = true;
 constexpr bool PRINT_PATCH_TABLE_OBJ = true;
 
+constexpr std::size_t SizeOfHookBridge = 20;
+
 struct PatchType {
 	enum {
 		Jump, Call, Hook, Over,
@@ -48,6 +50,18 @@ struct RtReplPatchInfo
 {
 	std::string symbol;
 	SourceFileJob* job;
+};
+
+struct NewcodePatch
+{
+	std::size_t binSize;
+	std::size_t bssSize;
+};
+
+struct HookMakerInfo
+{
+	u32 address;
+	std::vector<u8> data;
 };
 
 struct LDSMemoryEntry
@@ -155,8 +169,7 @@ void PatchMaker::makeTarget(
 	loadOverlayTableBin();
 	// TODO: Here check if the overlay was used in the previous build, and if so, load it
 
-	m_newcodeAddr = getArm()->read<u32>(target.arenaLo);
-
+	fetchNewcodeAddr();
 	gatherInfoFromObjects();
 	createLinkerScript();
 	linkElfFile();
@@ -168,6 +181,32 @@ void PatchMaker::makeTarget(
 	saveOverlayBins();
 	saveOverlayTableBin();
 	saveArmBin();
+}
+
+void PatchMaker::fetchNewcodeAddr()
+{
+	m_newcodeAddrForDest[-1] = getArm()->read<u32>(m_target->arenaLo);
+	for (auto& region : m_target->regions)
+	{
+		int dest = region.destination;
+		if (dest != -1)
+		{
+			u32 addr;
+			switch (region.mode)
+			{
+			case BuildTarget::Mode::append:
+				addr = m_ovtEntries[dest]->ramSize;
+				break;
+			case BuildTarget::Mode::replace:
+				addr = m_ovtEntries[dest]->ramAddress;
+				break;
+			case BuildTarget::Mode::create:
+				addr = region.address;
+				break;
+			}
+			m_newcodeAddrForDest[dest] = addr;
+		}
+	}
 }
 
 void PatchMaker::gatherInfoFromObjects()
@@ -523,14 +562,13 @@ OverlayBin* PatchMaker::loadOverlayBin(std::size_t ovID)
 	auto* overlay = new OverlayBin();
 	if (fs::exists(bakBinName)) //has backup
 	{
-		overlay->load(bakBinName, ovte.ramAddress, ovte.flag & OVERLAY_FLAG_COMP);
+		overlay->load(bakBinName, ovte.ramAddress, ovte.flag & OVERLAY_FLAG_COMP, ovID);
 		ovte.flag = 0;
-		return overlay;
 	}
 	else //has no backup
 	{
 		fs::current_path(Main::getRomPath());
-		overlay->load(binName, ovte.ramAddress, ovte.flag & OVERLAY_FLAG_COMP);
+		overlay->load(binName, ovte.ramAddress, ovte.flag & OVERLAY_FLAG_COMP, ovID);
 		ovte.flag = 0;
 		const std::vector<u8>& bytes = overlay->data();
 
@@ -611,30 +649,17 @@ void PatchMaker::createLinkerScript()
 		LDSMemoryEntry* memEntry;
 
 		int dest = region->destination;
+		u32 newcodeAddr = m_newcodeAddrForDest[dest];
 		if (dest == -1)
 		{
-			memEntry = new LDSMemoryEntry{ "arm", m_newcodeAddr, region->length };
+			memEntry = new LDSMemoryEntry{ "arm", newcodeAddr, region->length };
 		}
 		else
 		{
-			u32 addr;
-			switch (region->mode)
-			{
-			case BuildTarget::Mode::append:
-				addr = m_ovtEntries[dest]->ramSize;
-				break;
-			case BuildTarget::Mode::replace:
-				addr = m_ovtEntries[dest]->ramAddress;
-				break;
-			case BuildTarget::Mode::create:
-				addr = region->address;
-				break;
-			}
-
 			std::string memName; memName.reserve(8);
 			memName += "ov";
 			memName += std::to_string(dest);
-			memEntry = new LDSMemoryEntry{ std::move(memName), addr, region->length };
+			memEntry = new LDSMemoryEntry{ std::move(memName), newcodeAddr, region->length };
 		}
 
 		memoryEntries.emplace_back(memEntry);
@@ -707,6 +732,7 @@ void PatchMaker::createLinkerScript()
 
 	for (auto& s : regionEntries)
 	{
+		std::size_t hookCount = 0;
 		// TEXT
 		o += "\t.";
 		o += s->memory->name;
@@ -720,6 +746,8 @@ void PatchMaker::createLinkerScript()
 			o += " = .;\n\t\t* (";
 			o += p->symbol;
 			o += ")\n";
+			if (p->patchType == PatchType::Hook)
+				hookCount++;
 		}
 		for (auto& p : m_rtreplPatches)
 		{
@@ -745,6 +773,12 @@ void PatchMaker::createLinkerScript()
 				 "\t\t* (.rodata.*)\n"
 				 "\t\t* (.init_array.*)\n"
 				 "\t\t* (.data.*)\n";
+			if (hookCount != 0)
+			{
+				o += "\t\t. = ALIGN(4);\n\t\tncp_hookdata = .;\n\t\tFILL(";
+				o += std::to_string(hookCount * SizeOfHookBridge);
+				o += ")\n";
+			}
 		}
 		else
 		{
@@ -766,6 +800,14 @@ void PatchMaker::createLinkerScript()
 					for (auto& secInc : secIncs)
 						addSectionInclude(o, objPath, secInc);
 				}
+			}
+			if (hookCount != 0)
+			{
+				o += "\t\t. = ALIGN(4);\n\t\tncp_hookdata_ov";
+				o += std::to_string(s->dest);
+				o += " = .;\n\t\tFILL(";
+				o += std::to_string(hookCount * SizeOfHookBridge);
+				o += ")\n";
 			}
 		}
 		o += "\t\t. = ALIGN(4);\n"
@@ -976,7 +1018,7 @@ void PatchMaker::gatherInfoFromElf()
 				if (nameAsLabel == symbolName)
 				{
 					p->srcAddress = symbol.st_value;
-					p->sectionIdx = -1;
+					p->sectionIdx = symbol.st_shndx;
 					p->symbol = nameAsLabel;
 				}
 			}
@@ -984,8 +1026,27 @@ void PatchMaker::gatherInfoFromElf()
 			{
 				// This must run before fetching ncp_set section, otherwise ncp_set srcAddr will be overwritten
 				if (p->symbol == symbolName)
+				{
 					p->srcAddress = symbol.st_value;
+					p->sectionIdx = symbol.st_shndx;
+				}
 			}
+		}
+		if (symbolName.starts_with("ncp_hookdata"))
+		{
+			int srcAddrOv = -1;
+			if (symbolName.length() != 12 && symbolName.substr(12).starts_with("_ov"))
+			{
+				try {
+					srcAddrOv = std::stoi(std::string(symbolName.substr(15)));
+				} catch (std::exception& e) {
+					Log::out << OWARN << "Found invalid overlay parsing ncp_hookdata symbol: " << symbolName << std::endl;
+					return false;
+				}
+			}
+			auto* info = new HookMakerInfo();
+			info->address = symbol.st_value;
+			m_hookMakerInfoForDest.emplace(srcAddrOv, info);
 		}
 		return false;
 	});
@@ -996,15 +1057,17 @@ void PatchMaker::gatherInfoFromElf()
 		{
 			if (p->patchType == PatchType::Over)
 			{
-				// TODO: This might not be needed because srcAddr == dstAddr, let's keep it for now as I might need smth from it later
 				if (p->symbol == sectionName)
 				{
-					p->srcAddress = section.sh_addr;
+					p->srcAddress = section.sh_addr; // should be the same as the destination
+					p->sectionIdx = int(sectionIdx);
 				}
 			}
 		}
 		if (sectionName.starts_with(".ncp_set"))
 		{
+			// found the ncp_set section, get all hook definitions stored there
+
 			int srcAddrOv = -1;
 			if (sectionName.length() != 8 && sectionName.substr(8).starts_with("_ov"))
 			{
@@ -1047,6 +1110,28 @@ void PatchMaker::gatherInfoFromElf()
 				std::setw(6) << p->symbol << std::endl;
 		}
 	}
+
+	forEachElfSection(eh, sh_tbl, str_tbl,
+	[](std::size_t sectionIdx, const Elf32_Shdr& section, std::string_view sectionName){
+		auto insertSection = [&](int dest, bool isBss){
+
+		};
+
+		if (sectionName.starts_with(".arm"))
+		{
+			insertSection(-1, sectionName.substr(5) == "bss");
+		}
+		else if (sectionName.starts_with(".ov"))
+		{
+			std::size_t pos = sectionName.find('.', 3);
+			if (pos != std::string::npos)
+			{
+				int dest = std::stoi(std::string(sectionName.substr(3, pos - 3)));
+				insertSection(dest, sectionName.substr(pos) == "bss");
+			}
+		}
+		return false;
+	});
 }
 
 void PatchMaker::loadElfFile()
@@ -1066,5 +1151,92 @@ void PatchMaker::unloadElfFile()
 
 void PatchMaker::applyPatchesToRom()
 {
+	Main::setErrorContext(m_target->getArm9() ?
+		"Failed to apply patches for ARM9 target." :
+		"Failed to apply patches for ARM7 target.");
 
+	const u32 armOpcodeB = 0xEA000000; // B
+	const u32 armOpcodeBL = 0xEB000000; // BL
+	const u32 armHookPush = 0xE92D100F; // PUSH {R0-R3,R12}
+	const u32 armHookPop = 0xE8BD100F; // POP {R0-R3,R12}
+
+	auto makeJump = [](u32 opCode, u32 srcAddr, u32 destAddr){
+		return opCode | (((srcAddr >> 2) - (destAddr >> 2) - 2) & 0xFFFFFF);
+	};
+
+	auto sh_tbl = m_elf->getSectionHeaderTable();
+
+	for (auto& p : m_patchInfo)
+	{
+		ICodeBin* bin = (p->destAddressOv == -1) ?
+						static_cast<ICodeBin*>(getArm()) :
+						static_cast<ICodeBin*>(getOverlay(p->destAddressOv));
+
+		switch (p->patchType)
+		{
+		case PatchType::Jump:
+		{
+			bin->write<u32>(p->destAddress, makeJump(armOpcodeB, p->srcAddress, p->destAddress));
+			break;
+		}
+		case PatchType::Call:
+		{
+			bin->write<u32>(p->destAddress, makeJump(armOpcodeBL, p->srcAddress, p->destAddress));
+			break;
+		}
+		case PatchType::Hook:
+		{
+			/*
+			 * If the patch type is a hook, the instruction at
+			 * destAddr must become a jump to a hook bridge generated
+			 * by NCPatcher and it should look as such:
+			 *
+			 * hook_bridge:
+			 *     PUSH {R0-R3,R12}
+			 *     BL   srcAddr
+			 *     POP  {R0-R3,R12}
+			 *     <unpatched destAddr's instruction>
+			 *     B    (destAddr + 4)
+			 * */
+
+			u32 ogOpCode = bin->read<u32>(p->destAddress);
+
+			auto& info = m_hookMakerInfoForDest[p->srcAddressOv];
+			if (info == nullptr)
+				throw ncp::exception("Unexpected p->srcAddressOv for m_hookMakerInfoForDest encountered.");
+
+			std::vector<u8>& hookData = info->data;
+			std::size_t offset = hookData.size();
+			hookData.resize(offset + SizeOfHookBridge);
+
+			u32 hookBridgeAddr = info->address;
+
+			u8* hookDataPtr = hookData.data();
+
+			auto writeHookData = [&hookDataPtr](u32 value){
+				std::memcpy(hookDataPtr, &value, 4);
+				hookDataPtr += 4;
+			};
+
+			writeHookData(armHookPush);
+			writeHookData(makeJump(armOpcodeBL, hookBridgeAddr + 4, p->srcAddress));
+			writeHookData(armHookPop);
+			writeHookData(ogOpCode);
+			writeHookData(makeJump(armOpcodeB, hookBridgeAddr + 16, p->destAddress + 4));
+
+			info->address += SizeOfHookBridge;
+			break;
+		}
+		case PatchType::Over:
+		{
+			const char* sectionData = m_elf->getSection<char>(sh_tbl[p->sectionIdx]);
+			bin->writeBytes(p->destAddress, sectionData, p->sectionSize);
+			break;
+		}
+		}
+	}
+
+	// TODO: Insert the binary data
+
+	Main::setErrorContext(nullptr);
 }

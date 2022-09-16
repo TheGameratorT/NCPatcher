@@ -15,6 +15,7 @@
 class Elf32;
 struct GenericPatchInfo;
 struct RtReplPatchInfo;
+struct HookMakerInfo;
 
 class PatchMaker
 {
@@ -39,7 +40,6 @@ private:
 	std::unique_ptr<ArmBin> m_arm;
 	std::unordered_map<std::size_t, std::unique_ptr<OverlayBin>> m_loadedOverlays;
 	std::vector<std::unique_ptr<OvtEntry>> m_ovtEntries;
-	u32 m_newcodeAddr;
 	std::vector<std::unique_ptr<GenericPatchInfo>> m_patchInfo;
 	std::vector<std::unique_ptr<RtReplPatchInfo>> m_rtreplPatches;
 	std::vector<int> m_destWithNcpSet;
@@ -48,9 +48,12 @@ private:
 	std::filesystem::path m_ldscriptPath;
 	std::filesystem::path m_elfPath;
 	std::unique_ptr<Elf32> m_elf;
+	std::unordered_map<int, u32> m_newcodeAddrForDest;
+	std::unordered_map<int, std::unique_ptr<HookMakerInfo>> m_hookMakerInfoForDest;
 
 	[[nodiscard]] inline ArmBin* getArm() const { return m_arm.get(); }
 
+	void fetchNewcodeAddr();
 	void gatherInfoFromObjects();
 	void linkElfFile();
 	void applyPatchesToRom();

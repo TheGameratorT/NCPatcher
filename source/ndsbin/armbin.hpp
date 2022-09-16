@@ -5,53 +5,18 @@
 #include <vector>
 #include <exception>
 
+#include "icodebin.hpp"
+
 #include "../types.hpp"
 
-class ArmBin
+class ArmBin : public ICodeBin
 {
 public:
 	ArmBin();
 	void load(const std::filesystem::path& path, u32 entryAddr, u32 ramAddr, u32 autoLoadHookOff, bool isArm9);
 
-	template<typename T>
-	T read(u32 address) const
-	{
-		if (address >= ramAddr && address < moduleParams.autoloadStart)
-			return *reinterpret_cast<const T*>(&bytes[address - ramAddr]);
-
-		for (const AutoLoadEntry& autoload : autoloadList)
-		{
-			if (address >= autoload.address && address < autoload.address + autoload.size)
-				return *reinterpret_cast<const T*>(&autoload.data[address - autoload.address]);
-		}
-
-		std::ostringstream oss;
-		oss << "Address 0x" << std::uppercase << std::hex << address << std::nouppercase << " out of range.";
-		throw std::out_of_range(oss.str());
-	}
-
-	template<typename T>
-	void write(u32 address, T value)
-	{
-		if (address >= ramAddr && address < moduleParams.autoloadStart)
-		{
-			*reinterpret_cast<const T*>(&bytes[address - ramAddr]) = value;
-			return;
-		}
-
-		for (const AutoLoadEntry& autoload : autoloadList)
-		{
-			if (address >= autoload.address && address < autoload.address + autoload.size)
-			{
-				*reinterpret_cast<const T*>(&autoload.data[address - autoload.address]) = value;
-				return;
-			}
-		}
-
-		std::ostringstream oss;
-		oss << "Address 0x" << std::uppercase << std::hex << address << std::nouppercase << " out of range.";
-		throw std::out_of_range(oss.str());
-	}
+	void readBytes(u32 address, void* out, u32 size) const override;
+	void writeBytes(u32 address, const void* data, u32 size) override;
 
 	std::vector<u8>& data();
 
@@ -77,16 +42,16 @@ private:
 		std::vector<u8> data;
 	};
 
-	u32 ramAddr; //The offset of this binary in memory
-	u32 entryAddr; //The address of the entry point
-	u32 autoLoadHookOff;
-	u32 moduleParamsOff;
-	u32 isArm9;
+	u32 m_ramAddr; //The offset of this binary in memory
+	u32 m_entryAddr; //The address of the entry point
+	u32 m_autoLoadHookOff;
+	u32 m_moduleParamsOff;
+	u32 m_isArm9;
 
-	ModuleParams moduleParams;
-	std::vector<AutoLoadEntry> autoloadList;
+	ModuleParams m_moduleParams;
+	std::vector<AutoLoadEntry> m_autoloadList;
 
-	std::vector<u8> bytes;
+	std::vector<u8> m_bytes;
 
 	std::string getString(const std::string& str) const;
 };
