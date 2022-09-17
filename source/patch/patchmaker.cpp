@@ -1165,8 +1165,8 @@ void PatchMaker::applyPatchesToRom()
 	const u32 armHookPush = 0xE92D100F; // PUSH {R0-R3,R12}
 	const u32 armHookPop = 0xE8BD100F; // POP {R0-R3,R12}
 
-	auto makeJump = [](u32 opCode, u32 srcAddr, u32 destAddr){
-		return opCode | (((srcAddr >> 2) - (destAddr >> 2) - 2) & 0xFFFFFF);
+	auto makeJump = [](u32 opCode, u32 fromAddr, u32 toAddr){
+		return opCode | ((((toAddr - fromAddr) >> 2) - 2) & 0xFFFFFF);
 	};
 
 	auto sh_tbl = m_elf->getSectionHeaderTable();
@@ -1181,12 +1181,12 @@ void PatchMaker::applyPatchesToRom()
 		{
 		case PatchType::Jump:
 		{
-			bin->write<u32>(p->destAddress, makeJump(armOpcodeB, p->srcAddress, p->destAddress));
+			bin->write<u32>(p->destAddress, makeJump(armOpcodeB, p->destAddress, p->srcAddress));
 			break;
 		}
 		case PatchType::Call:
 		{
-			bin->write<u32>(p->destAddress, makeJump(armOpcodeBL, p->srcAddress, p->destAddress));
+			bin->write<u32>(p->destAddress, makeJump(armOpcodeBL, p->destAddress, p->srcAddress));
 			break;
 		}
 		case PatchType::Hook:
@@ -1215,6 +1215,8 @@ void PatchMaker::applyPatchesToRom()
 			hookData.resize(offset + SizeOfHookBridge);
 
 			u32 hookBridgeAddr = info->address;
+
+			bin->write<u32>(p->destAddress, makeJump(armOpcodeB, p->destAddress, hookBridgeAddr));
 
 			u8* hookDataPtr = hookData.data() + offset;
 
