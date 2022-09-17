@@ -775,9 +775,12 @@ void PatchMaker::createLinkerScript()
 				 "\t\t* (.data.*)\n";
 			if (hookCount != 0)
 			{
-				o += "\t\t. = ALIGN(4);\n\t\tncp_hookdata = .;\n\t\tFILL(";
+				o += "\t\t. = ALIGN(4);\n"
+					 "\t\tncp_hookdata = .;\n"
+					 "\t\tFILL(0)\n"
+					 "\t\t. = ncp_hookdata + ";
 				o += std::to_string(hookCount * SizeOfHookBridge);
-				o += ")\n";
+				o += ";\n";
 			}
 		}
 		else
@@ -803,11 +806,13 @@ void PatchMaker::createLinkerScript()
 			}
 			if (hookCount != 0)
 			{
-				o += "\t\t. = ALIGN(4);\n\t\tncp_hookdata_ov";
-				o += std::to_string(s->dest);
-				o += " = .;\n\t\tFILL(";
+				o += "\t\t. = ALIGN(4);\n\t\tncp_hookdata_";
+				o += s->memory->name;
+				o += " = .;\n\t\tFILL(0)\n\t\t. = ncp_hookdata_";
+				o += s->memory->name;
+				o += " + ";
 				o += std::to_string(hookCount * SizeOfHookBridge);
-				o += ")\n";
+				o += ";\n";
 			}
 		}
 		o += "\t\t. = ALIGN(4);\n"
