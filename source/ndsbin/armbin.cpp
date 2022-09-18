@@ -121,10 +121,9 @@ void ArmBin::readBytes(u32 address, void* out, u32 size) const
 
 	if (address >= m_ramAddr && address < m_moduleParams.autoloadStart)
 	{
-		u32 binAddress = address - m_ramAddr;
-		if (binAddress + size > m_moduleParams.autoloadStart)
+		if (address + size > m_moduleParams.autoloadStart)
 			failDueToSizeExceed();
-		std::memcpy(out, &m_bytes[binAddress], size);
+		std::memcpy(out, &m_bytes[address - m_ramAddr], size);
 		return;
 	}
 
@@ -133,10 +132,9 @@ void ArmBin::readBytes(u32 address, void* out, u32 size) const
 		u32 autoloadEnd = autoload.address + autoload.size;
 		if (address >= autoload.address && address < autoloadEnd)
 		{
-			u32 binAddress = address - autoload.address;
-			if (binAddress + size > autoloadEnd)
+			if (address + size > autoloadEnd)
 				failDueToSizeExceed();
-			std::memcpy(out, &autoload.data[binAddress], size);
+			std::memcpy(out, &autoload.data[address - autoload.address], size);
 			return;
 		}
 	}
@@ -157,10 +155,9 @@ void ArmBin::writeBytes(u32 address, const void* data, u32 size)
 
 	if (address >= m_ramAddr && address < m_moduleParams.autoloadStart)
 	{
-		u32 binAddress = address - m_ramAddr;
-		if (binAddress + size > m_moduleParams.autoloadStart)
+		if (address + size > m_moduleParams.autoloadStart)
 			failDueToSizeExceed();
-		std::memcpy(&m_bytes[binAddress], data, size);
+		std::memcpy(&m_bytes[address - m_ramAddr], data, size);
 		return;
 	}
 
@@ -169,10 +166,9 @@ void ArmBin::writeBytes(u32 address, const void* data, u32 size)
 		u32 autoloadEnd = autoload.address + autoload.size;
 		if (address >= autoload.address && address < autoloadEnd)
 		{
-			u32 binAddress = address - autoload.address;
-			if (binAddress + size > autoloadEnd)
+			if (address + size > autoloadEnd)
 				failDueToSizeExceed();
-			std::memcpy(&autoload.data[binAddress], data, size);
+			std::memcpy(&autoload.data[address - autoload.address], data, size);
 			return;
 		}
 	}
