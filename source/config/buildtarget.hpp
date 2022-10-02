@@ -13,9 +13,9 @@ class BuildTarget
 public:
 	enum class Mode
 	{
-		append = 0,
-		replace,
-		create
+		Append = 0,
+		Replace,
+		Create
 	};
 
 	struct Region

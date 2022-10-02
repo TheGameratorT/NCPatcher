@@ -64,7 +64,7 @@ void BuildTarget::load(const fs::path& targetFilePath, bool isArm9)
 		region.asmFlags = regionObj.hasMember("asm_flags") ? getString(regionObj["asm_flags"]) : asmFlags;
 		//region.ldFlags = regionObj.hasMember("ld_flags") ? getString(regionObj["ld_flags"]) : ldFlags;
 		readRegionMode(region, regionObj);
-		region.address = (region.mode == Mode::create) ? regionObj["address"].getInt() : 0;
+		region.address = (region.mode != Mode::Append) ? regionObj["address"].getInt() : 0;
 		region.length = regionObj.hasMember("length") ? regionObj["length"].getInt() : 0x100000;
 		regions.push_back(region);
 	}
@@ -187,5 +187,5 @@ void BuildTarget::readRegionMode(BuildTarget::Region& region, const JsonMember& 
 		oss << OERROR << "Invalid mode " << modeStr << ".";
 		throw ncp::exception(oss.str());
 	}
-	region.mode = BuildTarget::Mode::append;
+	region.mode = BuildTarget::Mode::Append;
 }

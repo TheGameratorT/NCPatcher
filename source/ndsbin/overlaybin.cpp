@@ -25,10 +25,12 @@ void OverlayBin::load(const fs::path& path, u32 ramAddress, bool compressed, int
 	if (!file.is_open())
 		throw ncp::file_error(path, ncp::file_error::read);
 
+	if (fileSize == 0)
+		return;
+
 	m_bytes.resize(fileSize);
 	file.read(reinterpret_cast<char*>(m_bytes.data()), std::streamsize(fileSize));
 	file.close();
-
 
 	if (compressed)
 		BLZ::uncompressInplace(m_bytes);

@@ -213,13 +213,11 @@ void PatchMaker::fetchNewcodeAddr()
 			u32 addr;
 			switch (region.mode)
 			{
-			case BuildTarget::Mode::append:
-				addr = m_ovtEntries[dest]->ramSize;
+			case BuildTarget::Mode::Append:
+				addr = m_ovtEntries[dest]->ramAddress + m_ovtEntries[dest]->ramSize;
 				break;
-			case BuildTarget::Mode::replace:
-				addr = m_ovtEntries[dest]->ramAddress;
-				break;
-			case BuildTarget::Mode::create:
+			case BuildTarget::Mode::Replace:
+			case BuildTarget::Mode::Create:
 				addr = region.address;
 				break;
 			}
@@ -809,7 +807,7 @@ void PatchMaker::createLinkerScript()
 			{
 				if (f->region == s->region)
 				{
-					std::string objPath = f->objFilePath.string();
+					std::string objPath = fs::relative(f->objFilePath).string();
 					static const char* secIncs[] = {
 						"text",
 						"rodata",
@@ -855,19 +853,17 @@ void PatchMaker::createLinkerScript()
 			{
 				if (f->region == s->region)
 				{
-					std::string objPath = f->objFilePath.string();
-					addSectionInclude(o, objPath, "(.bss)");
-					addSectionInclude(o, objPath, "(.bss.*)");
+					std::string objPath = fs::relative(f->objFilePath).string();
+					addSectionInclude(o, objPath, "bss");
+					addSectionInclude(o, objPath, "bss.*");
 				}
 			}
 		}
 		o += "\t\t. = ALIGN(4);\n"
 			 "\t} > ";
 		o += s->memory->name;
-		o += " AT > bin\n";
+		o += " AT > bin\n\n";
 	}
-	if (!regionEntries.empty())
-		o += '\n';
 
 	for (auto& p : overPatches)
 	{
@@ -1143,13 +1139,13 @@ void PatchMaker::gatherInfoFromElf()
 	forEachElfSection(eh, sh_tbl, str_tbl,
 	[&](std::size_t sectionIdx, const Elf32_Shdr& section, std::string_view sectionName){
 		auto insertSection = [&](int dest, bool isBss){
-			auto& patchInfo = m_newcodeDataForDest[dest];
-			if (patchInfo == nullptr)
-			    patchInfo = std::make_unique<NewcodePatch>();
+			auto& newcodeInfo = m_newcodeDataForDest[dest];
+			if (newcodeInfo == nullptr)
+			    newcodeInfo = std::make_unique<NewcodePatch>();
 
-			(isBss ? patchInfo->bssData : patchInfo->binData) = m_elf->getSection<u8>(section);
-			(isBss ? patchInfo->bssSize : patchInfo->binSize) = section.sh_size;
-			(isBss ? patchInfo->bssAlign : patchInfo->binAlign) = section.sh_addralign;
+			(isBss ? newcodeInfo->bssData : newcodeInfo->binData) = m_elf->getSection<u8>(section);
+			(isBss ? newcodeInfo->bssSize : newcodeInfo->binSize) = section.sh_size;
+			(isBss ? newcodeInfo->bssAlign : newcodeInfo->binAlign) = section.sh_addralign;
 		};
 
 		if (sectionName.starts_with(".arm"))
@@ -1162,7 +1158,7 @@ void PatchMaker::gatherInfoFromElf()
 			if (pos != std::string::npos)
 			{
 				int dest = std::stoi(std::string(sectionName.substr(3, pos - 3)));
-				insertSection(dest, sectionName.substr(pos) == "bss");
+				insertSection(dest, sectionName.substr(pos + 1) == "bss");
 			}
 		}
 		return false;
@@ -1292,6 +1288,18 @@ void PatchMaker::applyPatchesToRom()
 	{
 		u32 newcodeAddr = m_newcodeAddrForDest[dest];
 
+		auto writeNewcode = [&](u8* addr){
+			std::size_t hookDataSize = 0;
+			auto& hookInfo = m_hookMakerInfoForDest[dest];
+			if (hookInfo != nullptr)
+				hookDataSize = hookInfo->data.size();
+
+			// Write the patch data
+			std::memcpy(addr, newcodeInfo->binData, newcodeInfo->binSize - hookDataSize);
+			if (hookDataSize != 0)
+				std::memcpy(&addr[newcodeInfo->binSize - hookDataSize], hookInfo->data.data(), hookDataSize);
+		};
+
 		if (dest == -1)
 		{
 			// If more data needs to be added
@@ -1330,15 +1338,7 @@ void PatchMaker::applyPatchesToRom()
 					// Move/offset the old code by the size of our patch
 					std::memcpy(&data[binAutoloadStart + newcodeInfo->binSize], &data[binAutoloadStart], binAutoloadListStart - binAutoloadStart);
 
-					std::size_t hookDataSize = 0;
-					auto& hookInfo = m_hookMakerInfoForDest[dest];
-					if (hookInfo != nullptr)
-						hookDataSize = hookInfo->data.size();
-
-					// Write the patch data
-					std::memcpy(&data[binAutoloadStart], newcodeInfo->binData, newcodeInfo->binSize - hookDataSize);
-					if (hookDataSize != 0)
-						std::memcpy(&data[binAutoloadStart + (newcodeInfo->binSize - hookDataSize)], hookInfo->data.data(), hookDataSize);
+					writeNewcode(&data[binAutoloadStart]);
 				}
 
 				// Set the new autoload list location
@@ -1360,8 +1360,60 @@ void PatchMaker::applyPatchesToRom()
 		}
 		else
 		{
-			// TO BE DESIGNED.
-			throw ncp::exception("Inserting data into overlays is not yet supported.");
+			const BuildTarget::Region* region = nullptr;
+			for (const BuildTarget::Region& r : m_target->regions)
+			{
+				if (r.destination == dest)
+				{
+					region = &r;
+					break;
+				}
+			}
+			if (region == nullptr)
+				throw ncp::exception("region of overlay " + std::to_string(dest) + " set to add code could not be found!");
+
+			switch (region->mode)
+			{
+			case BuildTarget::Mode::Append:
+			{
+				// TO BE DESIGNED.
+				throw ncp::exception("Appending data to overlays is not yet supported.");
+				break;
+			}
+			case BuildTarget::Mode::Replace:
+			{
+				OverlayBin* bin = getOverlay(dest);
+				auto& ovtEntry = m_ovtEntries[dest];
+
+				ovtEntry->ramAddress = region->address;
+				ovtEntry->ramSize = newcodeInfo->binSize;
+				ovtEntry->bssSize = newcodeInfo->bssSize;
+				ovtEntry->sinitStart = 0;
+				ovtEntry->sinitEnd = 0;
+				ovtEntry->compressed = 0; // size of compressed "ramSize"
+				ovtEntry->flag = 0;
+
+				std::vector<u8>& data = bin->data();
+				
+				// Write the new data
+				if (newcodeInfo->binSize == 0)
+				{
+					data.clear();
+				}
+				else
+				{
+					data.resize(newcodeInfo->binSize);
+					writeNewcode(data.data());
+				}
+				break;
+			}
+			case BuildTarget::Mode::Create:
+			{
+				// TO BE DESIGNED.
+				throw ncp::exception("Creating new overlays is not yet supported.");
+				break;
+			}
+			}
 		}
 	}
 
