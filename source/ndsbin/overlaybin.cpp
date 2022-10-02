@@ -14,6 +14,7 @@ void OverlayBin::load(const fs::path& path, u32 ramAddress, bool compressed, int
 {
 	m_ramAddress = ramAddress;
 	m_id = id;
+	m_isDirty = false;
 
 	if (!fs::exists(path))
 		throw ncp::file_error(path, ncp::file_error::find);
@@ -57,4 +58,5 @@ void OverlayBin::writeBytes(u32 address, const void* data, u32 size)
 		throw std::out_of_range(oss.str());
 	}
 	std::memcpy(&m_bytes[binAddress], data, size);
+	m_isDirty = true;
 }

@@ -9,6 +9,7 @@
 #include "json.hpp"
 #include "../log.hpp"
 #include "../except.hpp"
+#include "../util.hpp"
 
 namespace fs = std::filesystem;
 
@@ -35,6 +36,7 @@ static TargetConfig arm9Config;
 static std::vector<std::string> preBuildCmds;
 static std::vector<std::string> postBuildCmds;
 static int threadCount;
+static std::time_t lastWriteTime;
 
 static void expandTemplates(std::string& val)
 {
@@ -92,7 +94,9 @@ void load()
 
 	Log::info("Loading build configuration...");
 
-	JsonReader json(Main::getWorkPath() / s_jsonFileName);
+	fs::path jsonPath = Main::getWorkPath() / s_jsonFileName;
+
+	JsonReader json(jsonPath);
 
 	varmap.emplace("root", Main::getWorkPath().string());
 
@@ -118,6 +122,8 @@ void load()
 	readBuildCommands(json["post-build"], preBuildCmds);
 
 	threadCount = json["thread-count"].getInt();
+
+	lastWriteTime = Util::toTimeT(fs::last_write_time(jsonPath));
 
 	Main::setErrorContext(nullptr);
 }
@@ -149,5 +155,6 @@ const std::vector<std::string>& getPreBuildCmds() { return preBuildCmds; }
 const std::vector<std::string>& getPostBuildCmds() { return postBuildCmds; }
 
 int getThreadCount() { return threadCount; }
+std::time_t getLastWriteTime() { return lastWriteTime; }
 
 }

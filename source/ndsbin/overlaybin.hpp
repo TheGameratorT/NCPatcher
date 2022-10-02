@@ -33,11 +33,15 @@ public:
 	void readBytes(u32 address, void* out, u32 size) const override;
 	void writeBytes(u32 address, const void* data, u32 size) override;
 
-	constexpr std::vector<u8>& data() { return m_bytes; };
+	[[nodiscard]] constexpr std::vector<u8>& data() { return m_bytes; };
 	[[nodiscard]] constexpr const std::vector<u8>& data() const { return m_bytes; };
+
+	[[nodiscard]] constexpr bool getDirty() const { return m_isDirty; }
+	constexpr void setDirty(bool isDirty) { m_isDirty = isDirty; }
 
 private:
 	std::vector<u8> m_bytes;
 	u32 m_ramAddress;
 	int m_id;
+	bool m_isDirty;
 };

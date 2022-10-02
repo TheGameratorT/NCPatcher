@@ -1,11 +1,13 @@
 #pragma once
 
 #include <cstring>
+#include <ctime>
 #include <string>
 #include <string_view>
 #include <vector>
 #include <algorithm>
 #include <array>
+#include <chrono>
 
 namespace Util {
 
@@ -40,6 +42,55 @@ constexpr std::string concat(std::size_t preAllocSz, const Args&... args)
 	for (auto s : {std::string_view(args)...})
 		result += s;
 	return result;
+}
+
+template<typename T>
+inline void write(void* address, T value)
+{
+	std::memcpy(address, &value, sizeof(T));
+}
+
+template<typename T>
+inline T read(void* address)
+{
+	T value;
+	std::memcpy(&value, address, sizeof(T));
+	return value;
+}
+
+/*template<typename T>
+class MemVarHandler
+{
+public:
+	explicit MemVarHandler(T value, void* address) :
+		m_value(value), m_address(address)
+	{}
+
+	MemVarHandler& operator=(T value)
+	{
+		std::memcpy(address, &value, sizeof(T));
+	    return *this;
+	}
+
+private:
+	T m_value;
+	void* m_address;
+};
+
+template<typename T>
+inline MemVarHandler<T> get(void* address)
+{
+	T value;
+	std::memcpy(value, address, sizeof(T));
+	return MemVarHandler<T>(value, address);
+}*/
+
+template <typename TP>
+constexpr std::time_t toTimeT(TP tp)
+{
+	using namespace std::chrono;
+	auto sctp = time_point_cast<system_clock::duration>(tp - TP::clock::now() + system_clock::now());
+	return system_clock::to_time_t(sctp);
 }
 
 int addrToInt(const std::string& in);

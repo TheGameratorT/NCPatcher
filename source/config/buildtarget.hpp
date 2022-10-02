@@ -43,6 +43,10 @@ public:
 	std::string ldFlags;
 
 	[[nodiscard]] constexpr bool getArm9() const { return m_isArm9; }
+	[[nodiscard]] constexpr std::time_t getLastWriteTime() { return m_lastWriteTime; }
+	[[nodiscard]] constexpr bool getForceRebuild() const { return m_forceRebuild; }
+
+	constexpr void setForceRebuild(bool forceRebuild) { m_forceRebuild = forceRebuild; }
 
 	BuildTarget();
 	void load(const std::filesystem::path& targetFilePath, bool isArm9);
@@ -57,4 +61,6 @@ private:
 	static void readRegionMode(BuildTarget::Region& region, const JsonMember& member);
 
 	bool m_isArm9{};
+	std::time_t m_lastWriteTime;
+	bool m_forceRebuild;
 };

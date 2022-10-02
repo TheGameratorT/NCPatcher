@@ -8,6 +8,7 @@
 #include "log.hpp"
 #include "config/buildconfig.hpp"
 #include "config/buildtarget.hpp"
+#include "config/rebuildconfig.hpp"
 #include "ndsbin/headerbin.hpp"
 #include "ndsbin/armbin.hpp"
 #include "build/sourcefilejob.hpp"
@@ -46,12 +47,15 @@ static void ncpMain()
 	Log::out << ANSI_bWHITE " ----- Nitro Code Patcher -----" ANSI_RESET << std::endl;
 
 	BuildConfig::load();
+	RebuildConfig::load();
 
 	const fs::path& workDir = Main::getWorkPath();
 	Main::s_romPath = fs::absolute(BuildConfig::getFilesystemDir());
 
 	HeaderBin header;
 	header.load(Main::s_romPath / "header.bin");
+
+	bool forceRebuild = false;
 
 	auto doWorkOnTarget = [&](bool isArm9){
 		Log::info(isArm9 ?
@@ -66,6 +70,12 @@ static void ncpMain()
 		BuildTarget buildTarget;
 		buildTarget.load(targetPath, isArm9);
 		Main::setErrorContext(nullptr);
+
+		std::time_t lastTargetWriteTimeNew = buildTarget.getLastWriteTime();
+		std::time_t lastTargetWriteTimeOld = isArm9 ?
+			RebuildConfig::getArm9TargetWriteTime() :
+			RebuildConfig::getArm7TargetWriteTime();
+		buildTarget.setForceRebuild(forceRebuild || (lastTargetWriteTimeNew > lastTargetWriteTimeOld));
 
 		Main::setErrorContext(isArm9 ?
 			"Could not compile the ARM9 target." :
@@ -82,16 +92,26 @@ static void ncpMain()
 		PatchMaker patchMaker;
 		patchMaker.makeTarget(buildTarget, targetDir, buildPath, header, srcFileJobs);
 
+		isArm9 ?
+			RebuildConfig::setArm9TargetWriteTime(buildTarget.getLastWriteTime()) :
+			RebuildConfig::setArm7TargetWriteTime(buildTarget.getLastWriteTime());
+
 		Main::setErrorContext(nullptr);
 	};
 
 	fs::current_path(workDir);
+
+	if (BuildConfig::getLastWriteTime() > RebuildConfig::getBuildConfigWriteTime())
+		forceRebuild = true;
 
 	if (BuildConfig::getBuildArm7())
 		doWorkOnTarget(false);
 
 	if (BuildConfig::getBuildArm9())
 		doWorkOnTarget(true);
+
+	RebuildConfig::setBuildConfigWriteTime(BuildConfig::getLastWriteTime());
+	RebuildConfig::save();
 
 	Log::info("All tasks finished.");
 }

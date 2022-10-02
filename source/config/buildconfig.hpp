@@ -26,5 +26,6 @@ const std::vector<std::string>& getPreBuildCmds();
 const std::vector<std::string>& getPostBuildCmds();
 
 int getThreadCount();
+std::time_t getLastWriteTime();
 
 }

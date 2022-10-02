@@ -26,7 +26,9 @@ void BuildTarget::load(const fs::path& targetFilePath, bool isArm9)
 	fs::current_path(Main::getWorkPath());
 	fs::current_path(targetFilePath.parent_path());
 
-	JsonReader json(targetFilePath.filename());
+	fs::path targetFileName = targetFilePath.filename();
+
+	JsonReader json(targetFileName);
 
 	varmap.emplace("root", Main::getWorkPath().string());
 
@@ -66,6 +68,8 @@ void BuildTarget::load(const fs::path& targetFilePath, bool isArm9)
 		region.length = regionObj.hasMember("length") ? regionObj["length"].getInt() : 0x100000;
 		regions.push_back(region);
 	}
+
+	m_lastWriteTime = Util::toTimeT(fs::last_write_time(targetFileName));
 
 	fs::current_path(curPath);
 }

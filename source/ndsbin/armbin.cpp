@@ -52,25 +52,27 @@ void ArmBin::load(const fs::path& path, u32 entryAddr, u32 ramAddr, u32 autoLoad
 
 	// FIND MODULE PARAMS ================================
 
-	m_moduleParamsOff = *reinterpret_cast<u32*>(&bytesData[autoLoadHookOff - ramAddr - 4]) - ramAddr;
+	m_moduleParamsOff = *reinterpret_cast<u32*>(&bytesData[autoLoadHookOff - m_ramAddr - 4]) - m_ramAddr;
 
 	Log::out << OINFO << "Found ModuleParams at: 0x" << std::uppercase << std::hex << m_moduleParamsOff << std::endl;
-	memcpy(&m_moduleParams, &bytesData[m_moduleParamsOff], sizeof(ModuleParams));
+
+	ModuleParams* moduleParams = getModuleParams();
 
 	// DECOMPRESS ================================
 
-	if (m_moduleParams.compStaticEnd)
+	if (moduleParams->compStaticEnd)
 	{
 		Log::out << OINFO << "Decompressing..." << std::endl;
 
-		u32 decompSize = fileSize + *reinterpret_cast<u32*>(&bytesData[m_moduleParams.compStaticEnd - ramAddr - 4]);
+		u32 decompSize = fileSize + *reinterpret_cast<u32*>(&bytesData[moduleParams->compStaticEnd - m_ramAddr - 4]);
 
 		m_bytes.resize(decompSize);
 		bytesData = m_bytes.data();
+		moduleParams = getModuleParams();
 
 		try
 		{
-			BLZ::uncompressInplace(&bytesData[m_moduleParams.compStaticEnd - ramAddr]);
+			BLZ::uncompressInplace(&bytesData[moduleParams->compStaticEnd - m_ramAddr]);
 		}
 		catch (const std::exception& e)
 		{
@@ -82,30 +84,12 @@ void ArmBin::load(const fs::path& path, u32 entryAddr, u32 ramAddr, u32 autoLoad
 		Log::out << OINFO << "  Old size: 0x" << fileSize << std::endl;
 		Log::out << OINFO << "  New size: 0x" << decompSize << std::endl;
 
-		m_moduleParams.compStaticEnd = 0;
-		*reinterpret_cast<u32*>(&bytesData[m_moduleParamsOff + 20]) = 0;
+		moduleParams->compStaticEnd = 0;
 	}
 
 	// AUTO LOAD ================================
 
-	u32* alIter = reinterpret_cast<u32*>(&bytesData[m_moduleParams.autoloadListStart - ramAddr]);
-	u32* alEnd = reinterpret_cast<u32*>(&bytesData[m_moduleParams.autoloadListEnd - ramAddr]);
-	u8* alDataIter = &bytesData[m_moduleParams.autoloadStart - ramAddr];
-
-	while (alIter < alEnd)
-	{
-		// TODO: More safety on AutoLoadEntry loading
-		AutoLoadEntry entry;
-		memcpy(&entry, alIter, 12);
-
-		entry.data.resize(entry.size);
-		memcpy(entry.data.data(), alDataIter, entry.size);
-
-		m_autoloadList.push_back(entry);
-
-		alIter += 3;
-		alDataIter += entry.size;
-	}
+	refreshAutoloadData();
 
 	Main::setErrorContext(nullptr);
 }
@@ -119,9 +103,10 @@ void ArmBin::readBytes(u32 address, void* out, u32 size) const
 		throw std::out_of_range(oss.str());
 	};
 
-	if (address >= m_ramAddr && address < m_moduleParams.autoloadStart)
+	u32 autoloadStart = getModuleParams()->autoloadStart;
+	if (address >= m_ramAddr && address < autoloadStart)
 	{
-		if (address + size > m_moduleParams.autoloadStart)
+		if (address + size > autoloadStart)
 			failDueToSizeExceed();
 		std::memcpy(out, &m_bytes[address - m_ramAddr], size);
 		return;
@@ -134,7 +119,7 @@ void ArmBin::readBytes(u32 address, void* out, u32 size) const
 		{
 			if (address + size > autoloadEnd)
 				failDueToSizeExceed();
-			std::memcpy(out, &autoload.data[address - autoload.address], size);
+			std::memcpy(out, &m_bytes[autoload.dataOff + (address - autoload.address)], size);
 			return;
 		}
 	}
@@ -153,9 +138,10 @@ void ArmBin::writeBytes(u32 address, const void* data, u32 size)
 		throw std::out_of_range(oss.str());
 	};
 
-	if (address >= m_ramAddr && address < m_moduleParams.autoloadStart)
+	u32 autoloadStart = getModuleParams()->autoloadStart;
+	if (address >= m_ramAddr && address < autoloadStart)
 	{
-		if (address + size > m_moduleParams.autoloadStart)
+		if (address + size > autoloadStart)
 			failDueToSizeExceed();
 		std::memcpy(&m_bytes[address - m_ramAddr], data, size);
 		return;
@@ -168,7 +154,7 @@ void ArmBin::writeBytes(u32 address, const void* data, u32 size)
 		{
 			if (address + size > autoloadEnd)
 				failDueToSizeExceed();
-			std::memcpy(&autoload.data[address - autoload.address], data, size);
+			std::memcpy(&m_bytes[autoload.dataOff + (address - autoload.address)], data, size);
 			return;
 		}
 	}
@@ -178,9 +164,33 @@ void ArmBin::writeBytes(u32 address, const void* data, u32 size)
 	throw std::out_of_range(oss.str());
 }
 
-std::vector<u8>& ArmBin::data()
+void ArmBin::refreshAutoloadData()
 {
-	return m_bytes;
+	u8* bytesData = m_bytes.data();
+	ModuleParams* moduleParams = getModuleParams();
+
+	m_autoloadList.clear();
+
+	u32* alIter = reinterpret_cast<u32*>(&bytesData[moduleParams->autoloadListStart - m_ramAddr]);
+	u32* alEnd = reinterpret_cast<u32*>(&bytesData[moduleParams->autoloadListEnd - m_ramAddr]);
+	u32 alDataIter = moduleParams->autoloadStart - m_ramAddr;
+
+	while (alIter < alEnd)
+	{
+		u32 entryInfo[3];
+		std::memcpy(&entryInfo, alIter, 12);
+
+		AutoLoadEntry entry;
+		entry.address = entryInfo[0];
+		entry.size = entryInfo[1];
+		entry.bssSize = entryInfo[2];
+		entry.dataOff = alDataIter;
+
+		m_autoloadList.push_back(entry);
+
+		alIter += 3;
+		alDataIter += entry.size;
+	}
 }
 
 std::string ArmBin::getString(const std::string& str) const

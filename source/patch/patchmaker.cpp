@@ -10,6 +10,7 @@
 #include "../log.hpp"
 #include "../except.hpp"
 #include "../config/buildconfig.hpp"
+#include "../config/rebuildconfig.hpp"
 #include "../util.hpp"
 #include "../process.hpp"
 
@@ -55,13 +56,18 @@ struct RtReplPatchInfo
 
 struct NewcodePatch
 {
+	const u8* binData;
+	const u8* bssData;
 	std::size_t binSize;
+	std::size_t binAlign;
 	std::size_t bssSize;
+	std::size_t bssAlign;
 };
 
 struct HookMakerInfo
 {
 	u32 address;
+	u32 curAddress;
 	std::vector<u8> data;
 };
 
@@ -160,7 +166,6 @@ void PatchMaker::makeTarget(
 	m_header = &header;
 	m_srcFileJobs = &srcFileJobs;
 
-
 	m_ldscriptPath = *m_buildDir / (m_target->getArm9() ? "ldscript9.x" : "ldscript7.x");
 	m_elfPath = *m_buildDir / (m_target->getArm9() ? "arm9.elf" : "arm7.elf");
 
@@ -168,7 +173,13 @@ void PatchMaker::makeTarget(
 
 	loadArmBin();
 	loadOverlayTableBin();
-	// TODO: Here check if the overlay was used in the previous build, and if so, load it
+
+	std::vector<u32>& patchedOverlays = m_target->getArm9() ?
+		RebuildConfig::getArm7PatchedOvs() :
+		RebuildConfig::getArm9PatchedOvs();
+	
+	for (u32 ovID : patchedOverlays)
+		loadOverlayBin(ovID);
 
 	fetchNewcodeAddr();
 	gatherInfoFromObjects();
@@ -178,6 +189,13 @@ void PatchMaker::makeTarget(
 	gatherInfoFromElf();
 	applyPatchesToRom();
 	unloadElfFile();
+
+	patchedOverlays.clear();
+	for (const auto& [id, ov] : m_loadedOverlays)
+	{
+		if (ov->getDirty())
+			patchedOverlays.push_back(id);
+	}
 
 	saveOverlayBins();
 	saveOverlayTableBin();
@@ -506,16 +524,17 @@ void PatchMaker::loadOverlayTableBin()
 	fs::path bakBinName = BuildConfig::getBackupDir() / binName;
 
 	fs::path workBinName;
-	if (fs::exists(bakBinName))
+	if (fs::exists(bakBinName)) //has backup
 	{
 		workBinName = bakBinName;
 	}
-	else
+	else //has no backup
 	{
 		fs::current_path(Main::getRomPath());
 		workBinName = binName;
 		if (!fs::exists(binName))
 			throw ncp::file_error(binName, ncp::file_error::find);
+		fs::copy_file(binName, Main::getWorkPath() / bakBinName);
 	}
 
 	uintmax_t fileSize = fs::file_size(workBinName);
@@ -891,16 +910,19 @@ void PatchMaker::createLinkerScript()
 		o += '\n';
 
 	o += "\t/DISCARD/ : {*(.*)}\n"
-		 "}\n\nEXTERN (\n";
+		 "}\n";
 
-	for (auto& e : m_externSymbols)
+	if (!m_externSymbols.empty())
 	{
-		o += '\t';
-		o += e;
-		o += '\n';
+		o += "\nEXTERN (\n";
+		for (auto& e : m_externSymbols)
+		{
+			o += '\t';
+			o += e;
+			o += '\n';
+		}
+		o += ")\n";
 	}
-
-	o += ")\n";
 
 	// Output the file
 	std::ofstream outputFile(m_ldscriptPath);
@@ -1052,6 +1074,7 @@ void PatchMaker::gatherInfoFromElf()
 			}
 			auto* info = new HookMakerInfo();
 			info->address = symbol.st_value;
+			info->curAddress = symbol.st_value;
 			m_hookMakerInfoForDest.emplace(srcAddrOv, info);
 		}
 		return false;
@@ -1118,9 +1141,15 @@ void PatchMaker::gatherInfoFromElf()
 	}
 
 	forEachElfSection(eh, sh_tbl, str_tbl,
-	[](std::size_t sectionIdx, const Elf32_Shdr& section, std::string_view sectionName){
+	[&](std::size_t sectionIdx, const Elf32_Shdr& section, std::string_view sectionName){
 		auto insertSection = [&](int dest, bool isBss){
+			auto& patchInfo = m_newcodeDataForDest[dest];
+			if (patchInfo == nullptr)
+			    patchInfo = std::make_unique<NewcodePatch>();
 
+			(isBss ? patchInfo->bssData : patchInfo->binData) = m_elf->getSection<u8>(section);
+			(isBss ? patchInfo->bssSize : patchInfo->binSize) = section.sh_size;
+			(isBss ? patchInfo->bssAlign : patchInfo->binAlign) = section.sh_addralign;
 		};
 
 		if (sectionName.starts_with(".arm"))
@@ -1179,8 +1208,10 @@ void PatchMaker::applyPatchesToRom()
 
 	const u32 armOpcodeB = 0xEA000000; // B
 	const u32 armOpcodeBL = 0xEB000000; // BL
-	const u32 armHookPush = 0xE92D100F; // PUSH {R0-R3,R12}
-	const u32 armHookPop = 0xE8BD100F; // POP {R0-R3,R12}
+	//const u32 armHookPush = 0xE92D100F; // PUSH {R0-R3,R12}
+	//const u32 armHookPop = 0xE8BD100F; // POP {R0-R3,R12}
+	const u32 armHookPush = 0xE92D500F; // PUSH {R0-R3,R12,LR}
+	const u32 armHookPop = 0xE8BD500F; // POP {R0-R3,R12,LR}
 
 	auto sh_tbl = m_elf->getSectionHeaderTable();
 
@@ -1227,7 +1258,7 @@ void PatchMaker::applyPatchesToRom()
 			std::size_t offset = hookData.size();
 			hookData.resize(offset + SizeOfHookBridge);
 
-			u32 hookBridgeAddr = info->address;
+			u32 hookBridgeAddr = info->curAddress;
 
 			if (PRINT_HOOK_BRIDGES)
 				printf("HOOK DEST: 0x%08X\n", hookBridgeAddr);
@@ -1236,21 +1267,16 @@ void PatchMaker::applyPatchesToRom()
 
 			u8* hookDataPtr = hookData.data() + offset;
 
-			auto writeHookData = [&hookDataPtr](u32 value){
-				std::memcpy(hookDataPtr, &value, 4);
-				hookDataPtr += 4;
-			};
-
-			writeHookData(armHookPush);
-			writeHookData(makeJumpOpCode(armOpcodeBL, hookBridgeAddr + 4, p->srcAddress));
-			writeHookData(armHookPop);
-			writeHookData(fixupOpCode(ogOpCode, p->destAddress, hookBridgeAddr + 12));
-			writeHookData(makeJumpOpCode(armOpcodeB, hookBridgeAddr + 16, p->destAddress + 4));
+			Util::write<u32>(hookDataPtr, armHookPush);
+			Util::write<u32>(hookDataPtr + 4, makeJumpOpCode(armOpcodeBL, hookBridgeAddr + 4, p->srcAddress));
+			Util::write<u32>(hookDataPtr + 8, armHookPop);
+			Util::write<u32>(hookDataPtr + 12, fixupOpCode(ogOpCode, p->destAddress, hookBridgeAddr + 12));
+			Util::write<u32>(hookDataPtr + 16, makeJumpOpCode(armOpcodeB, hookBridgeAddr + 16, p->destAddress + 4));
 
 			if (PRINT_HOOK_BRIDGES)
 				print_data_as_hex(hookData.data() + offset, 20, 32);
 
-			info->address += SizeOfHookBridge;
+			info->curAddress += SizeOfHookBridge;
 			break;
 		}
 		case PatchType::Over:
@@ -1261,8 +1287,79 @@ void PatchMaker::applyPatchesToRom()
 		}
 		}
 	}
+	
+	for (const auto& [dest, newcodeInfo] : m_newcodeDataForDest)
+	{
+		u32 newcodeAddr = m_newcodeAddrForDest[dest];
 
-	// TODO: Insert the binary data
+		if (dest == -1)
+		{
+			// If more data needs to be added
+			if ((newcodeInfo->binSize + newcodeInfo->bssSize) != 0)
+			{
+				ArmBin* bin = getArm();
+				std::vector<u8>& data = bin->data();
+
+				// Extend the ARM binary
+				data.resize(data.size() + newcodeInfo->binSize + 12);
+
+				// Write the new relocated code address
+				u32 heapReloc = newcodeAddr + newcodeInfo->binSize + (newcodeInfo->bssAlign - newcodeInfo->binSize % newcodeInfo->bssAlign) + newcodeInfo->bssSize;
+				bin->write<u32>(m_target->arenaLo, heapReloc);
+
+				ArmBin::ModuleParams* moduleParams = bin->getModuleParams();
+				u32 ramAddress = bin->getRamAddress();
+
+				u32 autoloadListStart = moduleParams->autoloadListStart;
+				u32 autoloadListEnd = moduleParams->autoloadListEnd;
+				u32 binAutoloadListStart = moduleParams->autoloadListStart - ramAddress; // Where our new code will be placed
+				u32 binAutoloadListEnd = moduleParams->autoloadListEnd - ramAddress;
+				u32 binAutoloadStart = moduleParams->autoloadStart - ramAddress;
+
+				std::vector<ArmBin::AutoLoadEntry>& autoloadList = bin->getAutoloadList();
+				autoloadList.emplace_back(ArmBin::AutoLoadEntry{
+					.address = newcodeAddr,
+					.size = u32(newcodeInfo->binSize),
+					.bssSize = u32(newcodeInfo->bssSize),
+					.dataOff = autoloadListStart
+				});
+
+				// Write the new data on top of the old autoload list
+				if (newcodeInfo->binSize != 0)
+				{
+					std::size_t hookDataSize = 0;
+					auto& hookInfo = m_hookMakerInfoForDest[dest];
+					if (hookInfo != nullptr)
+						hookDataSize = hookInfo->data.size();
+
+					std::memcpy(&data[binAutoloadListStart], newcodeInfo->binData, newcodeInfo->binSize - hookDataSize);
+					if (hookDataSize != 0)
+						std::memcpy(&data[binAutoloadListStart + (newcodeInfo->binSize - hookDataSize)], hookInfo->data.data(), hookDataSize);
+				}
+
+				// Set the new autoload list location
+				moduleParams->autoloadListStart = autoloadListStart + newcodeInfo->binSize;
+				moduleParams->autoloadListEnd = autoloadListEnd + newcodeInfo->binSize + 12;
+
+				// Write the new autoload list after the new code
+				u8* writeAutoloadPtr = data.data() + binAutoloadListStart + newcodeInfo->binSize;
+				for (ArmBin::AutoLoadEntry& entry : autoloadList)
+				{
+					u32 entryData[3];
+					entryData[0] = entry.address;
+					entryData[1] = entry.size;
+					entryData[2] = entry.bssSize;
+					std::memcpy(writeAutoloadPtr, entryData, 12);
+					writeAutoloadPtr += 12;
+				}
+			}
+		}
+		else
+		{
+			// TO BE DESIGNED.
+			throw ncp::exception("Inserting data into overlays is not yet supported.");
+		}
+	}
 
 	Main::setErrorContext(nullptr);
 }

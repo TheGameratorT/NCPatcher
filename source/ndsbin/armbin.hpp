@@ -12,15 +12,6 @@
 class ArmBin : public ICodeBin
 {
 public:
-	ArmBin();
-	void load(const std::filesystem::path& path, u32 entryAddr, u32 ramAddr, u32 autoLoadHookOff, bool isArm9);
-
-	void readBytes(u32 address, void* out, u32 size) const override;
-	void writeBytes(u32 address, const void* data, u32 size) override;
-
-	std::vector<u8>& data();
-
-private:
 	struct ModuleParams
 	{
 		u32 autoloadListStart;
@@ -39,19 +30,34 @@ private:
 		u32 address;
 		u32 size;
 		u32 bssSize;
-		std::vector<u8> data;
+		u32 dataOff;
 	};
 
+	ArmBin();
+	void load(const std::filesystem::path& path, u32 entryAddr, u32 ramAddr, u32 autoLoadHookOff, bool isArm9);
+
+	void readBytes(u32 address, void* out, u32 size) const override;
+	void writeBytes(u32 address, const void* data, u32 size) override;
+
+	void refreshAutoloadData();
+
+	[[nodiscard]] constexpr u32 getRamAddress() const { return m_ramAddr; }
+	[[nodiscard]] inline ModuleParams* getModuleParams() { return reinterpret_cast<ModuleParams*>(&((m_bytes.data())[m_moduleParamsOff])); }
+	[[nodiscard]] inline const ModuleParams* getModuleParams() const { return reinterpret_cast<const ModuleParams*>(&((m_bytes.data())[m_moduleParamsOff])); }
+	[[nodiscard]] constexpr std::vector<AutoLoadEntry>& getAutoloadList() { return m_autoloadList; }
+	[[nodiscard]] constexpr const std::vector<AutoLoadEntry>& getAutoloadList() const { return m_autoloadList; }
+	[[nodiscard]] constexpr std::vector<u8>& data() { return m_bytes; }
+	[[nodiscard]] constexpr const std::vector<u8>& data() const { return m_bytes; }
+
+private:
 	u32 m_ramAddr; //The offset of this binary in memory
 	u32 m_entryAddr; //The address of the entry point
 	u32 m_autoLoadHookOff;
 	u32 m_moduleParamsOff;
 	u32 m_isArm9;
 
-	ModuleParams m_moduleParams;
-	std::vector<AutoLoadEntry> m_autoloadList;
-
 	std::vector<u8> m_bytes;
+	std::vector<AutoLoadEntry> m_autoloadList;
 
 	std::string getString(const std::string& str) const;
 };

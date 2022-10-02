@@ -88,8 +88,6 @@ void ObjMaker::makeTarget(
 
 void ObjMaker::getSourceFiles()
 {
-	bool rebuildAll = false;
-
 	for (const BuildTarget::Region& region : m_target->regions)
 	{
 		for (auto& dir : region.sources)
@@ -110,7 +108,7 @@ void ObjMaker::getSourceFiles()
 
 					bool buildSrc;
 					fs::file_time_type objTime;
-					if (fs::exists(objPath) && !rebuildAll)
+					if (fs::exists(objPath) && !m_target->getForceRebuild())
 					{
 						objTime = fs::last_write_time(objPath);
 						buildSrc = false;
