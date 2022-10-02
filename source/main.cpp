@@ -93,8 +93,8 @@ static void ncpMain()
 		patchMaker.makeTarget(buildTarget, targetDir, buildPath, header, srcFileJobs);
 
 		isArm9 ?
-			RebuildConfig::setArm9TargetWriteTime(buildTarget.getLastWriteTime()) :
-			RebuildConfig::setArm7TargetWriteTime(buildTarget.getLastWriteTime());
+			RebuildConfig::setArm9TargetWriteTime(lastTargetWriteTimeNew) :
+			RebuildConfig::setArm7TargetWriteTime(lastTargetWriteTimeNew);
 
 		Main::setErrorContext(nullptr);
 	};

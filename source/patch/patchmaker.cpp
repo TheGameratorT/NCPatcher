@@ -1317,24 +1317,28 @@ void PatchMaker::applyPatchesToRom()
 				u32 binAutoloadStart = moduleParams->autoloadStart - ramAddress;
 
 				std::vector<ArmBin::AutoLoadEntry>& autoloadList = bin->getAutoloadList();
-				autoloadList.emplace_back(ArmBin::AutoLoadEntry{
+				autoloadList.insert(autoloadList.begin(), ArmBin::AutoLoadEntry{
 					.address = newcodeAddr,
 					.size = u32(newcodeInfo->binSize),
 					.bssSize = u32(newcodeInfo->bssSize),
-					.dataOff = autoloadListStart
+					.dataOff = binAutoloadStart
 				});
 
-				// Write the new data on top of the old autoload list
+				// Write the new data
 				if (newcodeInfo->binSize != 0)
 				{
+					// Move/offset the old code by the size of our patch
+					std::memcpy(&data[binAutoloadStart + newcodeInfo->binSize], &data[binAutoloadStart], binAutoloadListStart - binAutoloadStart);
+
 					std::size_t hookDataSize = 0;
 					auto& hookInfo = m_hookMakerInfoForDest[dest];
 					if (hookInfo != nullptr)
 						hookDataSize = hookInfo->data.size();
 
-					std::memcpy(&data[binAutoloadListStart], newcodeInfo->binData, newcodeInfo->binSize - hookDataSize);
+					// Write the patch data
+					std::memcpy(&data[binAutoloadStart], newcodeInfo->binData, newcodeInfo->binSize - hookDataSize);
 					if (hookDataSize != 0)
-						std::memcpy(&data[binAutoloadListStart + (newcodeInfo->binSize - hookDataSize)], hookInfo->data.data(), hookDataSize);
+						std::memcpy(&data[binAutoloadStart + (newcodeInfo->binSize - hookDataSize)], hookInfo->data.data(), hookDataSize);
 				}
 
 				// Set the new autoload list location
