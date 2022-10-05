@@ -93,6 +93,12 @@ constexpr std::time_t toTimeT(TP tp)
 	return system_clock::to_time_t(sctp);
 }
 
+template <typename T>
+constexpr bool overlaps(T x1, T x2, T y1, T y2)
+{
+	return x2 > y1 && y2 > x1;
+}
+
 int addrToInt(const std::string& in);
 std::string intToAddr(int in, int align, bool prefix = true);
 

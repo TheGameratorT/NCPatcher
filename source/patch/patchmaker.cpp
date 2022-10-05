@@ -19,6 +19,8 @@
  * TODO: static hook duplication protection
  * */
 
+#define OSTRa(x) ANSI_bWHITE "\"" << (x) << "\"" ANSI_RESET
+
 namespace fs = std::filesystem;
 
 constexpr bool PRINT_PATCH_TABLE = true;
@@ -1101,6 +1103,31 @@ void PatchMaker::gatherInfoFromElf()
 		return false;
 	});
 
+	// Check if any overlapping patches exist
+	bool foundOverlapping = false;
+	for (std::size_t i = 0; i < m_patchInfo.size(); i++)
+	{
+		auto& a = m_patchInfo[i];
+        for (std::size_t j = i + 1; j < m_patchInfo.size(); j++)
+		{
+			auto& b = m_patchInfo[j];
+			if (a->destAddressOv == b->destAddressOv)
+			{
+				u32 aSz = a->patchType == PatchType::Over ? a->sectionSize : 4;
+				u32 bSz = b->patchType == PatchType::Over ? b->sectionSize : 4;
+				if (Util::overlaps(a->destAddress, a->destAddress + aSz, b->destAddress, b->destAddress + bSz))
+				{
+					Log::out << OERROR
+						<< OSTRa(a->symbol) << "[sz=" << aSz << "] (" << OSTR(a->job->srcFilePath.string()) << ") overlaps with "
+						<< OSTRa(b->symbol) << "[sz=" << bSz << "] (" << OSTR(b->job->srcFilePath.string()) << ")\n";
+					foundOverlapping = true;
+				}
+			}
+        }
+    }
+	if (foundOverlapping)
+		throw ncp::exception("Overlapping patches were detected.");
+	
 	if (PRINT_PATCH_TABLE)
 	{
 		Log::out << "Patches:\nSRC_ADDR, SRC_ADDR_OV, DST_ADDR, DST_ADDR_OV, PATCH_TYPE, SECTION_IDX, SECTION_SIZE, SYMBOL" << std::endl;
