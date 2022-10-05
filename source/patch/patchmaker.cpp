@@ -15,8 +15,8 @@
 #include "../process.hpp"
 
 /*
- * TODO: keep track of overlays that used to be modified and aren't anymore
  * TODO: Endianness checks
+ * TODO: static hook duplication protection
  * */
 
 namespace fs = std::filesystem;
@@ -366,24 +366,6 @@ void PatchMaker::gatherInfoFromObjects()
 				std::string_view stemless = symbolName.substr(4);
 				if (stemless != "dest" && !stemless.starts_with("set"))
 					parseSymbol(symbolName, -1, 0);
-			}
-			return false;
-		});
-
-		// Find functions that should be external (section marked)
-		forEachElfSymbol(elf, eh, sh_tbl,
-		[&](const Elf32_Sym& symbol, std::string_view symbolName){
-			if (ELF32_ST_TYPE(symbol.st_info) == STT_FUNC)
-			{
-				for (GenericPatchInfo* p : patchInfoForThisObj)
-				{
-					if (p->sectionIdx != -1) // is patch instructed by section
-					{
-						// if function has the same section as the patch instruction section
-						if (p->sectionIdx == symbol.st_shndx)
-							m_externSymbols.emplace_back(symbolName);
-					}
-				}
 			}
 			return false;
 		});
@@ -761,9 +743,9 @@ void PatchMaker::createLinkerScript()
 			// except for over and set types
 			o += "\t\t";
 			o += std::string_view(p->symbol).substr(1);
-			o += " = .;\n\t\t* (";
+			o += " = .;\n\t\tKEEP(* (";
 			o += p->symbol;
-			o += ")\n";
+			o += "))\n";
 			if (p->patchType == PatchType::Hook)
 				hookCount++;
 		}
