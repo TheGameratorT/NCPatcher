@@ -167,35 +167,21 @@ void ObjMaker::checkIfSourcesNeedRebuild()
 		std::string line;
 		while (std::getline(depStrm, line))
 		{
-			// TODO: Fix this crap once again because GCC's dependency file formatting sucks
+			std::string_view trimLine;
+			trimLine = line.ends_with('\\') ?
+				std::string_view(line).substr(0, line.find_last_of(' ', line.size() - 1)) :
+				line;
 
-#ifdef GCC_HAS_DEP_PATH_BUG
-			if (line.ends_with(':'))
-				continue;
-#endif
-			if (line.ends_with(": \\"))
-				continue;
+			if (trimLine.starts_with(' '))
+				trimLine = trimLine.substr(1);
 
-			std::size_t pos1;
-			std::size_t pos2 = line.length();
-
-			if (!line.starts_with(' '))
-				pos1 = line.find(':') + 2;
-			else
-				pos1 = 1;
-
-			if (line.ends_with('\\'))
-				pos2 -= 2;
-
-			if (pos1 >= pos2)
-				continue;
-
-			std::string dep = line.substr(pos1, pos2 - pos1);
-
+			std::string trimLineStr(trimLine);
 			std::string subLine;
-			std::istringstream subStrm(dep);
+			std::istringstream subStrm(trimLineStr);
 			while (std::getline(subStrm, subLine, ' '))
 			{
+				if (subLine.ends_with(':'))
+					continue;
 #ifdef GCC_HAS_DEP_PATH_BUG
 				std::size_t pathBugPos = subLine.find("\\:");
 				if (pathBugPos != std::string::npos)

@@ -16,7 +16,6 @@
 
 /*
  * TODO: Endianness checks
- * TODO: static hook duplication protection
  * */
 
 #define OSTRa(x) ANSI_bWHITE "\"" << (x) << "\"" ANSI_RESET
