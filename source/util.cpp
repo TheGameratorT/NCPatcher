@@ -3,6 +3,8 @@
 #include <iomanip>
 #include <sstream>
 
+#include "log.hpp"
+
 namespace Util {
 
 int addrToInt(const std::string& in)
@@ -19,6 +21,24 @@ std::string intToAddr(int in, int align, bool prefix)
 		oss << std::setfill('0') << std::setw(align);
 	oss << std::uppercase << std::hex << in;
 	return oss.str();
+}
+
+void printDataAsHex(const void* data, std::size_t size, std::size_t rowlen)
+{
+	const auto* cdata = static_cast<const unsigned char*>(data);
+	for (std::size_t i = 0, j = 0; i < size; i++)
+	{
+		Log::out << std::setw(2) << std::setfill('0') << std::uppercase << std::hex << int(cdata[i]) << std::nouppercase;
+		bool isLastRowByte = j++ > rowlen;
+		if (!isLastRowByte)
+			Log::out << ' ';
+		if (isLastRowByte || i == (size - 1))
+		{
+			j = 0;
+			Log::out << '\n';
+		}
+	}
+	Log::out << std::flush;
 }
 
 }

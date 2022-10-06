@@ -102,4 +102,6 @@ constexpr bool overlaps(T x1, T x2, T y1, T y2)
 int addrToInt(const std::string& in);
 std::string intToAddr(int in, int align, bool prefix = true);
 
+void printDataAsHex(const void* data, std::size_t size, std::size_t rowlen);
+
 }

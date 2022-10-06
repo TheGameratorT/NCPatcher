@@ -135,6 +135,8 @@ void ObjMaker::getSourceFiles()
 
 void ObjMaker::checkIfSourcesNeedRebuild()
 {
+	Log::info("Parsing object file dependencies...");
+
 	// Fetch dependencies to prevent multiple builds
 
 	std::unordered_map<std::string, fs::file_time_type> timeForDep;
@@ -205,7 +207,7 @@ void ObjMaker::checkIfSourcesNeedRebuild()
 
 			if (!timeForDep.contains(depS))
 			{
-				fs::file_time_type depT = fs::last_write_time(depS);
+				fs::file_time_type depT = fs::last_write_time(dep);
 				timeForDep.insert(std::make_pair(depS, depT));
 			}
 

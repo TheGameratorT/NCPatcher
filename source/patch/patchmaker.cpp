@@ -22,10 +22,6 @@
 
 namespace fs = std::filesystem;
 
-constexpr bool PRINT_PATCH_TABLE = true;
-constexpr bool PRINT_PATCH_TABLE_OBJ = true;
-constexpr bool PRINT_HOOK_BRIDGES = true;
-
 constexpr std::size_t SizeOfHookBridge = 20;
 
 struct PatchType {
@@ -98,20 +94,6 @@ static const char* s_patchTypeNames[] = {
 	"setjump", "setcall", "sethook",
 	"rtrepl"
 };
-
-static void print_data_as_hex(const void* data, size_t size, size_t rowlen)
-{
-	const auto* cdata = static_cast<const unsigned char*>(data);
-	for (size_t i = 0, j = 0; i < size; i++)
-	{
-		printf("%02X ", cdata[i]);
-		if (j++ > rowlen || i == (size - 1))
-		{
-			j = 0;
-			printf("\n");
-		}
-	}
-}
 
 static void forEachElfSection(
 	const Elf32_Ehdr& eh, const Elf32_Shdr* sh_tbl, const char* str_tbl,
@@ -237,7 +219,7 @@ void PatchMaker::gatherInfoFromObjects()
 	{
 		const fs::path& objPath = srcFileJob->objFilePath;
 
-		if (PRINT_PATCH_TABLE_OBJ)
+		if (Main::getVerbose())
 			Log::out << ANSI_bYELLOW << objPath.string() << ANSI_RESET << std::endl;
 
 		const BuildTarget::Region* region = srcFileJob->region;
@@ -378,7 +360,7 @@ void PatchMaker::gatherInfoFromObjects()
 				m_externSymbols.emplace_back(p->symbol);
 		}
 
-		if (PRINT_PATCH_TABLE_OBJ)
+		if (Main::getVerbose())
 		{
 			if (patchInfoForThisObj.empty())
 			{
@@ -401,10 +383,20 @@ void PatchMaker::gatherInfoFromObjects()
 			}
 		}
 	}
-	Log::out << "\nExternal symbols:\n";
-	for (const std::string& sym : m_externSymbols)
-		Log::out << sym << '\n';
-	Log::out << std::flush;
+	if (Main::getVerbose())
+	{
+		if (m_externSymbols.empty())
+		{
+			Log::out << "\nExternal symbols: NONE\n" << std::endl;
+		}
+		else
+		{
+			Log::out << "\nExternal symbols:\n";
+			for (const std::string& sym : m_externSymbols)
+				Log::out << sym << '\n';
+			Log::out << std::flush;
+		}
+	}
 }
 
 void PatchMaker::createBackupDirectory()
@@ -1127,7 +1119,7 @@ void PatchMaker::gatherInfoFromElf()
 	if (foundOverlapping)
 		throw ncp::exception("Overlapping patches were detected.");
 	
-	if (PRINT_PATCH_TABLE)
+	if (Main::getVerbose())
 	{
 		Log::out << "Patches:\nSRC_ADDR, SRC_ADDR_OV, DST_ADDR, DST_ADDR_OV, PATCH_TYPE, SECTION_IDX, SECTION_SIZE, SYMBOL" << std::endl;
 		for (auto& p : m_patchInfo)
@@ -1264,8 +1256,8 @@ void PatchMaker::applyPatchesToRom()
 
 			u32 hookBridgeAddr = info->curAddress;
 
-			if (PRINT_HOOK_BRIDGES)
-				printf("HOOK DEST: 0x%08X\n", hookBridgeAddr);
+			if (Main::getVerbose())
+				Log::out << "HOOK DEST: " << Util::intToAddr(hookBridgeAddr, 8) << std::endl;
 
 			bin->write<u32>(p->destAddress, makeJumpOpCode(armOpcodeB, p->destAddress, hookBridgeAddr));
 
@@ -1277,8 +1269,8 @@ void PatchMaker::applyPatchesToRom()
 			Util::write<u32>(hookDataPtr + 12, fixupOpCode(ogOpCode, p->destAddress, hookBridgeAddr + 12));
 			Util::write<u32>(hookDataPtr + 16, makeJumpOpCode(armOpcodeB, hookBridgeAddr + 16, p->destAddress + 4));
 
-			if (PRINT_HOOK_BRIDGES)
-				print_data_as_hex(hookData.data() + offset, 20, 32);
+			if (Main::getVerbose())
+				Util::printDataAsHex(hookData.data() + offset, 20, 32);
 
 			info->curAddress += SizeOfHookBridge;
 			break;

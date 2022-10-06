@@ -34,11 +34,13 @@ static std::filesystem::path s_appPath;
 static std::filesystem::path s_workPath;
 static std::filesystem::path s_romPath;
 static const char* s_errorContext = nullptr;
+static bool s_verbose = false;
 
 const std::filesystem::path& getAppPath() { return s_appPath; }
 const std::filesystem::path& getWorkPath() { return s_workPath; }
 const std::filesystem::path& getRomPath() { return s_romPath; }
 void setErrorContext(const char* errorContext) { s_errorContext = errorContext; }
+bool getVerbose() { return s_verbose; }
 
 }
 
@@ -222,6 +224,9 @@ int main(int argc, char* argv[])
 		Log::error("Could not open the log file for writing.");
 		return 1;
 	}
+
+	if (argc > 1)
+		Main::s_verbose = ((strcmp(argv[1], "--verbose") == 0) || (strcmp(argv[1], "-v") == 0));
 
 	try
 	{
