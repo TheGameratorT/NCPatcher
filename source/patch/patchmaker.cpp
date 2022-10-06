@@ -197,12 +197,21 @@ void PatchMaker::fetchNewcodeAddr()
 			switch (region.mode)
 			{
 			case BuildTarget::Mode::Append:
-				addr = m_ovtEntries[dest]->ramAddress + m_ovtEntries[dest]->ramSize;
+			{
+				auto& ovtEntry = m_ovtEntries[dest];
+				addr = ovtEntry->ramAddress + ovtEntry->ramSize + ovtEntry->bssSize;
 				break;
+			}
 			case BuildTarget::Mode::Replace:
+			{
+				addr = (region.address == 0xFFFFFFFF) ? m_ovtEntries[dest]->ramAddress : region.address;
+				break;
+			}
 			case BuildTarget::Mode::Create:
+			{
 				addr = region.address;
 				break;
+			}
 			}
 			m_newcodeAddrForDest[dest] = addr;
 		}
@@ -486,8 +495,6 @@ void PatchMaker::saveArmBin()
 
 void PatchMaker::loadOverlayTableBin()
 {
-	// TODO: This probably needs to save a backup as well
-
 	Log::info("Loading overlay table...");
 
 	const char* binName = m_target->getArm9() ? "arm9ovt.bin" : "arm7ovt.bin";
@@ -930,6 +937,8 @@ void PatchMaker::linkElfFile()
 
 void PatchMaker::gatherInfoFromElf()
 {
+	Log::info("Getting patches from elf...");
+
 	const Elf32_Ehdr& eh = m_elf->getHeader();
 	auto sh_tbl = m_elf->getSectionHeaderTable();
 	auto str_tbl = m_elf->getSection<char>(sh_tbl[eh.e_shstrndx]);
@@ -1202,6 +1211,8 @@ void PatchMaker::applyPatchesToRom()
 		"Failed to apply patches for ARM9 target." :
 		"Failed to apply patches for ARM7 target.");
 
+	Log::info("Patching the binaries...");
+
 	const u32 armOpcodeB = 0xEA000000; // B
 	const u32 armOpcodeBL = 0xEB000000; // BL
 	//const u32 armHookPush = 0xE92D100F; // PUSH {R0-R3,R12}
@@ -1376,8 +1387,37 @@ void PatchMaker::applyPatchesToRom()
 			{
 			case BuildTarget::Mode::Append:
 			{
-				// TO BE DESIGNED.
-				throw ncp::exception("Appending data to overlays is not yet supported.");
+				OverlayBin* bin = getOverlay(dest);
+				auto& ovtEntry = m_ovtEntries[dest];
+
+				ovtEntry->compressed = 0; // size of compressed "ramSize"
+				ovtEntry->flag = 0;
+
+				std::vector<u8>& data = bin->data();
+				std::size_t szData = data.size();
+
+				std::size_t totalOvSize = szData + ovtEntry->bssSize + newcodeInfo->binSize + newcodeInfo->bssSize;
+				if (totalOvSize > region->length)
+				{
+					throw ncp::exception("Overlay " + std::to_string(dest) + " exceeds max length of "
+						+ std::to_string(region->length) + " bytes, got " + std::to_string(totalOvSize) + " bytes.");
+				}
+
+				if (newcodeInfo->binSize > 0)
+				{
+					std::size_t newSzData = szData + ovtEntry->bssSize + newcodeInfo->binSize;
+					data.resize(newSzData);
+					u8* pData = data.data();
+					std::memset(&pData[szData], 0, ovtEntry->bssSize); // Keep original BSS as data
+					writeNewcode(&pData[szData + ovtEntry->bssSize]); // Write new code after BSS
+					ovtEntry->ramSize = newSzData;
+					ovtEntry->bssSize = newcodeInfo->bssSize; // Set the BSS to our new code BSS
+				}
+				else
+				{
+					ovtEntry->bssSize += newcodeInfo->bssSize;
+				}
+
 				break;
 			}
 			case BuildTarget::Mode::Replace:
@@ -1385,13 +1425,20 @@ void PatchMaker::applyPatchesToRom()
 				OverlayBin* bin = getOverlay(dest);
 				auto& ovtEntry = m_ovtEntries[dest];
 
-				ovtEntry->ramAddress = region->address;
+				ovtEntry->ramAddress = newcodeAddr;
 				ovtEntry->ramSize = newcodeInfo->binSize;
 				ovtEntry->bssSize = newcodeInfo->bssSize;
 				ovtEntry->sinitStart = 0;
 				ovtEntry->sinitEnd = 0;
 				ovtEntry->compressed = 0; // size of compressed "ramSize"
 				ovtEntry->flag = 0;
+
+				std::size_t totalOvSize = newcodeInfo->binSize + newcodeInfo->bssSize;
+				if (totalOvSize > region->length)
+				{
+					throw ncp::exception("Overlay " + std::to_string(dest) + " exceeds max length of "
+						+ std::to_string(region->length) + " bytes, got " + std::to_string(totalOvSize) + " bytes.");
+				}
 
 				std::vector<u8>& data = bin->data();
 				
