@@ -41,6 +41,7 @@ struct GenericPatchInfo
 	std::size_t patchType; // the patch type
 	int sectionIdx; // the index of the section (-1 label, >= 0 section index)
 	int sectionSize; // the size of the section (used for over patches)
+	bool isNcpSet; // if the patch is an ncp_set type patch
 	std::string symbol; // the symbol of the patch (used to generate linker script)
 	SourceFileJob* job;
 };
@@ -80,6 +81,7 @@ struct LDSRegionEntry
 	int dest;
 	LDSMemoryEntry* memory;
 	const BuildTarget::Region* region;
+	std::size_t hookCount;
 	std::vector<GenericPatchInfo*> sectionPatches;
 };
 
@@ -278,6 +280,13 @@ void PatchMaker::gatherInfoFromObjects()
 				return;
 			}
 
+			bool isNcpSet = false;
+			if (patchType >= PatchType::SetJump && patchType <= PatchType::SetHook)
+			{
+				patchType -= 4;
+				isNcpSet = true;
+			}
+
 			bool expectingOverlay = true;
 			std::size_t addressNameStart = patchTypeNameEnd + 1;
 			std::size_t addressNameEnd = labelName.find('_', addressNameStart);
@@ -324,6 +333,7 @@ void PatchMaker::gatherInfoFromObjects()
 				.patchType = patchType,
 				.sectionIdx = sectionIdx,
 				.sectionSize = sectionSize,
+				.isNcpSet = isNcpSet,
 				.symbol = std::string(symbolName),
 				.job = srcFileJob.get()
 			});
@@ -356,7 +366,7 @@ void PatchMaker::gatherInfoFromObjects()
 			if (symbolName.starts_with("ncp_"))
 			{
 				std::string_view stemless = symbolName.substr(4);
-				if (stemless != "dest" && !stemless.starts_with("set"))
+				if (stemless != "dest")
 					parseSymbol(symbolName, -1, 0);
 			}
 			return false;
@@ -663,7 +673,7 @@ void PatchMaker::createLinkerScript()
 		}
 
 		memoryEntries.emplace_back(memEntry);
-		regionEntries.emplace_back(new LDSRegionEntry{ dest, memEntry, region });
+		regionEntries.emplace_back(new LDSRegionEntry{ dest, memEntry, region, 0 });
 	}
 
 	std::vector<std::unique_ptr<LDSOverPatch>> overPatches;
@@ -689,8 +699,13 @@ void PatchMaker::createLinkerScript()
 		{
 			for (auto& ldsRegion : regionEntries)
 			{
-				if (ldsRegion->dest == info->job->region->destination && info->sectionIdx != -1)
-					ldsRegion->sectionPatches.emplace_back(info.get());
+				if (ldsRegion->dest == info->job->region->destination)
+				{
+					if (info->sectionIdx != -1)
+						ldsRegion->sectionPatches.emplace_back(info.get());
+					if (info->patchType == PatchType::Hook)
+						ldsRegion->hookCount++;
+				}
 			}
 		}
 	}
@@ -732,7 +747,6 @@ void PatchMaker::createLinkerScript()
 
 	for (auto& s : regionEntries)
 	{
-		std::size_t hookCount = 0;
 		// TEXT
 		o += "\t.";
 		o += s->memory->name;
@@ -746,8 +760,6 @@ void PatchMaker::createLinkerScript()
 			o += " = .;\n\t\tKEEP(* (";
 			o += p->symbol;
 			o += "))\n";
-			if (p->patchType == PatchType::Hook)
-				hookCount++;
 		}
 		for (auto& p : m_rtreplPatches)
 		{
@@ -773,13 +785,13 @@ void PatchMaker::createLinkerScript()
 				 "\t\t* (.rodata.*)\n"
 				 "\t\t* (.init_array.*)\n"
 				 "\t\t* (.data.*)\n";
-			if (hookCount != 0)
+			if (s->hookCount != 0)
 			{
 				o += "\t\t. = ALIGN(4);\n"
 					 "\t\tncp_hookdata = .;\n"
 					 "\t\tFILL(0)\n"
 					 "\t\t. = ncp_hookdata + ";
-				o += std::to_string(hookCount * SizeOfHookBridge);
+				o += std::to_string(s->hookCount * SizeOfHookBridge);
 				o += ";\n";
 			}
 		}
@@ -804,14 +816,14 @@ void PatchMaker::createLinkerScript()
 						addSectionInclude(o, objPath, secInc);
 				}
 			}
-			if (hookCount != 0)
+			if (s->hookCount != 0)
 			{
 				o += "\t\t. = ALIGN(4);\n\t\tncp_hookdata_";
 				o += s->memory->name;
 				o += " = .;\n\t\tFILL(0)\n\t\t. = ncp_hookdata_";
 				o += s->memory->name;
 				o += " + ";
-				o += std::to_string(hookCount * SizeOfHookBridge);
+				o += std::to_string(s->hookCount * SizeOfHookBridge);
 				o += ";\n";
 			}
 		}
@@ -877,7 +889,7 @@ void PatchMaker::createLinkerScript()
 				if (j->region->destination == p)
 				{
 					o += "\t\t KEEP(\"";
-					o += j->objFilePath.string();
+					o += fs::relative(j->objFilePath).string();
 					o += "\" (.ncp_set))\n\t"
 						 "} > ncp_set AT > bin\n";
 				}
@@ -942,78 +954,6 @@ void PatchMaker::gatherInfoFromElf()
 	const Elf32_Ehdr& eh = m_elf->getHeader();
 	auto sh_tbl = m_elf->getSectionHeaderTable();
 	auto str_tbl = m_elf->getSection<char>(sh_tbl[eh.e_shstrndx]);
-
-	auto parseNcpSetSymbol = [&](std::string_view symbolName, u32 srcAddress, int srcAddressOv){
-		std::string_view labelName = symbolName.substr(7);
-
-		std::size_t patchTypeNameEnd = labelName.find('_');
-		if (patchTypeNameEnd == std::string::npos)
-			return;
-
-		std::string_view patchTypeName = labelName.substr(0, patchTypeNameEnd);
-		std::size_t patchType = Util::indexOf(patchTypeName, s_patchTypeNames, sizeof(s_patchTypeNames) / sizeof(char*));
-		if (patchType == -1)
-		{
-			Log::out << OWARN << "Found invalid patch type: " << patchTypeName << std::endl;
-			return;
-		}
-
-		if (patchType != PatchType::Jump && patchType != PatchType::Call && patchType != PatchType::Hook)
-		{
-			Log::out << OWARN << "\"set\" patch type must be a jump, call or hook: " << patchTypeName << std::endl;
-			return;
-		}
-
-		bool expectingOverlay = true;
-		std::size_t addressNameStart = patchTypeNameEnd + 1;
-		std::size_t addressNameEnd = labelName.find('_', addressNameStart);
-		if (addressNameEnd == std::string::npos)
-		{
-			addressNameEnd = labelName.length();
-			expectingOverlay = false;
-		}
-		std::string_view addressName = labelName.substr(addressNameStart, addressNameEnd - addressNameStart);
-		u32 destAddress;
-		try {
-			destAddress = Util::addrToInt(std::string(addressName));
-		} catch (std::exception& e) {
-			Log::out << OWARN << "Found invalid address for patch: " << labelName << std::endl;
-			return;
-		}
-
-		int destAddressOv = -1;
-		if (expectingOverlay)
-		{
-			std::size_t overlayNameStart = addressNameEnd + 1;
-			std::size_t overlayNameEnd = labelName.length();
-			std::string_view overlayName = labelName.substr(overlayNameStart, overlayNameEnd - overlayNameStart);
-			if (!overlayName.starts_with("ov"))
-			{
-				Log::out << OWARN << "Expected overlay definition in patch for: " << labelName << std::endl;
-				return;
-			}
-			try {
-				destAddressOv = Util::addrToInt(std::string(overlayName.substr(2)));
-			} catch (std::exception& e) {
-				Log::out << OWARN << "Found invalid overlay for patch: " << labelName << std::endl;
-				return;
-			}
-		}
-
-		auto* patchInfoEntry = new GenericPatchInfo({
-			.srcAddress = srcAddress,
-			.srcAddressOv = srcAddressOv,
-			.destAddress = destAddress,
-			.destAddressOv = destAddressOv,
-			.patchType = patchType,
-			.sectionIdx = -1,
-			.sectionSize = 0,
-			.symbol = std::string(symbolName),
-			.job = nullptr
-		});
-
-		m_patchInfo.emplace_back(patchInfoEntry);
-	};
 
 	// Update the patch info with new values
 	forEachElfSymbol(*m_elf, eh, sh_tbl,
@@ -1090,15 +1030,11 @@ void PatchMaker::gatherInfoFromElf()
 
 			const char* sectionData = m_elf->getSection<char>(section);
 
-			forEachElfSymbol(*m_elf, eh, sh_tbl,
-			[&](const Elf32_Sym& symbol, std::string_view symbolName){
-				if (symbolName.starts_with("ncp_set") && symbol.st_shndx == sectionIdx)
-				{
-					u32 srcAddr = *reinterpret_cast<const u32*>(&sectionData[symbol.st_value - section.sh_addr]);
-					parseNcpSetSymbol(symbolName, srcAddr, srcAddrOv);
-				}
-				return false;
-			});
+			for (auto& p : m_patchInfo)
+			{
+				if (p->isNcpSet)
+					p->srcAddress = Util::read<u32>(&sectionData[p->srcAddress - section.sh_addr]);
+			}
 		}
 		return false;
 	});

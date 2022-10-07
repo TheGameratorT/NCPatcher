@@ -51,7 +51,7 @@ inline void write(void* address, T value)
 }
 
 template<typename T>
-inline T read(void* address)
+inline T read(const void* address)
 {
 	T value;
 	std::memcpy(&value, address, sizeof(T));
