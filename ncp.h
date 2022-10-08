@@ -59,6 +59,8 @@ asm("#include \"ncp_asm.h\"");
 asm(#sym":\n.incbin \"" path "\""); \
 __ncp_extern const char sym[];
 
+#define ncp_thumb __attribute__((target("thumb")))
+
 // NCP Real Time
 
 #define arm_opcode_b 0xEA000000
@@ -66,12 +68,12 @@ __ncp_extern const char sym[];
 #define arm_opcode_nop 0xE1A00000
 
 static inline void __ncprt_set(int address, int value) { *(int*)address = value; }
-static inline void __ncprt_set_jump(int address, void* function) { *(int*)address = (arm_opcode_b | (((*(int*)function >> 2) - (address >> 2) - 2) & 0xFFFFFF)); }
-static inline void __ncprt_set_call(int address, void* function) { *(int*)address = (arm_opcode_bl | (((*(int*)function >> 2) - (address >> 2) - 2) & 0xFFFFFF)); }
+static inline void __ncprt_set_jump(int address, void* function) { *(int*)address = (arm_opcode_b | (((((int)function - address) >> 2) - 2) & 0xFFFFFF)); }
+static inline void __ncprt_set_call(int address, void* function) { *(int*)address = (arm_opcode_bl | (((((int)function - address) >> 2) - 2) & 0xFFFFFF)); }
 
 #define ncprt_set(address, value) __ncprt_set(address, value)
-#define ncprt_set_jump(address, function) __ncprt_set_jump(address, (void*)function)
-#define ncprt_set_call(address, function) __ncprt_set_call(address, (void*)function)
+#define ncprt_set_jump(address, function) __ncprt_set_jump(address, (void*)(function))
+#define ncprt_set_call(address, function) __ncprt_set_call(address, (void*)(function))
 
 #define ncprt_repl_type(name) __attribute__((section(".ncp_rtrepl_" #name)))
 
