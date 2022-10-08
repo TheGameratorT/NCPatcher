@@ -23,6 +23,7 @@
 namespace fs = std::filesystem;
 
 constexpr std::size_t SizeOfHookBridge = 20;
+constexpr std::size_t SizeOfArm2ThumbJumpBridge = 12;
 
 constexpr u32 armOpcodeB = 0xEA000000; // B
 constexpr u32 armOpcodeBL = 0xEB000000; // BL
@@ -75,7 +76,7 @@ struct NewcodePatch
 	std::size_t bssAlign;
 };
 
-struct HookMakerInfo
+struct AutogenDataInfo
 {
 	u32 address;
 	u32 curAddress;
@@ -94,7 +95,7 @@ struct LDSRegionEntry
 	int dest;
 	LDSMemoryEntry* memory;
 	const BuildTarget::Region* region;
-	std::size_t hookCount;
+	std::size_t autogenDataSize;
 	std::vector<GenericPatchInfo*> sectionPatches;
 };
 
@@ -382,15 +383,18 @@ void PatchMaker::gatherInfoFromObjects()
 			{
 				for (GenericPatchInfo* p : patchInfoForThisObj)
 				{
-					if (p->sectionIdx != -1) // is patch instructed by section
+					// no need to check this condition because at this point all fetched patches are only section marked ones
+					/*if (p->sectionIdx != -1) // is patch instructed by section
+					{*/
+					
+					// if function has the same section as the patch instruction section
+					if (p->sectionIdx == symbol.st_shndx)
 					{
-						// if function has the same section as the patch instruction section
-						if (p->sectionIdx == symbol.st_shndx)
-						{
-							p->srcThumb = symbol.st_value & 1;
-							break;
-						}
+						p->srcThumb = symbol.st_value & 1;
+						break;
 					}
+					
+					//}
 				}
 			}
 			return false;
@@ -433,9 +437,9 @@ void PatchMaker::gatherInfoFromObjects()
 						std::setw(10) << s_patchTypeNames[p->patchType] << "  " <<
 						std::setw(7) << std::dec << p->sectionIdx << "  " <<
 						std::setw(8) << std::dec << p->sectionSize << "  " <<
-						std::setw(7) << std::dec << p->isNcpSet << "  " <<
-						std::setw(9) << std::dec << p->srcThumb << "  " <<
-						std::setw(9) << std::dec << p->destThumb << "  " <<
+						std::setw(7) << std::boolalpha << p->isNcpSet << "  " <<
+						std::setw(9) << std::boolalpha << p->srcThumb << "  " <<
+						std::setw(9) << std::boolalpha << p->destThumb << "  " <<
 						std::setw(6) << p->symbol << std::endl;
 				}
 			}
@@ -742,8 +746,16 @@ void PatchMaker::createLinkerScript()
 				{
 					if (info->sectionIdx != -1)
 						ldsRegion->sectionPatches.emplace_back(info.get());
+
 					if (info->patchType == PatchType::Hook)
-						ldsRegion->hookCount++;
+					{
+						ldsRegion->autogenDataSize += SizeOfHookBridge;
+					}
+					else if (info->patchType == PatchType::Jump)
+					{
+						if (!info->destThumb && info->srcThumb) // ARM -> THUMB
+							ldsRegion->autogenDataSize += SizeOfArm2ThumbJumpBridge;
+					}
 				}
 			}
 		}
@@ -824,13 +836,13 @@ void PatchMaker::createLinkerScript()
 				 "\t\t* (.rodata.*)\n"
 				 "\t\t* (.init_array.*)\n"
 				 "\t\t* (.data.*)\n";
-			if (s->hookCount != 0)
+			if (s->autogenDataSize != 0)
 			{
 				o += "\t\t. = ALIGN(4);\n"
-					 "\t\tncp_hookdata = .;\n"
+					 "\t\tncp_autogendata = .;\n"
 					 "\t\tFILL(0)\n"
-					 "\t\t. = ncp_hookdata + ";
-				o += std::to_string(s->hookCount * SizeOfHookBridge);
+					 "\t\t. = ncp_autogendata + ";
+				o += std::to_string(s->autogenDataSize);
 				o += ";\n";
 			}
 		}
@@ -855,14 +867,14 @@ void PatchMaker::createLinkerScript()
 						addSectionInclude(o, objPath, secInc);
 				}
 			}
-			if (s->hookCount != 0)
+			if (s->autogenDataSize)
 			{
-				o += "\t\t. = ALIGN(4);\n\t\tncp_hookdata_";
+				o += "\t\t. = ALIGN(4);\n\t\tncp_autogendata_";
 				o += s->memory->name;
-				o += " = .;\n\t\tFILL(0)\n\t\t. = ncp_hookdata_";
+				o += " = .;\n\t\tFILL(0)\n\t\t. = ncp_autogendata_";
 				o += s->memory->name;
 				o += " + ";
-				o += std::to_string(s->hookCount * SizeOfHookBridge);
+				o += std::to_string(s->autogenDataSize);
 				o += ";\n";
 			}
 		}
@@ -1019,22 +1031,22 @@ void PatchMaker::gatherInfoFromElf()
 				}
 			}
 		}
-		if (symbolName.starts_with("ncp_hookdata"))
+		if (symbolName.starts_with("ncp_autogendata"))
 		{
 			int srcAddrOv = -1;
-			if (symbolName.length() != 12 && symbolName.substr(12).starts_with("_ov"))
+			if (symbolName.length() != 15 && symbolName.substr(15).starts_with("_ov"))
 			{
 				try {
-					srcAddrOv = std::stoi(std::string(symbolName.substr(15)));
+					srcAddrOv = std::stoi(std::string(symbolName.substr(18)));
 				} catch (std::exception& e) {
-					Log::out << OWARN << "Found invalid overlay parsing ncp_hookdata symbol: " << symbolName << std::endl;
+					Log::out << OWARN << "Found invalid overlay parsing ncp_autogendata symbol: " << symbolName << std::endl;
 					return false;
 				}
 			}
-			auto* info = new HookMakerInfo();
+			auto* info = new AutogenDataInfo();
 			info->address = symbol.st_value;
 			info->curAddress = symbol.st_value;
-			m_hookMakerInfoForDest.emplace(srcAddrOv, info);
+			m_autogenDataInfoForDest.emplace(srcAddrOv, info);
 		}
 		return false;
 	});
@@ -1116,9 +1128,9 @@ void PatchMaker::gatherInfoFromElf()
 				std::setw(10) << s_patchTypeNames[p->patchType] << "  " <<
 				std::setw(7) << std::dec << p->sectionIdx << "  " <<
 				std::setw(8) << std::dec << p->sectionSize << "  " <<
-				std::setw(7) << std::dec << p->isNcpSet << "  " <<
-				std::setw(9) << std::dec << p->srcThumb << "  " <<
-				std::setw(9) << std::dec << p->destThumb << "  " <<
+				std::setw(7) << std::boolalpha << p->isNcpSet << "  " <<
+				std::setw(9) << std::boolalpha << p->srcThumb << "  " <<
+				std::setw(9) << std::boolalpha << p->destThumb << "  " <<
 				std::setw(6) << p->symbol << std::endl;
 		}
 	}
@@ -1219,32 +1231,53 @@ void PatchMaker::applyPatchesToRom()
 		{
 		case PatchType::Jump:
 		{
-			if (!p->destThumb && !p->srcThumb)
+			if (!p->destThumb && !p->srcThumb) // ARM -> ARM
 			{
-				// ARM -> ARM
 				bin->write<u32>(p->destAddress, makeJumpOpCode(armOpcodeB, p->destAddress, p->srcAddress));
 			}
-			else if (!p->destThumb && p->srcThumb)
+			else if (!p->destThumb && p->srcThumb) // ARM -> THUMB
 			{
-				// ARM -> THUMB
-				u32 patchData[3];
-				patchData[0] = 0xE59FC000;        // LDR R12, [PC,#8]
-				patchData[1] = 0xE12FFF1C;        // BX  R12
-				patchData[2] = p->srcAddress | 1; // value for PC+8
-				bin->writeBytes(p->destAddress, patchData, 12);
+				/*
+				 * If the patch type is a ARM to THUMB jump, the instruction at
+				 * destAddr must become a jump to a ARM to THUMB jump bridge generated
+				 * by NCPatcher and it should look as such:
+				 *
+				 * arm2thumb_jump_bridge:
+				 *     LDR   R12, [PC]
+				 *     BX    R12
+				 *     .int: srcAddr+1
+				 * */
+				
+				auto& info = m_autogenDataInfoForDest[p->srcAddressOv];
+				if (info == nullptr)
+					throw ncp::exception("Unexpected p->srcAddressOv for m_autogenDataInfoForDest encountered.");
+
+				std::vector<u8>& bridgeData = info->data;
+				std::size_t offset = bridgeData.size();
+				bridgeData.resize(offset + SizeOfArm2ThumbJumpBridge);
+
+				u32 bridgeAddr = info->curAddress;
+
+				bin->write<u32>(p->destAddress, makeJumpOpCode(armOpcodeB, p->destAddress, bridgeAddr));
+
+				u8* bridgeDataPtr = bridgeData.data() + offset;
+
+				Util::write<u32>(bridgeDataPtr, 0xE59FC000);            // LDR R12, [PC]
+				Util::write<u32>(bridgeDataPtr + 4, 0xE12FFF1C);        // BX  R12
+				Util::write<u32>(bridgeDataPtr + 8, p->srcAddress | 1); // int value for R12
+
+				info->curAddress += SizeOfArm2ThumbJumpBridge;
 			}
-			else if (p->destThumb && !p->srcThumb)
+			else if (p->destThumb && !p->srcThumb) // THUMB -> ARM
 			{
-				// THUMB -> ARM
 				u16 patchData[3];
 				patchData[0] = thumbOpCodePushLR;
 				patchData[1] = makeThumbJumpOpCode(thumbOpCodeBLX1, p->destAddress, p->srcAddress);
 				patchData[2] = thumbOpCodePopPC;
 				bin->writeBytes(p->destAddress, patchData, 6);
 			}
-			else
+			else // THUMB -> THUMB
 			{
-				// THUMB -> THUMB
 				u16 patchData[3];
 				patchData[0] = thumbOpCodePushLR;
 				patchData[1] = makeThumbJumpOpCode(thumbOpCodeBL1, p->destAddress, p->srcAddress);
@@ -1263,25 +1296,21 @@ void PatchMaker::applyPatchesToRom()
 				throw ncp::exception(oss.str());
 			}
 
-			if (!p->destThumb && !p->srcThumb)
+			if (!p->destThumb && !p->srcThumb) // ARM -> ARM
 			{
-				// ARM -> ARM
 				bin->write<u32>(p->destAddress, makeJumpOpCode(armOpcodeBL, p->destAddress, p->srcAddress));
 			}
-			else if (!p->destThumb && p->srcThumb)
+			else if (!p->destThumb && p->srcThumb) // ARM -> THUMB
 			{
-				// ARM -> THUMB
 				u32 opcode = armOpCodeBLX | (((p->srcAddress % 4) >> 1) << 23);
 				bin->write<u32>(p->destAddress, makeJumpOpCode(opcode, p->destAddress, p->srcAddress));
 			}
-			else if (p->destThumb && !p->srcThumb)
+			else if (p->destThumb && !p->srcThumb) // THUMB -> ARM
 			{
-				// THUMB -> ARM
 				bin->write<u32>(p->destAddress, makeThumbJumpOpCode(thumbOpCodeBLX1, p->destAddress, p->srcAddress));
 			}
-			else
+			else // THUMB -> THUMB
 			{
-				// THUMB -> THUMB
 				bin->write<u32>(p->destAddress, makeThumbJumpOpCode(thumbOpCodeBL1, p->destAddress, p->srcAddress));
 			}
 			break;
@@ -1308,9 +1337,9 @@ void PatchMaker::applyPatchesToRom()
 
 			u32 ogOpCode = bin->read<u32>(p->destAddress);
 
-			auto& info = m_hookMakerInfoForDest[p->srcAddressOv];
+			auto& info = m_autogenDataInfoForDest[p->srcAddressOv];
 			if (info == nullptr)
-				throw ncp::exception("Unexpected p->srcAddressOv for m_hookMakerInfoForDest encountered.");
+				throw ncp::exception("Unexpected p->srcAddressOv for m_autogenDataInfoForDest encountered.");
 
 			std::vector<u8>& hookData = info->data;
 			std::size_t offset = hookData.size();
@@ -1351,15 +1380,15 @@ void PatchMaker::applyPatchesToRom()
 		u32 newcodeAddr = m_newcodeAddrForDest[dest];
 
 		auto writeNewcode = [&](u8* addr){
-			std::size_t hookDataSize = 0;
-			auto& hookInfo = m_hookMakerInfoForDest[dest];
-			if (hookInfo != nullptr)
-				hookDataSize = hookInfo->data.size();
+			std::size_t autogenDataSize = 0;
+			auto& autogenDataInfo = m_autogenDataInfoForDest[dest];
+			if (autogenDataInfo != nullptr)
+				autogenDataSize = autogenDataInfo->data.size();
 
 			// Write the patch data
-			std::memcpy(addr, newcodeInfo->binData, newcodeInfo->binSize - hookDataSize);
-			if (hookDataSize != 0)
-				std::memcpy(&addr[newcodeInfo->binSize - hookDataSize], hookInfo->data.data(), hookDataSize);
+			std::memcpy(addr, newcodeInfo->binData, newcodeInfo->binSize - autogenDataSize);
+			if (autogenDataSize != 0)
+				std::memcpy(&addr[newcodeInfo->binSize - autogenDataSize], autogenDataInfo->data.data(), autogenDataSize);
 		};
 
 		if (dest == -1)

@@ -16,7 +16,7 @@ class Elf32;
 struct GenericPatchInfo;
 struct RtReplPatchInfo;
 struct NewcodePatch;
-struct HookMakerInfo;
+struct AutogenDataInfo;
 
 class PatchMaker
 {
@@ -51,7 +51,7 @@ private:
 	std::unique_ptr<Elf32> m_elf;
 	std::unordered_map<int, u32> m_newcodeAddrForDest;
 	std::unordered_map<int, std::unique_ptr<NewcodePatch>> m_newcodeDataForDest;
-	std::unordered_map<int, std::unique_ptr<HookMakerInfo>> m_hookMakerInfoForDest;
+	std::unordered_map<int, std::unique_ptr<AutogenDataInfo>> m_autogenDataInfoForDest;
 
 	[[nodiscard]] inline ArmBin* getArm() const { return m_arm.get(); }
 
