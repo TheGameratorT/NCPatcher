@@ -35,6 +35,8 @@ public:
 
 	[[nodiscard]] constexpr std::vector<u8>& data() { return m_bytes; };
 	[[nodiscard]] constexpr const std::vector<u8>& data() const { return m_bytes; };
+	[[nodiscard]] constexpr std::vector<u8>& backupData() { return m_backupData; };
+	[[nodiscard]] constexpr const std::vector<u8>& backupData() const { return m_backupData; };
 
 	[[nodiscard]] constexpr bool getDirty() const { return m_isDirty; }
 	constexpr void setDirty(bool isDirty) { m_isDirty = isDirty; }
@@ -44,4 +46,5 @@ private:
 	u32 m_ramAddress;
 	int m_id;
 	bool m_isDirty;
+	std::vector<u8> m_backupData;
 };

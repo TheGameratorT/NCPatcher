@@ -215,12 +215,12 @@ void PatchMaker::fetchNewcodeAddr()
 			case BuildTarget::Mode::Append:
 			{
 				auto& ovtEntry = m_ovtEntries[dest];
-				addr = ovtEntry->ramAddress + ovtEntry->ramSize + ovtEntry->bssSize;
+				addr = ovtEntry.ramAddress + ovtEntry.ramSize + ovtEntry.bssSize;
 				break;
 			}
 			case BuildTarget::Mode::Replace:
 			{
-				addr = (region.address == 0xFFFFFFFF) ? m_ovtEntries[dest]->ramAddress : region.address;
+				addr = (region.address == 0xFFFFFFFF) ? m_ovtEntries[dest].ramAddress : region.address;
 				break;
 			}
 			case BuildTarget::Mode::Create:
@@ -449,7 +449,7 @@ void PatchMaker::gatherInfoFromObjects()
 	{
 		if (m_externSymbols.empty())
 		{
-			Log::out << "\nExternal symbols: NONE\n" << std::endl;
+			Log::out << "\nExternal symbols: NONE" << std::endl;
 		}
 		else
 		{
@@ -548,6 +548,20 @@ void PatchMaker::saveArmBin()
 
 void PatchMaker::loadOverlayTableBin()
 {
+	auto loadOvtEntries = [](std::vector<OvtEntry>& ovtEntries, const fs::path& filePath){
+		uintmax_t fileSize = fs::file_size(filePath);
+		u32 overlayCount = fileSize / sizeof(OvtEntry);
+
+		ovtEntries.resize(overlayCount);
+
+		std::ifstream inputFile(filePath, std::ios::binary);
+		if (!inputFile.is_open())
+			throw ncp::file_error(filePath, ncp::file_error::read);
+		for (u32 i = 0; i < overlayCount; i++)
+			inputFile.read(reinterpret_cast<char*>(&ovtEntries[i]), sizeof(OvtEntry));
+		inputFile.close();
+	};
+
 	Log::info("Loading overlay table...");
 
 	const char* binName = m_target->getArm9() ? "arm9ovt.bin" : "arm7ovt.bin";
@@ -555,6 +569,8 @@ void PatchMaker::loadOverlayTableBin()
 	fs::current_path(Main::getWorkPath());
 
 	fs::path bakBinName = BuildConfig::getBackupDir() / binName;
+
+	bool doBackup = false;
 
 	fs::path workBinName;
 	if (fs::exists(bakBinName)) //has backup
@@ -564,41 +580,37 @@ void PatchMaker::loadOverlayTableBin()
 	else //has no backup
 	{
 		fs::current_path(Main::getRomPath());
-		workBinName = binName;
 		if (!fs::exists(binName))
 			throw ncp::file_error(binName, ncp::file_error::find);
-		fs::copy_file(binName, Main::getWorkPath() / bakBinName);
+		workBinName = binName;
+		doBackup = true;
 	}
 
-	uintmax_t fileSize = fs::file_size(workBinName);
-	u32 overlayCount = fileSize / sizeof(OvtEntry);
-
-	m_ovtEntries.resize(overlayCount);
-
-	std::ifstream inputFile(workBinName, std::ios::binary);
-	if (!inputFile.is_open())
-		throw ncp::file_error(workBinName, ncp::file_error::read);
-	for (u32 i = 0; i < overlayCount; i++)
-	{
-		auto* entry = new OvtEntry();
-		inputFile.read(reinterpret_cast<char*>(entry), sizeof(OvtEntry));
-		m_ovtEntries[i] = std::unique_ptr<OvtEntry>(entry);
-	}
-	inputFile.close();
+	loadOvtEntries(m_ovtEntries, workBinName);
+	if (doBackup)
+		m_bakOvtEntries = m_ovtEntries;
 }
 
 void PatchMaker::saveOverlayTableBin()
 {
-	fs::current_path(Main::getRomPath());
+	auto saveOvtEntries = [](const std::vector<OvtEntry>& ovtEntries, const fs::path& filePath){
+		std::ofstream outputFile(filePath, std::ios::binary);
+		if (!outputFile.is_open())
+			throw ncp::file_error(filePath, ncp::file_error::write);
+		outputFile.write(reinterpret_cast<const char*>(ovtEntries.data()), ovtEntries.size() * sizeof(OvtEntry));
+		outputFile.close();
+	};
 
 	const char* binName = m_target->getArm9() ? "arm9ovt.bin" : "arm7ovt.bin";
 
-	std::ofstream outputFile(binName, std::ios::binary);
-	if (!outputFile.is_open())
-		throw ncp::file_error(binName, ncp::file_error::read);
-	for (auto& ovtEntry : m_ovtEntries)
-		outputFile.write(reinterpret_cast<const char*>(ovtEntry.get()), sizeof(OvtEntry));
-	outputFile.close();
+	if (!m_bakOvtEntries.empty())
+	{
+		fs::current_path(Main::getWorkPath());
+		saveOvtEntries(m_bakOvtEntries, BuildConfig::getBackupDir() / binName);
+	}
+
+	fs::current_path(Main::getRomPath());
+	saveOvtEntries(m_ovtEntries, binName);
 }
 
 OverlayBin* PatchMaker::loadOverlayBin(std::size_t ovID)
@@ -610,7 +622,7 @@ OverlayBin* PatchMaker::loadOverlayBin(std::size_t ovID)
 	fs::path binName = fs::path(prefix) / (prefix + "_" + std::to_string(ovID) + ".bin");
 	fs::path bakBinName = BuildConfig::getBackupDir() / binName;
 
-	OvtEntry& ovte = *m_ovtEntries[ovID];
+	OvtEntry& ovte = m_ovtEntries[ovID];
 
 	auto* overlay = new OverlayBin();
 	if (fs::exists(bakBinName)) //has backup
@@ -625,13 +637,11 @@ OverlayBin* PatchMaker::loadOverlayBin(std::size_t ovID)
 		ovte.flag = 0;
 		const std::vector<u8>& bytes = overlay->data();
 
-		fs::current_path(Main::getWorkPath());
-		std::ofstream outputFile(bakBinName, std::ios::binary);
-		if (!outputFile.is_open())
-			throw ncp::file_error(bakBinName, ncp::file_error::write);
-		outputFile.write(reinterpret_cast<const char*>(bytes.data()), std::streamsize(bytes.size()));
-		outputFile.close();
+		overlay->backupData() = bytes;
 	}
+	
+	if (!m_bakOvtEntries.empty())
+		m_bakOvtEntries[ovID].flag = 0;
 
 	m_loadedOverlays.emplace(ovID, std::unique_ptr<OverlayBin>(overlay));
 	return overlay;
@@ -651,19 +661,26 @@ void PatchMaker::saveOverlayBins()
 {
 	std::string prefix = m_target->getArm9() ? "overlay9" : "overlay7";
 
-	fs::current_path(Main::getRomPath());
-
 	for (auto& [ovID, ov] : m_loadedOverlays)
 	{
 		fs::path binName = fs::path(prefix) / (prefix + "_" + std::to_string(ovID) + ".bin");
 
-		const std::vector<u8>& bytes = ov->data();
+		auto saveOvData = [](const std::vector<u8>& ovData, const fs::path& ovFilePath){
+			std::ofstream outputFile(ovFilePath, std::ios::binary);
+			if (!outputFile.is_open())
+				throw ncp::file_error(ovFilePath, ncp::file_error::write);
+			outputFile.write(reinterpret_cast<const char*>(ovData.data()), std::streamsize(ovData.size()));
+			outputFile.close();
+		};
 
-		std::ofstream outputFile(binName, std::ios::binary);
-		if (!outputFile.is_open())
-			throw ncp::file_error(binName, ncp::file_error::write);
-		outputFile.write(reinterpret_cast<const char*>(bytes.data()), std::streamsize(bytes.size()));
-		outputFile.close();
+		fs::current_path(Main::getRomPath());
+		saveOvData(ov->data(), binName);
+
+		if (!ov->backupData().empty())
+		{
+			fs::current_path(Main::getWorkPath());
+			saveOvData(ov->data(), BuildConfig::getBackupDir() / binName);
+		}
 	}
 }
 
@@ -1468,13 +1485,13 @@ void PatchMaker::applyPatchesToRom()
 				OverlayBin* bin = getOverlay(dest);
 				auto& ovtEntry = m_ovtEntries[dest];
 
-				ovtEntry->compressed = 0; // size of compressed "ramSize"
-				ovtEntry->flag = 0;
+				ovtEntry.compressed = 0; // size of compressed "ramSize"
+				ovtEntry.flag = 0;
 
 				std::vector<u8>& data = bin->data();
 				std::size_t szData = data.size();
 
-				std::size_t totalOvSize = szData + ovtEntry->bssSize + newcodeInfo->binSize + newcodeInfo->bssSize;
+				std::size_t totalOvSize = szData + ovtEntry.bssSize + newcodeInfo->binSize + newcodeInfo->bssSize;
 				if (totalOvSize > region->length)
 				{
 					throw ncp::exception("Overlay " + std::to_string(dest) + " exceeds max length of "
@@ -1483,17 +1500,17 @@ void PatchMaker::applyPatchesToRom()
 
 				if (newcodeInfo->binSize > 0)
 				{
-					std::size_t newSzData = szData + ovtEntry->bssSize + newcodeInfo->binSize;
+					std::size_t newSzData = szData + ovtEntry.bssSize + newcodeInfo->binSize;
 					data.resize(newSzData);
 					u8* pData = data.data();
-					std::memset(&pData[szData], 0, ovtEntry->bssSize); // Keep original BSS as data
-					writeNewcode(&pData[szData + ovtEntry->bssSize]); // Write new code after BSS
-					ovtEntry->ramSize = newSzData;
-					ovtEntry->bssSize = newcodeInfo->bssSize; // Set the BSS to our new code BSS
+					std::memset(&pData[szData], 0, ovtEntry.bssSize); // Keep original BSS as data
+					writeNewcode(&pData[szData + ovtEntry.bssSize]); // Write new code after BSS
+					ovtEntry.ramSize = newSzData;
+					ovtEntry.bssSize = newcodeInfo->bssSize; // Set the BSS to our new code BSS
 				}
 				else
 				{
-					ovtEntry->bssSize += newcodeInfo->bssSize;
+					ovtEntry.bssSize += newcodeInfo->bssSize;
 				}
 
 				break;
@@ -1503,13 +1520,13 @@ void PatchMaker::applyPatchesToRom()
 				OverlayBin* bin = getOverlay(dest);
 				auto& ovtEntry = m_ovtEntries[dest];
 
-				ovtEntry->ramAddress = newcodeAddr;
-				ovtEntry->ramSize = newcodeInfo->binSize;
-				ovtEntry->bssSize = newcodeInfo->bssSize;
-				ovtEntry->sinitStart = 0;
-				ovtEntry->sinitEnd = 0;
-				ovtEntry->compressed = 0; // size of compressed "ramSize"
-				ovtEntry->flag = 0;
+				ovtEntry.ramAddress = newcodeAddr;
+				ovtEntry.ramSize = newcodeInfo->binSize;
+				ovtEntry.bssSize = newcodeInfo->bssSize;
+				ovtEntry.sinitStart = 0;
+				ovtEntry.sinitEnd = 0;
+				ovtEntry.compressed = 0; // size of compressed "ramSize"
+				ovtEntry.flag = 0;
 
 				std::size_t totalOvSize = newcodeInfo->binSize + newcodeInfo->bssSize;
 				if (totalOvSize > region->length)
