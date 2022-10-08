@@ -59,6 +59,7 @@ private:
 	void gatherInfoFromObjects();
 	void linkElfFile();
 	u32 makeJumpOpCode(u32 opCode, u32 fromAddr, u32 toAddr);
+	u32 makeThumbJumpOpCode(u16 opCode, u32 fromAddr, u32 toAddr);
 	u32 fixupOpCode(u32 opCode, u32 ogAddr, u32 newAddr);
 	void applyPatchesToRom();
 	void gatherInfoFromElf();

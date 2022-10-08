@@ -24,6 +24,17 @@ namespace fs = std::filesystem;
 
 constexpr std::size_t SizeOfHookBridge = 20;
 
+constexpr u32 armOpcodeB = 0xEA000000; // B
+constexpr u32 armOpcodeBL = 0xEB000000; // BL
+constexpr u32 armOpCodeBLX = 0xFA000000; // BLX
+constexpr u32 armHookPush = 0xE92D500F; // PUSH {R0-R3,R12,LR}
+constexpr u32 armHookPop = 0xE8BD500F; // POP {R0-R3,R12,LR}
+constexpr u16 thumbOpCodeBL0 = 0xF000; // BL
+constexpr u16 thumbOpCodeBL1 = 0xF800; // <BL>
+constexpr u16 thumbOpCodeBLX1 = 0xE800; // <BL>X
+constexpr u16 thumbOpCodePushLR = 0xB500; // PUSH {LR}
+constexpr u16 thumbOpCodePopPC = 0xBD00; // POP {PC}
+
 struct PatchType {
 	enum {
 		Jump, Call, Hook, Over,
@@ -42,6 +53,8 @@ struct GenericPatchInfo
 	int sectionIdx; // the index of the section (-1 label, >= 0 section index)
 	int sectionSize; // the size of the section (used for over patches)
 	bool isNcpSet; // if the patch is an ncp_set type patch
+	bool srcThumb; // if the function of the symbol is thumb
+	bool destThumb; // if the function to be patched is thumb
 	std::string symbol; // the symbol of the patch (used to generate linker script)
 	SourceFileJob* job;
 };
@@ -160,9 +173,9 @@ void PatchMaker::makeTarget(
 	loadOverlayTableBin();
 
 	std::vector<u32>& patchedOverlays = m_target->getArm9() ?
-		RebuildConfig::getArm7PatchedOvs() :
-		RebuildConfig::getArm9PatchedOvs();
-	
+	RebuildConfig::getArm7PatchedOvs() :
+	RebuildConfig::getArm9PatchedOvs();
+
 	for (u32 ovID : patchedOverlays)
 		loadOverlayBin(ovID);
 
@@ -247,7 +260,7 @@ void PatchMaker::gatherInfoFromObjects()
 		auto sh_tbl = elf.getSectionHeaderTable();
 		auto str_tbl = elf.getSection<char>(sh_tbl[eh.e_shstrndx]);
 
-		auto parseSymbol = [&](std::string_view symbolName, int sectionIdx, int sectionSize){
+		auto parseSymbol = [&](std::string_view symbolName, u32 symbolAddr, int sectionIdx, int sectionSize){
 			std::string_view labelName = symbolName.substr(sectionIdx != -1 ? 5 : 4);
 
 			std::size_t patchTypeNameEnd = labelName.find('_');
@@ -328,12 +341,14 @@ void PatchMaker::gatherInfoFromObjects()
 			auto* patchInfoEntry = new GenericPatchInfo({
 				.srcAddress = 0, // we do not yet know it, only after linkage
 				.srcAddressOv = srcAddressOv,
-				.destAddress = destAddress,
+				.destAddress = (destAddress & ~1),
 				.destAddressOv = destAddressOv,
 				.patchType = patchType,
 				.sectionIdx = sectionIdx,
 				.sectionSize = sectionSize,
 				.isNcpSet = isNcpSet,
+				.srcThumb = bool(symbolAddr & 1),
+				.destThumb = bool(destAddress & 1),
 				.symbol = std::string(symbolName),
 				.job = srcFileJob.get()
 			});
@@ -355,7 +370,28 @@ void PatchMaker::gatherInfoFromObjects()
 					m_jobsWithNcpSet.emplace_back(srcFileJob.get());
 					return false;
 				}
-				parseSymbol(sectionName, int(sectionIdx), int(section.sh_size));
+				parseSymbol(sectionName, 0, int(sectionIdx), int(section.sh_size));
+			}
+			return false;
+		});
+
+		// Find the functions corresponding to the patch to check if they are thumb
+		forEachElfSymbol(elf, eh, sh_tbl,
+		[&](const Elf32_Sym& symbol, std::string_view symbolName){
+			if (ELF32_ST_TYPE(symbol.st_info) == STT_FUNC)
+			{
+				for (GenericPatchInfo* p : patchInfoForThisObj)
+				{
+					if (p->sectionIdx != -1) // is patch instructed by section
+					{
+						// if function has the same section as the patch instruction section
+						if (p->sectionIdx == symbol.st_shndx)
+						{
+							p->srcThumb = symbol.st_value & 1;
+							break;
+						}
+					}
+				}
 			}
 			return false;
 		});
@@ -367,7 +403,7 @@ void PatchMaker::gatherInfoFromObjects()
 			{
 				std::string_view stemless = symbolName.substr(4);
 				if (stemless != "dest")
-					parseSymbol(symbolName, -1, 0);
+					parseSymbol(symbolName, symbol.st_value, -1, 0);
 			}
 			return false;
 		});
@@ -387,7 +423,7 @@ void PatchMaker::gatherInfoFromObjects()
 			}
 			else
 			{
-				Log::out << "SRC_ADDR_OV, DST_ADDR, DST_ADDR_OV, PATCH_TYPE, SECTION_IDX, SECTION_SIZE, SYMBOL" << std::endl;
+				Log::out << "SRC_ADDR_OV, DST_ADDR, DST_ADDR_OV, PATCH_TYPE, SEC_IDX, SEC_SIZE, NCP_SET, SRC_THUMB, DST_THUMB, SYMBOL" << std::endl;
 				for (auto& p : patchInfoForThisObj)
 				{
 					Log::out <<
@@ -395,8 +431,11 @@ void PatchMaker::gatherInfoFromObjects()
 						std::setw(8) << std::hex << p->destAddress << "  " <<
 						std::setw(11) << std::dec << p->destAddressOv << "  " <<
 						std::setw(10) << s_patchTypeNames[p->patchType] << "  " <<
-						std::setw(11) << std::dec << p->sectionIdx << "  " <<
-						std::setw(12) << std::dec << p->sectionSize << "  " <<
+						std::setw(7) << std::dec << p->sectionIdx << "  " <<
+						std::setw(8) << std::dec << p->sectionSize << "  " <<
+						std::setw(7) << std::dec << p->isNcpSet << "  " <<
+						std::setw(9) << std::dec << p->srcThumb << "  " <<
+						std::setw(9) << std::dec << p->destThumb << "  " <<
 						std::setw(6) << p->symbol << std::endl;
 				}
 			}
@@ -1066,7 +1105,7 @@ void PatchMaker::gatherInfoFromElf()
 	
 	if (Main::getVerbose())
 	{
-		Log::out << "Patches:\nSRC_ADDR, SRC_ADDR_OV, DST_ADDR, DST_ADDR_OV, PATCH_TYPE, SECTION_IDX, SECTION_SIZE, SYMBOL" << std::endl;
+		Log::out << "Patches:\nSRC_ADDR, SRC_ADDR_OV, DST_ADDR, DST_ADDR_OV, PATCH_TYPE, SEC_IDX, SEC_SIZE, NCP_SET, SRC_THUMB, DST_THUMB, SYMBOL" << std::endl;
 		for (auto& p : m_patchInfo)
 		{
 			Log::out <<
@@ -1075,8 +1114,11 @@ void PatchMaker::gatherInfoFromElf()
 				std::setw(8) << std::hex << p->destAddress << "  " <<
 				std::setw(11) << std::dec << p->destAddressOv << "  " <<
 				std::setw(10) << s_patchTypeNames[p->patchType] << "  " <<
-				std::setw(11) << std::dec << p->sectionIdx << "  " <<
-				std::setw(12) << std::dec << p->sectionSize << "  " <<
+				std::setw(7) << std::dec << p->sectionIdx << "  " <<
+				std::setw(8) << std::dec << p->sectionSize << "  " <<
+				std::setw(7) << std::dec << p->isNcpSet << "  " <<
+				std::setw(9) << std::dec << p->srcThumb << "  " <<
+				std::setw(9) << std::dec << p->destThumb << "  " <<
 				std::setw(6) << p->symbol << std::endl;
 		}
 	}
@@ -1130,6 +1172,14 @@ u32 PatchMaker::makeJumpOpCode(u32 opCode, u32 fromAddr, u32 toAddr)
 	return opCode | ((((toAddr - fromAddr) >> 2) - 2) & 0xFFFFFF);
 }
 
+u32 PatchMaker::makeThumbJumpOpCode(u16 opCode, u32 fromAddr, u32 toAddr)
+{
+	u32 offset = ((toAddr - fromAddr) >> 1) - 2;
+	u16 opcode0 = thumbOpCodeBL0 | (offset & 0x3FF800) >> 11;
+	u16 opcode1 = opCode | (offset & 0x7FF);
+	return opcode1 << 16 | opcode0;
+};
+
 u32 PatchMaker::fixupOpCode(u32 opCode, u32 ogAddr, u32 newAddr)
 {
 	if (((opCode >> 25) & 0b111) == 0b101)
@@ -1149,12 +1199,13 @@ void PatchMaker::applyPatchesToRom()
 
 	Log::info("Patching the binaries...");
 
-	const u32 armOpcodeB = 0xEA000000; // B
-	const u32 armOpcodeBL = 0xEB000000; // BL
-	//const u32 armHookPush = 0xE92D100F; // PUSH {R0-R3,R12}
-	//const u32 armHookPop = 0xE8BD100F; // POP {R0-R3,R12}
-	const u32 armHookPush = 0xE92D500F; // PUSH {R0-R3,R12,LR}
-	const u32 armHookPop = 0xE8BD500F; // POP {R0-R3,R12,LR}
+	auto failInject = [](std::unique_ptr<GenericPatchInfo>& p, bool srcThumb, bool destThumb, const char* injectType){
+		std::ostringstream oss;
+		oss << "Injecting " << injectType << " from " << (destThumb ? "THUMB" : "ARM") << " to "
+			<< (srcThumb ? "THUMB" : "ARM") << " is not supported, at "
+			<< OSTRa(p->symbol) << " (" << OSTR(p->job->srcFilePath.string()) << ")";
+		throw ncp::exception(oss.str());
+	};
 
 	auto sh_tbl = m_elf->getSectionHeaderTable();
 
@@ -1168,12 +1219,71 @@ void PatchMaker::applyPatchesToRom()
 		{
 		case PatchType::Jump:
 		{
-			bin->write<u32>(p->destAddress, makeJumpOpCode(armOpcodeB, p->destAddress, p->srcAddress));
+			if (!p->destThumb && !p->srcThumb)
+			{
+				// ARM -> ARM
+				bin->write<u32>(p->destAddress, makeJumpOpCode(armOpcodeB, p->destAddress, p->srcAddress));
+			}
+			else if (!p->destThumb && p->srcThumb)
+			{
+				// ARM -> THUMB
+				u32 patchData[3];
+				patchData[0] = 0xE59FC000;        // LDR R12, [PC,#8]
+				patchData[1] = 0xE12FFF1C;        // BX  R12
+				patchData[2] = p->srcAddress | 1; // value for PC+8
+				bin->writeBytes(p->destAddress, patchData, 12);
+			}
+			else if (p->destThumb && !p->srcThumb)
+			{
+				// THUMB -> ARM
+				u16 patchData[3];
+				patchData[0] = thumbOpCodePushLR;
+				patchData[1] = makeThumbJumpOpCode(thumbOpCodeBLX1, p->destAddress, p->srcAddress);
+				patchData[2] = thumbOpCodePopPC;
+				bin->writeBytes(p->destAddress, patchData, 6);
+			}
+			else
+			{
+				// THUMB -> THUMB
+				u16 patchData[3];
+				patchData[0] = thumbOpCodePushLR;
+				patchData[1] = makeThumbJumpOpCode(thumbOpCodeBL1, p->destAddress, p->srcAddress);
+				patchData[2] = thumbOpCodePopPC;
+				bin->writeBytes(p->destAddress, patchData, 6);
+			}
 			break;
 		}
 		case PatchType::Call:
 		{
-			bin->write<u32>(p->destAddress, makeJumpOpCode(armOpcodeBL, p->destAddress, p->srcAddress));
+			if (p->destThumb != p->srcThumb && !m_target->getArm9())
+			{
+				std::ostringstream oss;
+				oss << "Cannot create thumb-interworking veneer: BLX not supported on armv4. At "
+					<< OSTRa(p->symbol) << " (" << OSTR(p->job->srcFilePath.string()) << ")";
+				throw ncp::exception(oss.str());
+			}
+
+			if (!p->destThumb && !p->srcThumb)
+			{
+				// ARM -> ARM
+				bin->write<u32>(p->destAddress, makeJumpOpCode(armOpcodeBL, p->destAddress, p->srcAddress));
+			}
+			else if (!p->destThumb && p->srcThumb)
+			{
+				// ARM -> THUMB
+				u32 opcode = armOpCodeBLX | (((p->srcAddress % 4) >> 1) << 23);
+				bin->write<u32>(p->destAddress, makeJumpOpCode(opcode, p->destAddress, p->srcAddress));
+			}
+			else if (p->destThumb && !p->srcThumb)
+			{
+				// THUMB -> ARM
+				bin->write<u32>(p->destAddress, makeThumbJumpOpCode(thumbOpCodeBLX1, p->destAddress, p->srcAddress));
+			}
+			else
+			{
+				// THUMB -> THUMB
+				bin->write<u32>(p->destAddress, makeThumbJumpOpCode(thumbOpCodeBL1, p->destAddress, p->srcAddress));
+			}
 			break;
 		}
 		case PatchType::Hook:
@@ -1190,6 +1300,11 @@ void PatchMaker::applyPatchesToRom()
 			 *     <unpatched destAddr's instruction>
 			 *     B    (destAddr + 4)
 			 * */
+
+			if (p->destThumb || p->srcThumb)
+				failInject(p, p->srcThumb, p->destThumb, "hook");
+
+			// ARM -> ARM
 
 			u32 ogOpCode = bin->read<u32>(p->destAddress);
 
