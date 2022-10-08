@@ -60,6 +60,8 @@ static void ncpMain()
 	bool forceRebuild = false;
 
 	auto doWorkOnTarget = [&](bool isArm9){
+		fs::current_path(Main::getWorkPath());
+
 		Log::info(isArm9 ?
 			"Loading ARM9 target configuration..." :
 			"Loading ARM7 target configuration...");
@@ -100,8 +102,6 @@ static void ncpMain()
 
 		Main::setErrorContext(nullptr);
 	};
-
-	fs::current_path(workDir);
 
 	if (BuildConfig::getLastWriteTime() > RebuildConfig::getBuildConfigWriteTime())
 		forceRebuild = true;

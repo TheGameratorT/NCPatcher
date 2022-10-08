@@ -23,7 +23,7 @@
 namespace fs = std::filesystem;
 
 constexpr std::size_t SizeOfHookBridge = 20;
-constexpr std::size_t SizeOfArm2ThumbJumpBridge = 12;
+constexpr std::size_t SizeOfArm2ThumbJumpBridge = 8;
 
 constexpr u32 armOpcodeB = 0xEA000000; // B
 constexpr u32 armOpcodeBL = 0xEB000000; // BL
@@ -1243,8 +1243,7 @@ void PatchMaker::applyPatchesToRom()
 				 * by NCPatcher and it should look as such:
 				 *
 				 * arm2thumb_jump_bridge:
-				 *     LDR   R12, [PC]
-				 *     BX    R12
+				 *     LDR   PC, [PC,#-4]
 				 *     .int: srcAddr+1
 				 * */
 				
@@ -1262,9 +1261,8 @@ void PatchMaker::applyPatchesToRom()
 
 				u8* bridgeDataPtr = bridgeData.data() + offset;
 
-				Util::write<u32>(bridgeDataPtr, 0xE59FC000);            // LDR R12, [PC]
-				Util::write<u32>(bridgeDataPtr + 4, 0xE12FFF1C);        // BX  R12
-				Util::write<u32>(bridgeDataPtr + 8, p->srcAddress | 1); // int value for R12
+				Util::write<u32>(bridgeDataPtr, 0xE51FF004);            // LDR PC, [PC,#-4]
+				Util::write<u32>(bridgeDataPtr + 4, p->srcAddress | 1); // int value to jump to
 
 				info->curAddress += SizeOfArm2ThumbJumpBridge;
 			}
