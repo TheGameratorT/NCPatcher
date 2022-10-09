@@ -119,7 +119,7 @@ Such patches are defined by using one of the following patterns on a source file
 
 Patches are divided into 2 types, static and dynamic patches. \
 **Static patches**: Patches that allow you to change the instructions at "compile time". These are directly applied to the binary. \
-**Dynamic patches**: Patches that can be stored in the binary unnaplied and only be applied at runtime when requested by the code.
+**Dynamic patches**: Patches that can be stored in the binary unapplied and only be applied at runtime when requested by the code.
 
 ### Static Patching
 
