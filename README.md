@@ -1,7 +1,12 @@
 # NCPatcher
 A universal Nintendo DS code maker/patcher.
 
-NCPatcher is a program that modifies the executable binaries of a Nintendo DS ROM.
+NCPatcher is a program that modifies the executable binaries of a Nintendo DS ROM. \
+It was created because of the need to have move flexible patching features that other patchers did not have.
+
+## Credits
+This program was made with the help of the [Mamma Mia Team](https://github.com/MammaMiaTeam) members. \
+NCPatcher was heavily inspired by Fireflower.
 
 ## Configuration
 
@@ -195,7 +200,7 @@ ncp_over(0x02000000)
 void MyFunction() {} // This function will be placed at 0x02000000
 
 ncp_over(0x02010000, 4)
-int MyArray[] = {}; // This array will be placed at 0x02010000 in overlay 0
+int MyArray[] = {}; // This array will be placed at 0x02010000 in overlay 4
 
 ncp_repl(0x02000000, "MOV R0, R0") // This instruction will be placed at 0x02000000
 
