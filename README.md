@@ -125,6 +125,12 @@ Patches are divided into 2 types, static and dynamic patches. \
 
 **To replace instructions in the binary with jumps, calls or hooks use:**
 
+Note: \
+If the code you want to hook from is THUMB then for `ncp_jump` and `ncp_call`,
+you can prefix them with a "t" (eg. `ncp_tjump`, `ncp_thook`) or use the address + 1. \
+This is valid for the `ncp_set` variants as well (eg. `ncp_tsetjump`, `ncp_tsethook`).
+"hook" patch type only supports hooking from ARM mode.
+
 〇 Function tags (not stackable - only 1 hook per function)
 
 C/C++:
@@ -139,12 +145,12 @@ Example:
 ```
 ncp_jump(0x02000000)
 void MyFunction1() {
-	// A jump to this function will be placed at 0x02000000
+    // A jump to this function will be placed at 0x02000000
 }
 
 ncp_call(0x02010000, 0)
 void MyFunction2() {
-	// A call to this function will be placed at 0x02010000 in overlay 0
+    // A call to this function will be placed at 0x02010000 in overlay 0
 }
 ```
 
@@ -182,7 +188,7 @@ ncp_jump(0x02000000)    // A jump to MyFunction will be placed at 0x02000000
 ncp_jump(0x02000004)    // A jump to MyFunction will be placed at 0x02000004
 ncp_jump(0x02010000, 0) // A call to MyFunction will be placed at 0x02010000 in overlay 0
 MyFunction:
-	BX      LR
+    BX      LR
 ```
 
 **To overwrite chunks of the binary with raw data or setting the destination address of a function use:**
@@ -205,10 +211,10 @@ int MyArray[] = {}; // This array will be placed at 0x02010000 in overlay 4
 ncp_repl(0x02000000, "MOV R0, R0") // This instruction will be placed at 0x02000000
 
 ncp_repl(0x02010000, 0, R"(
-	MOV     R0, R0
-	BX      LR
-	.int    0
-	.int    0
+    MOV     R0, R0
+    BX      LR
+    .int    0
+    .int    0
 )") // This assembly code will be placed at 0x02010000 in overlay 0
 ```
 
@@ -222,9 +228,9 @@ ncp_over_end()
 Example:
 ```
 ncp_over_begin(0x02000000) // Places the following code at 0x02000000
-	MOV     R0, #1
-	MOV     R1, R0
-	BX      LR
+    MOV     R0, #1
+    MOV     R1, R0
+    BX      LR
 ncp_over_end():
 ```
 
@@ -245,7 +251,7 @@ Example:
 class MyClass
 {
 public:
-	static void MyFunction(); // Function must be static, otherwise it can't be used as pointer
+    static void MyFunction(); // Function must be static, otherwise it can't be used as pointer
 }
 
 void MyFunction() {}
@@ -255,17 +261,17 @@ ncprt_repl_type(patch0) // Must be a unique name for each patch
 void MyPatch()
 {
 asm(R"(
-	MOV     R0, #0
-	BX      LR
+    MOV     R0, #0
+    BX      LR
 )");
 }
 
 void MyPatcher()
 {
-	ncprt_set(0x02000000, 0);                        // Sets the value at 0x02000000 to 0
-	ncprt_set_jump(0x02000004, MyFunction);          // Sets the value at 0x02000004 to a jump to MyFunction
-	ncprt_set_call(0x02000008, MyClass::MyFunction); // Sets the value at 0x02000008 to a jump to MyClass::MyFunction
-	ncprt_repl(0x0200000C, patch0);                  // Writes the contents of patch0 (MyPatch) to 0x0200000C
+    ncprt_set(0x02000000, 0);                        // Sets the value at 0x02000000 to 0
+    ncprt_set_jump(0x02000004, MyFunction);          // Sets the value at 0x02000004 to a jump to MyFunction
+    ncprt_set_call(0x02000008, MyClass::MyFunction); // Sets the value at 0x02000008 to a jump to MyClass::MyFunction
+    ncprt_repl(0x0200000C, patch0);                  // Writes the contents of patch0 (MyPatch) to 0x0200000C
 }
 ```
 
