@@ -68,6 +68,7 @@ private:
 	void loadElfFile();
 	void unloadElfFile();
 
+	void createBuildDirectory();
 	void createBackupDirectory();
 	void loadArmBin();
 	void saveArmBin();

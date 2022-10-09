@@ -33,6 +33,19 @@ asm("#include \"ncp_asm.h\"");
 #define ncp_hook(...) __ncp_get_macro(__VA_ARGS__, , __ncp_ovxx_hook, __ncp_main_hook)(__VA_ARGS__)
 #define ncp_over(...) __ncp_get_macro(__VA_ARGS__, , __ncp_ovxx_over, __ncp_main_over)(__VA_ARGS__)
 
+// NCP Sections (thumb)
+
+#define __ncp_main_tjump(address) __ncp_main_section(tjump, address)
+#define __ncp_main_tcall(address) __ncp_main_section(tcall, address)
+#define __ncp_main_thook(address) __ncp_main_section(thook, address)
+#define __ncp_ovxx_tjump(address, overlay) __ncp_ovxx_section(tjump, address, overlay)
+#define __ncp_ovxx_tcall(address, overlay) __ncp_ovxx_section(tcall, address, overlay)
+#define __ncp_ovxx_thook(address, overlay) __ncp_ovxx_section(thook, address, overlay)
+
+#define ncp_tjump(...) __ncp_get_macro(__VA_ARGS__, , __ncp_ovxx_tjump, __ncp_main_tjump)(__VA_ARGS__)
+#define ncp_tcall(...) __ncp_get_macro(__VA_ARGS__, , __ncp_ovxx_tcall, __ncp_main_tcall)(__VA_ARGS__)
+#define ncp_thook(...) __ncp_get_macro(__VA_ARGS__, , __ncp_ovxx_thook, __ncp_main_thook)(__VA_ARGS__)
+
 // NCP Variables
 
 #define __ncp_main_set(opcode, address, function) void* ncp_set##opcode##_##address __attribute__((section(".ncp_set"), used)) = (void*)function;
@@ -49,10 +62,23 @@ asm("#include \"ncp_asm.h\"");
 #define ncp_set_call(...) __ncp_get_macro(__VA_ARGS__, __ncp_ovxx_set_call, __ncp_main_set_call, )(__VA_ARGS__)
 #define ncp_set_hook(...) __ncp_get_macro(__VA_ARGS__, __ncp_ovxx_set_hook, __ncp_main_set_hook, )(__VA_ARGS__)
 
+// NCP Variables (thumb)
+
+#define __ncp_main_set_tjump(address, function) __ncp_main_set(tjump, address, function)
+#define __ncp_main_set_tcall(address, function) __ncp_main_set(tcall, address, function)
+#define __ncp_main_set_thook(address, function) __ncp_main_set(thook, address, function)
+#define __ncp_ovxx_set_tjump(address, overlay, function) __ncp_ovxx_set(tjump, address, overlay, function)
+#define __ncp_ovxx_set_tcall(address, overlay, function) __ncp_ovxx_set(tcall, address, overlay, function)
+#define __ncp_ovxx_set_thook(address, overlay, function) __ncp_ovxx_set(thook, address, overlay, function)
+
+#define ncp_set_tjump(...) __ncp_get_macro(__VA_ARGS__, __ncp_ovxx_set_tjump, __ncp_main_set_tjump, )(__VA_ARGS__)
+#define ncp_set_tcall(...) __ncp_get_macro(__VA_ARGS__, __ncp_ovxx_set_tcall, __ncp_main_set_tcall, )(__VA_ARGS__)
+#define ncp_set_thook(...) __ncp_get_macro(__VA_ARGS__, __ncp_ovxx_set_thook, __ncp_main_set_thook, )(__VA_ARGS__)
+
 // NCP Utilities
 
-#define __ncp_main_repl(address, assembly) __ncp_main_over(address) __attribute__((naked)) void ncp_repl_##address_main() { asm(assembly); }
-#define __ncp_ovxx_repl(address, overlay, assembly) __ncp_ovxx_over(address, overlay) __attribute__((naked)) void ncp_repl_##address##_ov##overlay() { asm(assembly); }
+#define __ncp_main_repl(address, assembly) __attribute__((naked)) void ncp_repl_##address() { asm( ".pushsection .ncp_over_" #address "\n" assembly "\n.popsection" ); }
+#define __ncp_ovxx_repl(address, overlay, assembly) __attribute__((naked)) void ncp_repl_##address##_ov##overlay() { asm( ".pushsection .ncp_over_" #address "_ov" #overlay "\n" assembly "\n.popsection" ); }
 #define ncp_repl(...) __ncp_get_macro(__VA_ARGS__, __ncp_ovxx_repl, __ncp_main_repl, )(__VA_ARGS__)
 
 #define ncp_file(path, sym) \

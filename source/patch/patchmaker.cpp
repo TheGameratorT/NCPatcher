@@ -40,7 +40,9 @@ struct PatchType {
 	enum {
 		Jump, Call, Hook, Over,
 		SetJump, SetCall, SetHook,
-		RtRepl
+		RtRepl,
+		TJump, TCall, THook,
+		TSetJump, TSetCall, TSetHook,
 	};
 };
 
@@ -108,7 +110,9 @@ struct LDSOverPatch
 static const char* s_patchTypeNames[] = {
 	"jump", "call", "hook", "over",
 	"setjump", "setcall", "sethook",
-	"rtrepl"
+	"rtrepl",
+	"tjump", "tcall", "thook",
+	"tsetjump", "tsetcall", "tsethook"
 };
 
 static void forEachElfSection(
@@ -168,6 +172,10 @@ void PatchMaker::makeTarget(
 	m_ldscriptPath = *m_buildDir / (m_target->getArm9() ? "ldscript9.x" : "ldscript7.x");
 	m_elfPath = *m_buildDir / (m_target->getArm9() ? "arm9.elf" : "arm7.elf");
 
+	if (m_srcFileJobs->empty())
+		throw ncp::exception("There are no source files to link.");
+
+	createBuildDirectory();
 	createBackupDirectory();
 
 	loadArmBin();
@@ -294,10 +302,22 @@ void PatchMaker::gatherInfoFromObjects()
 				return;
 			}
 
+			bool forceThumb = false;
+			if (patchType >= PatchType::TJump && patchType <= PatchType::THook)
+			{
+				patchType -= PatchType::TJump - PatchType::Jump;
+				forceThumb = true;
+			}
+			else if (patchType >= PatchType::TSetJump && patchType <= PatchType::TSetHook)
+			{
+				patchType -= PatchType::TSetJump - PatchType::SetJump;
+				forceThumb = true;
+			}
+
 			bool isNcpSet = false;
 			if (patchType >= PatchType::SetJump && patchType <= PatchType::SetHook)
 			{
-				patchType -= 4;
+				patchType -= PatchType::SetJump - PatchType::Jump;
 				isNcpSet = true;
 			}
 
@@ -317,6 +337,8 @@ void PatchMaker::gatherInfoFromObjects()
 				Log::out << OWARN << "Found invalid address for patch: " << labelName << std::endl;
 				return;
 			}
+			if (forceThumb)
+				destAddress |= 1;
 
 			int destAddressOv = -1;
 			if (expectingOverlay)
@@ -461,10 +483,25 @@ void PatchMaker::gatherInfoFromObjects()
 	}
 }
 
+void PatchMaker::createBuildDirectory()
+{
+	fs::current_path(Main::getWorkPath());
+	const fs::path& buildDir = *m_buildDir;
+	if (!fs::exists(buildDir))
+	{
+		if (!fs::create_directories(buildDir))
+		{
+			std::ostringstream oss;
+			oss << "Could not create build directory: " << OSTR(buildDir);
+			throw ncp::exception(oss.str());
+		}
+	}
+}
+
 void PatchMaker::createBackupDirectory()
 {
-	const fs::path& bakDir = BuildConfig::getBackupDir();
 	fs::current_path(Main::getWorkPath());
+	const fs::path& bakDir = BuildConfig::getBackupDir();
 	if (!fs::exists(bakDir))
 	{
 		if (!fs::create_directories(bakDir))
