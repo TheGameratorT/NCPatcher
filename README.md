@@ -8,6 +8,13 @@ It was created because of the need to have move flexible patching features that 
 This program was made with the help of the [Mamma Mia Team](https://github.com/MammaMiaTeam) members. \
 NCPatcher was heavily inspired by Fireflower.
 
+## Running
+
+Follow the steps on how to configure, after that execute NCPatcher in your current directory which contains the ncpatcher.json file. \
+NCPatcher does NOT build the ROM, it requires an extracted ROM to work with, you can use these tools to pack and unpack ROMs: \
+`nds-build` and `nds-extract` included with Fireflower: https://github.com/MammaMiaTeam/Fireflower/releases/latest \
+This design choice was made to allow modders to choose how they want to pack their ROMs.
+
 ## Configuration
 
 For the program to run at least one configuration file must exist with at least one target specified.
@@ -251,11 +258,13 @@ Example:
 class MyClass
 {
 public:
-    static void MyFunction(); // Function must be static, otherwise it can't be used as pointer
-}
+    void MyFunction(); // -Wno-pmf-conversions flag must be set to be used in ncprt_set_jump/call/hook
+    static void MyStaticFunction();
+};
 
 void MyFunction() {}
 void MyClass::MyFunction() {}
+void MyClass::MyStaticFunction() {}
 
 ncprt_repl_type(patch0) // Must be a unique name for each patch
 void MyPatch()
@@ -268,10 +277,11 @@ asm(R"(
 
 void MyPatcher()
 {
-    ncprt_set(0x02000000, 0);                        // Sets the value at 0x02000000 to 0
-    ncprt_set_jump(0x02000004, MyFunction);          // Sets the value at 0x02000004 to a jump to MyFunction
-    ncprt_set_call(0x02000008, MyClass::MyFunction); // Sets the value at 0x02000008 to a jump to MyClass::MyFunction
-    ncprt_repl(0x0200000C, patch0);                  // Writes the contents of patch0 (MyPatch) to 0x0200000C
+    ncprt_set(0x02000000, 0);                              // Sets the value at 0x02000000 to 0
+    ncprt_set_jump(0x02000004, MyFunction);                // Sets the value at 0x02000004 to a jump to MyFunction
+    ncprt_set_call(0x02000008, &MyClass::MyFunction);      // Sets the value at 0x02000008 to a jump to MyClass::MyFunction
+    ncprt_set_call(0x0200000C, MyClass::MyStaticFunction); // Sets the value at 0x0200000C to a jump to MyClass::MyStaticFunction
+    ncprt_repl(0x02000010, patch0);                        // Writes the contents of patch0 (MyPatch) to 0x02000010
 }
 ```
 
@@ -284,7 +294,7 @@ address to patch will branch to.
 
 | Patch Type | ARM->ARM                  | ARM->THUMB               | THUMB->ARM | THUMB->THUMB |
 |------------|---------------------------|--------------------------|------------|--------------|
-| jump       | 4 bytes                   | 4 bytes + 4 bridge bytes | 6 bytes    | 6 bytes      |
+| jump       | 4 bytes                   | 4 bytes + 8 bridge bytes | 6 bytes    | 6 bytes      |
 | call       | 4 bytes                   | 4 bytes                  | 4 bytes    | 4 bytes      |
 | hook       | 4 bytes + 20 bridge bytes | -                        | -          | -            |
 
