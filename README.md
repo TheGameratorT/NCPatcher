@@ -135,7 +135,7 @@ Patches are divided into 2 types, static and dynamic patches. \
 Note: \
 If the code you want to hook from is THUMB then for `ncp_jump` and `ncp_call`,
 you can prefix them with a "t" (eg. `ncp_tjump`, `ncp_thook`) or use the address+1. \
-This is valid for the `ncp_set` variants as well (eg. `ncp_set_tjump`, `ncp_set_thook`). \
+This is valid for the `ncp_set` variants as well (eg. `ncp_set_tjump`, `ncp_set_tcall`). \
 "hook" patch type only supports hooking from ARM mode.
 
 〇 Function tags (not stackable - only 1 hook per function)

@@ -8,8 +8,10 @@ asm("#include \"ncp_asm.h\"");
 
 #ifdef __ncp_lang_cpp
 #define __ncp_extern extern "C"
+#define __ncp_extern_var extern "C"
 #else
 #define __ncp_extern
+#define __ncp_extern_var extern
 #endif
 
 #define __ncp_get_macro(_1, _2, _3, NAME, ...) NAME
@@ -82,8 +84,16 @@ asm("#include \"ncp_asm.h\"");
 #define ncp_repl(...) __ncp_get_macro(__VA_ARGS__, __ncp_ovxx_repl, __ncp_main_repl, )(__VA_ARGS__)
 
 #define ncp_file(path, sym) \
-asm(#sym":\n.incbin \"" path "\""); \
-__ncp_extern const char sym[];
+asm(#sym":\n.incbin \""path"\"\n__"#sym"_end:"); \
+__ncp_extern_var const char sym[]; \
+__ncp_extern_var const char __##sym##_end[];
+
+#define ncp_filez(path, sym) \
+asm(#sym":\n.incbin \""path"\"\n.byte 0\n__"#sym"_end:"); \
+__ncp_extern_var const char sym[]; \
+__ncp_extern_var const char __##sym##_end[];
+
+#define ncp_filesize(sym) ((unsigned long)(__##sym##_end - sym))
 
 #define ncp_thumb __attribute__((target("thumb")))
 
