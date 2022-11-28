@@ -4,7 +4,37 @@
 
 #if defined __ncp_lang_c || defined __ncp_lang_cpp
 
+#ifdef __ncp_c_asmwcpp
 asm("#include \"ncp_asm.h\"");
+#else
+asm(
+"@ ARM\n"
+"\n"
+".macro ncp_jump address; .global ncp_jump_\\address; ncp_jump_\\address:; .endm\n"
+".macro ncp_call address; .global ncp_call_\\address; ncp_call_\\address:; .endm\n"
+".macro ncp_hook address; .global ncp_hook_\\address; ncp_hook_\\address:; .endm\n"
+"\n"
+".macro ncp_jump_ov address overlay; .global ncp_jump_\\address_ov\\overlay; ncp_jump_\\address_ov\\overlay:; .endm\n"
+".macro ncp_call_ov address overlay; .global ncp_call_\\address_ov\\overlay; ncp_call_\\address_ov\\overlay:; .endm\n"
+".macro ncp_hook_ov address overlay; .global ncp_hook_\\address_ov\\overlay; ncp_hook_\\address_ov\\overlay:; .endm\n"
+"\n"
+"@ THUMB\n"
+"\n"
+".macro ncp_tjump address; .global ncp_tjump_\\address; ncp_tjump_\\address:; .endm\n"
+".macro ncp_tcall address; .global ncp_tcall_\\address; ncp_tcall_\\address:; .endm\n"
+".macro ncp_thook address; .global ncp_thook_\\address; ncp_thook_\\address:; .endm\n"
+"\n"
+".macro ncp_tjump_ov address overlay; .global ncp_tjump_\\address_ov\\overlay; ncp_tjump_\\address_ov\\overlay:; .endm\n"
+".macro ncp_tcall_ov address overlay; .global ncp_tcall_\\address_ov\\overlay; ncp_tcall_\\address_ov\\overlay:; .endm\n"
+".macro ncp_thook_ov address overlay; .global ncp_thook_\\address_ov\\overlay; ncp_thook_\\address_ov\\overlay:; .endm\n"
+"\n"
+"@ OTHER\n"
+"\n"
+".macro ncp_over_begin address; .pushsection .ncp_over_\\address; .set ncp_dest, \\address; .endm\n"
+".macro ncp_over_ov_begin address overlay; .pushsection .ncp_over_\\address_ov\\overlay; .set ncp_dest, \\address; .endm\n"
+".macro ncp_over_end; .popsection; .endm\n"
+);
+#endif
 
 #ifdef __ncp_lang_cpp
 #define __ncp_extern extern "C"
