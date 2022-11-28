@@ -79,8 +79,8 @@ asm("#include \"ncp_asm.h\"");
 
 // NCP Utilities
 
-#define __ncp_main_repl(address, assembly) __attribute__((naked)) void ncp_repl_##address() { asm( ".pushsection .ncp_over_" #address "\n" assembly "\n.popsection" ); }
-#define __ncp_ovxx_repl(address, overlay, assembly) __attribute__((naked)) void ncp_repl_##address##_ov##overlay() { asm( ".pushsection .ncp_over_" #address "_ov" #overlay "\n" assembly "\n.popsection" ); }
+#define __ncp_main_repl(address, assembly) __attribute__((naked)) void __ncp_repl_##address() { asm( ".pushsection .ncp_over_" #address "\n" assembly "\n.popsection" ); }
+#define __ncp_ovxx_repl(address, overlay, assembly) __attribute__((naked)) void __ncp_repl_##address##_ov##overlay() { asm( ".pushsection .ncp_over_" #address "_ov" #overlay "\n" assembly "\n.popsection" ); }
 #define ncp_repl(...) __ncp_get_macro(__VA_ARGS__, __ncp_ovxx_repl, __ncp_main_repl, )(__VA_ARGS__)
 
 #define ncp_file(path, sym) \
