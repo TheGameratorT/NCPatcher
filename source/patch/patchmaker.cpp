@@ -42,7 +42,7 @@ struct PatchType {
 		SetJump, SetCall, SetHook,
 		RtRepl,
 		TJump, TCall, THook,
-		TSetJump, TSetCall, TSetHook,
+		SetTJump, SetTCall, SetTHook,
 	};
 };
 
@@ -112,7 +112,7 @@ static const char* s_patchTypeNames[] = {
 	"setjump", "setcall", "sethook",
 	"rtrepl",
 	"tjump", "tcall", "thook",
-	"tsetjump", "tsetcall", "tsethook"
+	"settjump", "settcall", "setthook"
 };
 
 static void forEachElfSection(
@@ -308,9 +308,9 @@ void PatchMaker::gatherInfoFromObjects()
 				patchType -= PatchType::TJump - PatchType::Jump;
 				forceThumb = true;
 			}
-			else if (patchType >= PatchType::TSetJump && patchType <= PatchType::TSetHook)
+			else if (patchType >= PatchType::SetTJump && patchType <= PatchType::SetTHook)
 			{
-				patchType -= PatchType::TSetJump - PatchType::SetJump;
+				patchType -= PatchType::SetTJump - PatchType::SetJump;
 				forceThumb = true;
 			}
 
