@@ -4,8 +4,8 @@
 
 #define __ncp_dest_set(address) .set ncp_dest, address
 
-#define __ncp_main_label(opcode, address) .global ncp_ ##opcode## _ ##address; ncp_ ##opcode## _ ##address## : __ncp_dest_set(address)
-#define __ncp_ovxx_label(opcode, address, overlay) .global ncp_ ##opcode## _ ##address## _ov ##overlay; ncp_ ##opcode## _ ##address## _ov ##overlay## : __ncp_dest_set(address)
+#define __ncp_main_label(opcode, address) .global ncp_ ##opcode## _ ##address; .type ncp_ ##opcode## _ ##address,%function; ncp_ ##opcode## _ ##address## : __ncp_dest_set(address)
+#define __ncp_ovxx_label(opcode, address, overlay) .global ncp_ ##opcode## _ ##address## _ov ##overlay; .type ncp_ ##opcode## _ ##address## _ov ##overlay,%function; ncp_ ##opcode## _ ##address## _ov ##overlay## : __ncp_dest_set(address)
 #define __ncp_main_section(opcode, address) .pushsection .ncp_ ##opcode## _ ##address; __ncp_dest_set(address)
 #define __ncp_ovxx_section(opcode, address, overlay) .pushsection .ncp_ ##opcode## _ ##address## _ov ##overlay; __ncp_dest_set(address)
 

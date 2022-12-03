@@ -237,7 +237,7 @@ int main(int argc, char* argv[])
 		Log::out << OERROR;
 		if (Main::s_errorContext)
 			Log::out << Main::s_errorContext << "\n" << OREASON;
-		Log::out << e.what();
+		Log::out << e.what() << std::endl;
 		return 1;
 	}
 

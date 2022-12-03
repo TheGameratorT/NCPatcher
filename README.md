@@ -22,10 +22,10 @@ This configuration file must be named "ncpatcher.json" and looks somewhat like t
 ```json
 {
   "$arm_flags": "-masm-syntax-unified -mno-unaligned-access -mfloat-abi=soft -mabi=aapcs",
-  "$c_flags": "-Os -fomit-frame-pointer -ffast-math -fno-builtin -nostdlib -nodefaultlibs -nostartfiles -DSDK_GCC -DSDK_FINALROM -Dthumb=ncp_thumb",
+  "$c_flags": "-Os -fomit-frame-pointer -ffast-math -fno-builtin -nostdlib -nodefaultlibs -nostartfiles -DSDK_GCC -DSDK_FINALROM",
   "$cpp_flags": "-fno-rtti -fno-exceptions -std=c++20",
   "$asm_flags": "-Os -x assembler-with-cpp -fomit-frame-pointer",
-  "$ld_flags": "-lgcc,-lc,-lstdc++",
+  "$ld_flags": "-lgcc,-lc,-lstdc++,--use-blx",
   
   "backup": "backup",
   "filesystem": "fs-data",

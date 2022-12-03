@@ -1038,7 +1038,7 @@ void PatchMaker::linkElfFile()
 	std::string ccmd;
 	ccmd.reserve(64);
 	ccmd += BuildConfig::getToolchain();
-	ccmd += "gcc -Wl,--gc-sections,-T\"";
+	ccmd += "gcc -nostartfiles -Wl,--gc-sections,-T\"";
 	ccmd += fs::relative(m_ldscriptPath).string();
 	ccmd += "\"";
 	if (!m_target->ldFlags.empty())
@@ -1140,7 +1140,10 @@ void PatchMaker::gatherInfoFromElf()
 			for (auto& p : m_patchInfo)
 			{
 				if (p->isNcpSet)
+				{
 					p->srcAddress = Util::read<u32>(&sectionData[p->srcAddress - section.sh_addr]);
+					p->srcThumb = p->srcAddress & 1;
+				}
 			}
 		}
 		return false;
@@ -1218,6 +1221,18 @@ void PatchMaker::gatherInfoFromElf()
 		}
 		return false;
 	});
+
+	if (Main::getVerbose())
+	{
+		Log::out << "New Code Info:\nNAME    CODE_SIZE    BSS_SIZE" << std::endl;
+		for (const auto& [dest, newcodeInfo] : m_newcodeDataForDest)
+		{
+			Log::out <<
+				std::setw(8) << std::left << (dest == -1 ? "ARM" : ("OV" + std::to_string(dest))) << std::right <<
+				std::setw(9) << std::dec << newcodeInfo->binSize << "    " <<
+				std::setw(8) << std::dec << newcodeInfo->bssSize << std::endl;
+		}
+	}
 }
 
 void PatchMaker::loadElfFile()
