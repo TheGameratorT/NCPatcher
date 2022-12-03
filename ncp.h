@@ -125,7 +125,11 @@ __ncp_extern_var const char __##sym##_end[];
 
 #define ncp_filesize(sym) ((unsigned long)(__##sym##_end - sym))
 
-#define ncp_thumb __attribute__((target("thumb")))
+#define arm __attribute__((target("arm")))
+#define thumb __attribute__((target("thumb")))
+#define always_inline __attribute__((always_inline))
+#define noinline __attribute__((noinline))
+#define asm_func __attribute__((naked))
 
 // NCP Real Time
 
