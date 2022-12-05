@@ -292,11 +292,11 @@ The number of bytes is how many bytes are overwritten at the specified address, 
 the "+" sign are bridge bytes. Those are automatically generated instructions from which the
 address to patch will branch to.
 
-| hook       | 4 bytes + 20 bridge bytes | -                        | -          | -            |
 | Patch Type | ARM->ARM                  | ARM->THUMB                | THUMB->ARM | THUMB->THUMB |
 |------------|---------------------------|---------------------------|------------|--------------|
 | jump       | 4 bytes                   | 4 bytes + 8 bridge bytes  | 8 bytes    | 8 bytes      |
 | call       | 4 bytes                   | 4 bytes                   | 4 bytes    | 4 bytes      |
+| hook       | 4 bytes + 20 bridge bytes | 4 bytes + 20 bridge bytes | -          | -            |
 
 **IMPORTANT NOTE** \
 This means that all hooks made from ARM mode to any target will always be safe because it only
@@ -321,7 +321,7 @@ by NCPatcher and it should look as such:
 ```
 hook_bridge:
     PUSH {R0-R3,R12}
-    BL   srcAddr
+    BL   srcAddr        @ BLX if srcAddr is THUMB
     POP  {R0-R3,R12}
     @<unpatched destAddr's instruction>
     B    (destAddr + 4)

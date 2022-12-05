@@ -1393,16 +1393,16 @@ void PatchMaker::applyPatchesToRom()
 			 *
 			 * hook_bridge:
 			 *     PUSH {R0-R3,R12}
-			 *     BL   srcAddr
+			 *     BL   srcAddr        @ BLX if srcAddr is THUMB
 			 *     POP  {R0-R3,R12}
 			 *     <unpatched destAddr's instruction>
 			 *     B    (destAddr + 4)
 			 * */
 
-			if (p->destThumb || p->srcThumb)
+			if (p->destThumb)
 				failInject(p, p->srcThumb, p->destThumb, "hook");
 
-			// ARM -> ARM
+			// ARM -> ARM && ARM -> THUMB
 
 			u32 ogOpCode = bin->read<u32>(p->destAddress);
 
@@ -1423,8 +1423,10 @@ void PatchMaker::applyPatchesToRom()
 
 			u8* hookDataPtr = hookData.data() + offset;
 
+			u32 jmpOpCode = p->srcThumb ? (armOpCodeBLX | (((p->srcAddress % 4) >> 1) << 23)) : armOpcodeBL;
+
 			Util::write<u32>(hookDataPtr, armHookPush);
-			Util::write<u32>(hookDataPtr + 4, makeJumpOpCode(armOpcodeBL, hookBridgeAddr + 4, p->srcAddress));
+			Util::write<u32>(hookDataPtr + 4, makeJumpOpCode(jmpOpCode, hookBridgeAddr + 4, p->srcAddress));
 			Util::write<u32>(hookDataPtr + 8, armHookPop);
 			Util::write<u32>(hookDataPtr + 12, fixupOpCode(ogOpCode, p->destAddress, hookBridgeAddr + 12));
 			Util::write<u32>(hookDataPtr + 16, makeJumpOpCode(armOpcodeB, hookBridgeAddr + 16, p->destAddress + 4));
