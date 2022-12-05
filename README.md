@@ -292,15 +292,15 @@ The number of bytes is how many bytes are overwritten at the specified address, 
 the "+" sign are bridge bytes. Those are automatically generated instructions from which the
 address to patch will branch to.
 
-| Patch Type | ARM->ARM                  | ARM->THUMB               | THUMB->ARM | THUMB->THUMB |
-|------------|---------------------------|--------------------------|------------|--------------|
-| jump       | 4 bytes                   | 4 bytes + 8 bridge bytes | 6 bytes    | 6 bytes      |
-| call       | 4 bytes                   | 4 bytes                  | 4 bytes    | 4 bytes      |
 | hook       | 4 bytes + 20 bridge bytes | -                        | -          | -            |
+| Patch Type | ARM->ARM                  | ARM->THUMB                | THUMB->ARM | THUMB->THUMB |
+|------------|---------------------------|---------------------------|------------|--------------|
+| jump       | 4 bytes                   | 4 bytes + 8 bridge bytes  | 8 bytes    | 8 bytes      |
+| call       | 4 bytes                   | 4 bytes                   | 4 bytes    | 4 bytes      |
 
 **IMPORTANT NOTE** \
 This means that all hooks made from ARM mode to any target will always be safe because it only
-ever overwrites one instruction, but when hooking from THUMB, 4 or 6 bytes are always
+ever overwrites one instruction, but when hooking from THUMB, 4 or 8 bytes are always
 overwritten depending on the hook type used and not just 2 bytes. So be careful because
 you might accidentally overwrite more instructions than you intended to!
 

@@ -1339,19 +1339,19 @@ void PatchMaker::applyPatchesToRom()
 			}
 			else if (p->destThumb && !p->srcThumb) // THUMB -> ARM
 			{
-				u16 patchData[3];
+				u16 patchData[4];
 				patchData[0] = thumbOpCodePushLR;
-				patchData[1] = makeThumbJumpOpCode(thumbOpCodeBLX1, p->destAddress, p->srcAddress);
-				patchData[2] = thumbOpCodePopPC;
-				bin->writeBytes(p->destAddress, patchData, 6);
+				Util::write<u32>(&patchData[1], makeThumbJumpOpCode(thumbOpCodeBLX1, p->destAddress + 2, p->srcAddress));
+				patchData[3] = thumbOpCodePopPC;
+				bin->writeBytes(p->destAddress, patchData, 8);
 			}
 			else // THUMB -> THUMB
 			{
-				u16 patchData[3];
+				u16 patchData[4];
 				patchData[0] = thumbOpCodePushLR;
-				patchData[1] = makeThumbJumpOpCode(thumbOpCodeBL1, p->destAddress, p->srcAddress);
-				patchData[2] = thumbOpCodePopPC;
-				bin->writeBytes(p->destAddress, patchData, 6);
+				Util::write<u32>(&patchData[1], makeThumbJumpOpCode(thumbOpCodeBL1, p->destAddress + 2, p->srcAddress));
+				patchData[3] = thumbOpCodePopPC;
+				bin->writeBytes(p->destAddress, patchData, 8);
 			}
 			break;
 		}
