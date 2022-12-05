@@ -55,5 +55,13 @@ __ncp_extern_var const char __##sym##_end[];
 // Returns the size of a file imported with ncp_file
 #define ncp_filesize(sym) ((unsigned long)(__##sym##_end - sym))
 
+// Makes the function compile in ARM mode
+#define arm __attribute__((target("arm")))
 // Makes the function compile in THUMB mode
-#define ncp_thumb __attribute__((target("thumb")))
+#define thumb __attribute__((target("thumb")))
+// Makes the function always be inlined
+#define always_inline __attribute__((always_inline))
+// Makes the function never be inlined
+#define noinline __attribute__((noinline))
+// Prevents the compiler from modifying the assembly inside the function 
+#define asm_func __attribute__((naked))
