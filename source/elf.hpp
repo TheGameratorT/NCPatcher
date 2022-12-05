@@ -15,6 +15,10 @@ typedef uint32_t Elf32_Word;
 #define ELF32_ST_BIND(x) ELF_ST_BIND(x)
 #define ELF32_ST_TYPE(x) ELF_ST_TYPE(x)
 
+#define ELF32_R_SYM(i)	  ((i)>>8)
+#define ELF32_R_TYPE(i)   ((unsigned char)(i))
+#define ELF32_R_INFO(s,t) (((s)<<8)+(unsigned char)(t))
+
 #define SHT_NULL     0
 #define SHT_PROGBITS 1
 #define SHT_SYMTAB   2

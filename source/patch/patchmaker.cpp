@@ -268,6 +268,9 @@ void PatchMaker::gatherInfoFromObjects()
 		const Elf32_Ehdr& eh = elf.getHeader();
 		auto sh_tbl = elf.getSectionHeaderTable();
 		auto str_tbl = elf.getSection<char>(sh_tbl[eh.e_shstrndx]);
+		const Elf32_Shdr* ncpSetSection = nullptr;
+		const Elf32_Rel* ncpSetRel = nullptr;
+		std::size_t ncpSetRelCount = 0;
 
 		auto parseSymbol = [&](std::string_view symbolName, u32 symbolAddr, int sectionIdx, int sectionSize){
 			std::string_view labelName = symbolName.substr(sectionIdx != -1 ? 5 : 4);
@@ -385,8 +388,9 @@ void PatchMaker::gatherInfoFromObjects()
 		[&](std::size_t sectionIdx, const Elf32_Shdr& section, std::string_view sectionName){
 			if (sectionName.starts_with(".ncp_"))
 			{
-				if (sectionName.substr(5).starts_with("set"))
+				if (ncpSetSection == nullptr && sectionName.substr(5).starts_with("set"))
 				{
+					ncpSetSection = &section;
 					int dest = region->destination;
 					if (std::find(m_destWithNcpSet.begin(), m_destWithNcpSet.end(), dest) == m_destWithNcpSet.end())
 						m_destWithNcpSet.emplace_back(dest);
@@ -394,6 +398,11 @@ void PatchMaker::gatherInfoFromObjects()
 					return false;
 				}
 				parseSymbol(sectionName, 0, int(sectionIdx), int(section.sh_size));
+			}
+			else if (ncpSetRel == nullptr && sectionName == ".rel.ncp_set")
+			{
+				ncpSetRel = elf.getSection<Elf32_Rel>(section);
+				ncpSetRelCount = section.sh_size / sizeof(Elf32_Rel);
 			}
 			return false;
 		});
@@ -429,7 +438,35 @@ void PatchMaker::gatherInfoFromObjects()
 			{
 				std::string_view stemless = symbolName.substr(4);
 				if (stemless != "dest")
-					parseSymbol(symbolName, symbol.st_value, -1, 0);
+				{
+					u32 addr = symbol.st_value;
+					if (stemless.starts_with("set")) // requires special care because of thumb function detection
+					{
+						if (ncpSetSection == nullptr)
+							throw ncp::exception("Found an ncp_set hook, but an \".ncp_set\" section does not exist!");
+
+						auto& section = sh_tbl[symbol.st_shndx];
+						auto sectionData = elf.getSection<char>(section);
+						if (ncpSetRel == nullptr)
+						{
+							addr = Util::read<u32>(&sectionData[addr - section.sh_addr]);
+						}
+						else
+						{
+							for (int relIdx = 0; relIdx < ncpSetRelCount; relIdx++)
+							{
+								const Elf32_Rel& rel = ncpSetRel[relIdx];
+								if (rel.r_offset == addr) // found the corresponding relocation
+								{
+									// layer after layer, we finally reach the symbol :p
+									addr = sh_tbl[ELF32_R_SYM(rel.r_info)].sh_addr;
+									break;
+								}
+							}
+						}
+					}
+					parseSymbol(symbolName, addr, -1, 0);
+				}
 			}
 			return false;
 		});
@@ -1140,16 +1177,14 @@ void PatchMaker::gatherInfoFromElf()
 			for (auto& p : m_patchInfo)
 			{
 				if (p->isNcpSet)
-				{
 					p->srcAddress = Util::read<u32>(&sectionData[p->srcAddress - section.sh_addr]);
-					p->srcThumb = p->srcAddress & 1;
-				}
 			}
 		}
 		return false;
 	});
 
 	// Check if any overlapping patches exist
+	// TODO: "thumb" and "over" support
 	bool foundOverlapping = false;
 	for (std::size_t i = 0; i < m_patchInfo.size(); i++)
 	{
@@ -1328,12 +1363,18 @@ void PatchMaker::applyPatchesToRom()
 
 				u32 bridgeAddr = info->curAddress;
 
+				if (Main::getVerbose())
+					Log::out << "ARM->THUMB BRIDGE: " << Util::intToAddr(bridgeAddr, 8) << std::endl;
+
 				bin->write<u32>(p->destAddress, makeJumpOpCode(armOpcodeB, p->destAddress, bridgeAddr));
 
 				u8* bridgeDataPtr = bridgeData.data() + offset;
 
 				Util::write<u32>(bridgeDataPtr, 0xE51FF004);            // LDR PC, [PC,#-4]
 				Util::write<u32>(bridgeDataPtr + 4, p->srcAddress | 1); // int value to jump to
+
+				if (Main::getVerbose())
+					Util::printDataAsHex(bridgeData.data() + offset, SizeOfArm2ThumbJumpBridge, 32);
 
 				info->curAddress += SizeOfArm2ThumbJumpBridge;
 			}
@@ -1417,7 +1458,7 @@ void PatchMaker::applyPatchesToRom()
 			u32 hookBridgeAddr = info->curAddress;
 
 			if (Main::getVerbose())
-				Log::out << "HOOK DEST: " << Util::intToAddr(hookBridgeAddr, 8) << std::endl;
+				Log::out << "HOOK BRIDGE: " << Util::intToAddr(hookBridgeAddr, 8) << std::endl;
 
 			bin->write<u32>(p->destAddress, makeJumpOpCode(armOpcodeB, p->destAddress, hookBridgeAddr));
 
@@ -1432,7 +1473,7 @@ void PatchMaker::applyPatchesToRom()
 			Util::write<u32>(hookDataPtr + 16, makeJumpOpCode(armOpcodeB, hookBridgeAddr + 16, p->destAddress + 4));
 
 			if (Main::getVerbose())
-				Util::printDataAsHex(hookData.data() + offset, 20, 32);
+				Util::printDataAsHex(hookData.data() + offset, SizeOfHookBridge, 32);
 
 			info->curAddress += SizeOfHookBridge;
 			break;
