@@ -773,7 +773,9 @@ void PatchMaker::createLinkerScript()
 	Log::out << OLINK << "Generating the linker script..." << std::endl;
 
 	fs::current_path(*m_targetWorkDir);
-	fs::path symbolsFile = fs::absolute(m_target->symbols);
+	fs::path symbolsFile;
+	if (!m_target->symbols.empty())
+		symbolsFile = fs::absolute(m_target->symbols);
 
 	fs::current_path(*m_buildDir);
 
@@ -860,11 +862,16 @@ void PatchMaker::createLinkerScript()
 	std::string o;
 	o.reserve(65536);
 
-	o += "/* NCPatcher: Auto-generated linker script */\n\nINCLUDE \"";
+	o += "/* NCPatcher: Auto-generated linker script */\n\n";
 
-	o += fs::relative(symbolsFile).string();
-	o += "\"\n\nINPUT (\n";
-
+	if (!symbolsFile.empty())
+	{
+		o += "INCLUDE \"";
+		o += fs::relative(symbolsFile).string();
+		o += "\"\n\n";
+	}
+	
+	o += "INPUT (\n";
 	for (auto& srcFileJob : *m_srcFileJobs)
 	{
 		o += "\t\"";
@@ -1066,6 +1073,20 @@ void PatchMaker::createLinkerScript()
 	outputFile.close();
 }
 
+std::string PatchMaker::ldFlagsToGccFlags(std::string flags)
+{
+	std::size_t cpos = 0;
+	while ((cpos = flags.find(' ', cpos)) != std::string::npos)
+	{
+		std::size_t dpos = flags.find('-', cpos);
+		if (dpos == std::string::npos)
+			break;
+		flags.replace(cpos, dpos - cpos, ",");
+		cpos += 2;
+	}
+	return flags;
+}
+
 void PatchMaker::linkElfFile()
 {
 	Log::out << OLINK << "Linking the ARM binary..." << std::endl;
@@ -1077,10 +1098,11 @@ void PatchMaker::linkElfFile()
 	ccmd += BuildConfig::getToolchain();
 	ccmd += "gcc -nostartfiles -Wl,--gc-sections,-T\"";
 	ccmd += fs::relative(m_ldscriptPath).string();
-	ccmd += "\"";
-	if (!m_target->ldFlags.empty())
-		ccmd += ",";
-	ccmd += m_target->ldFlags;
+	ccmd += '\"';
+	std::string targetFlags = ldFlagsToGccFlags(m_target->ldFlags);
+	if (!targetFlags.empty())
+		ccmd += ',';
+	ccmd += targetFlags;
 
 	std::ostringstream oss;
 	int retcode = Process::start(ccmd.c_str(), &oss);

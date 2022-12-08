@@ -58,6 +58,7 @@ private:
 
 	void fetchNewcodeAddr();
 	void gatherInfoFromObjects();
+	std::string ldFlagsToGccFlags(std::string flags);
 	void linkElfFile();
 	u32 makeJumpOpCode(u32 opCode, u32 fromAddr, u32 toAddr);
 	u32 makeThumbJumpOpCode(u16 opCode, u32 fromAddr, u32 toAddr);

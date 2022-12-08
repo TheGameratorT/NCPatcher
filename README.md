@@ -25,7 +25,7 @@ This configuration file must be named "ncpatcher.json" and looks somewhat like t
   "$c_flags": "-Os -fomit-frame-pointer -ffast-math -fno-builtin -nostdlib -nodefaultlibs -nostartfiles -DSDK_GCC -DSDK_FINALROM",
   "$cpp_flags": "-fno-rtti -fno-exceptions -std=c++20",
   "$asm_flags": "-Os -x assembler-with-cpp -fomit-frame-pointer",
-  "$ld_flags": "-lgcc,-lc,-lstdc++,--use-blx",
+  "$ld_flags": "-lgcc -lc -lstdc++ --use-blx",
   
   "backup": "backup",
   "filesystem": "fs-data",
@@ -113,7 +113,7 @@ Structure:
    - sources - Array of paths containing the source files. (`[string path, bool searchRecursive]`)
    - c_flags, cpp_flags, asm_flags - Region overwriteable flags. (Optional)
  - arenaLo - The address of the value holding the address end of the main binary code in memory. (Usually the value being loaded in the first LDR of OS_GetInitArenaLo)
- - symbols - A file containing symbol definitions to include when linking.
+ - symbols - A file containing symbol definitions to include when linking. (Optional)
 
 The "$" symbol allows to define or access a variable that is for its own file scope. \
 The "$$" symbol allows a target to access a variable that is defined in the ncpatcher.json file scope.

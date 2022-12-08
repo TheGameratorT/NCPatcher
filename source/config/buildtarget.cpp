@@ -41,9 +41,11 @@ void BuildTarget::load(const fs::path& targetFilePath, bool isArm9)
 	}
 
 	arenaLo = json["arenaLo"].getInt();
-	symbols = getString(json["symbols"]);
-
-	symbols.make_preferred();
+	if (json.hasMember("symbols"))
+	{
+		symbols = getString(json["symbols"]);
+		symbols.make_preferred();
+	}
 
 	getDirectoryArray(json["includes"], includes);
 
