@@ -270,7 +270,9 @@ void PatchMaker::gatherInfoFromObjects()
 		auto str_tbl = elf.getSection<char>(sh_tbl[eh.e_shstrndx]);
 		const Elf32_Shdr* ncpSetSection = nullptr;
 		const Elf32_Rel* ncpSetRel = nullptr;
+		const Elf32_Sym* ncpSetRelSymTbl = nullptr;
 		std::size_t ncpSetRelCount = 0;
+		std::size_t ncpSetRelSymTblSize = 0;
 
 		auto parseSymbol = [&](std::string_view symbolName, u32 symbolAddr, int sectionIdx, int sectionSize){
 			std::string_view labelName = symbolName.substr(sectionIdx != -1 ? 5 : 4);
@@ -403,6 +405,8 @@ void PatchMaker::gatherInfoFromObjects()
 			{
 				ncpSetRel = elf.getSection<Elf32_Rel>(section);
 				ncpSetRelCount = section.sh_size / sizeof(Elf32_Rel);
+				ncpSetRelSymTbl = elf.getSection<Elf32_Sym>(sh_tbl[section.sh_link]);
+				ncpSetRelSymTblSize = sh_tbl[section.sh_link].sh_size / sizeof(Elf32_Sym);
 			}
 			return false;
 		});
@@ -459,7 +463,17 @@ void PatchMaker::gatherInfoFromObjects()
 								if (rel.r_offset == addr) // found the corresponding relocation
 								{
 									// layer after layer, we finally reach the symbol :p
-									addr = sh_tbl[ELF32_R_SYM(rel.r_info)].sh_addr;
+									std::size_t symIdx = ELF32_R_SYM(rel.r_info);
+									if (symIdx >= ncpSetRelSymTblSize)
+									{
+										std::ostringstream oss;
+										oss << "Relocation entry with index " << relIdx
+											<< " in " << OSTR(".rel.ncp_set") << " section has an index of " << symIdx
+											<< " as linked symbol table entry but the symbol table only contains "
+											<< ncpSetRelSymTblSize << " entries.";
+										throw ncp::exception(oss.str());
+									}
+									addr = ncpSetRelSymTbl[symIdx].st_value;
 									break;
 								}
 							}
