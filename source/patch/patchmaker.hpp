@@ -61,7 +61,7 @@ private:
 	std::string ldFlagsToGccFlags(std::string flags);
 	void linkElfFile();
 	u32 makeJumpOpCode(u32 opCode, u32 fromAddr, u32 toAddr);
-	u32 makeThumbJumpOpCode(u16 opCode, u32 fromAddr, u32 toAddr);
+	u32 makeThumbCallOpCode(bool exchange, u32 fromAddr, u32 toAddr);
 	u32 fixupOpCode(u32 opCode, u32 ogAddr, u32 newAddr);
 	void applyPatchesToRom();
 	void gatherInfoFromElf();

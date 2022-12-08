@@ -1326,16 +1326,19 @@ u32 PatchMaker::makeJumpOpCode(u32 opCode, u32 fromAddr, u32 toAddr)
 	return opCode | ((((toAddr - fromAddr) >> 2) - 2) & 0xFFFFFF);
 }
 
-u32 PatchMaker::makeThumbJumpOpCode(u16 opCode, u32 fromAddr, u32 toAddr)
+u32 PatchMaker::makeThumbCallOpCode(bool exchange, u32 fromAddr, u32 toAddr)
 {
-	u32 offset = ((toAddr - fromAddr) >> 1) - 2;
+	// toAddr in BLX is always ARM, so it is a multiple of 4
+	// BLX executes in ARM mode, so the low/high offset of fromAddr must be discarded
+	u32 offset = ((toAddr - (exchange ? (fromAddr & ~3) : fromAddr)) >> 1) - 2;
 	u16 opcode0 = thumbOpCodeBL0 | (offset & 0x3FF800) >> 11;
-	u16 opcode1 = opCode | (offset & 0x7FF);
-	return opcode1 << 16 | opcode0;
-};
+	u16 opcode1 = (exchange ? thumbOpCodeBLX1 : thumbOpCodeBL1) | (offset & 0x7FF);
+	return (u32(opcode1) << 16) | opcode0;
+}
 
 u32 PatchMaker::fixupOpCode(u32 opCode, u32 ogAddr, u32 newAddr)
 {
+	// TODO: check for other relative instructions other than B and BL, like LDR
 	if (((opCode >> 25) & 0b111) == 0b101)
 	{
 		u32 opCodeBase = opCode & 0xFF000000;
@@ -1418,7 +1421,7 @@ void PatchMaker::applyPatchesToRom()
 			{
 				u16 patchData[4];
 				patchData[0] = thumbOpCodePushLR;
-				Util::write<u32>(&patchData[1], makeThumbJumpOpCode(thumbOpCodeBLX1, p->destAddress + 2, p->srcAddress));
+				Util::write<u32>(&patchData[1], makeThumbCallOpCode(true, p->destAddress + 2, p->srcAddress));
 				patchData[3] = thumbOpCodePopPC;
 				bin->writeBytes(p->destAddress, patchData, 8);
 			}
@@ -1426,7 +1429,7 @@ void PatchMaker::applyPatchesToRom()
 			{
 				u16 patchData[4];
 				patchData[0] = thumbOpCodePushLR;
-				Util::write<u32>(&patchData[1], makeThumbJumpOpCode(thumbOpCodeBL1, p->destAddress + 2, p->srcAddress));
+				Util::write<u32>(&patchData[1], makeThumbCallOpCode(false, p->destAddress + 2, p->srcAddress));
 				patchData[3] = thumbOpCodePopPC;
 				bin->writeBytes(p->destAddress, patchData, 8);
 			}
@@ -1453,11 +1456,11 @@ void PatchMaker::applyPatchesToRom()
 			}
 			else if (p->destThumb && !p->srcThumb) // THUMB -> ARM
 			{
-				bin->write<u32>(p->destAddress, makeThumbJumpOpCode(thumbOpCodeBLX1, p->destAddress, p->srcAddress));
+				bin->write<u32>(p->destAddress, makeThumbCallOpCode(true, p->destAddress, p->srcAddress));
 			}
 			else // THUMB -> THUMB
 			{
-				bin->write<u32>(p->destAddress, makeThumbJumpOpCode(thumbOpCodeBL1, p->destAddress, p->srcAddress));
+				bin->write<u32>(p->destAddress, makeThumbCallOpCode(false, p->destAddress, p->srcAddress));
 			}
 			break;
 		}
