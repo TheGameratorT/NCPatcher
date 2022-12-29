@@ -61,7 +61,7 @@ Structure:
 The target configuration file, which is specified in the ncpatcher.json looks somewhat like this:
 ```json
 {
-  "$arm_flags": "-mcpu=arm946e-s $${arm_flags}",
+  "$arm_flags": "-march=armv5te -mtune=arm946e-s $${arm_flags}",
   "$c_flags": "${arm_flags} $${c_flags} -DSDK_ARM9 -Darm9_start=0x021901E0",
   "$cpp_flags": "${c_flags} $${cpp_flags}",
   "$asm_flags": "${arm_flags} $${asm_flags}",
