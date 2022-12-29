@@ -791,7 +791,7 @@ void PatchMaker::createLinkerScript()
 	if (!m_target->symbols.empty())
 		symbolsFile = fs::absolute(m_target->symbols);
 
-	fs::current_path(*m_buildDir);
+	fs::current_path(Main::getWorkPath());
 
 	std::vector<std::unique_ptr<LDSMemoryEntry>> memoryEntries;
 	memoryEntries.emplace_back(new LDSMemoryEntry{ "bin", 0, 0x100000 });
@@ -1105,7 +1105,7 @@ void PatchMaker::linkElfFile()
 {
 	Log::out << OLINK << "Linking the ARM binary..." << std::endl;
 
-	fs::current_path(*m_buildDir);
+	fs::current_path(Main::getWorkPath());
 
 	std::string ccmd;
 	ccmd.reserve(64);

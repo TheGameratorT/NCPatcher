@@ -40,6 +40,9 @@
 // ncp_set_thook(int address, [int overlay], void* function)
 #define ncp_set_thook(...)
 
+// ncp_repl(int address, [int overlay], const char* asm)
+#define ncp_repl(...)
+
 // Includes a file as binary data
 #define ncp_file(path, sym) \
 asm(#sym":\n.incbin \""path"\"\n__"#sym"_end:"); \
