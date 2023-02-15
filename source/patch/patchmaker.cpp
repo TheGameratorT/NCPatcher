@@ -449,6 +449,8 @@ void PatchMaker::gatherInfoFromObjects()
 						if (ncpSetSection == nullptr)
 							throw ncp::exception("Found an ncp_set hook, but an \".ncp_set\" section does not exist!");
 
+						// Here we are just getting the address, so that we can know beforehand
+						// if the function is thumb or not. The final address is obtained after linkage.
 						auto& section = sh_tbl[symbol.st_shndx];
 						auto sectionData = elf.getSection<char>(section);
 						if (ncpSetRel == nullptr)
@@ -1212,8 +1214,17 @@ void PatchMaker::gatherInfoFromElf()
 
 			for (auto& p : m_patchInfo)
 			{
-				if (p->isNcpSet)
-					p->srcAddress = Util::read<u32>(&sectionData[p->srcAddress - section.sh_addr]);
+				if (p->isNcpSet && p->srcAddressOv == srcAddrOv)
+				{
+					u32 dataOffset = p->srcAddress - section.sh_addr;
+					if (dataOffset + 4 > section.sh_size)
+					{
+						std::ostringstream oss;
+						oss << "Tried to read " << OSTR(sectionName) << " data out of bounds.";
+						throw ncp::exception(oss.str());
+					}
+					p->srcAddress = Util::read<u32>(&sectionData[dataOffset]);
+				}
 			}
 		}
 		return false;
