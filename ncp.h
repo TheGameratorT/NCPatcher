@@ -14,9 +14,9 @@ asm(
 ".macro ncp_call address; .global ncp_call_\\address; .type ncp_call_\\address,%function; ncp_call_\\address:; .endm\n"
 ".macro ncp_hook address; .global ncp_hook_\\address; .type ncp_hook_\\address,%function; ncp_hook_\\address:; .endm\n"
 "\n"
-".macro ncp_jump_ov address overlay; .global ncp_jump_\\address_ov\\overlay; .type ncp_jump_\\address_ov\\overlay,%function; ncp_jump_\\address_ov\\overlay:; .endm\n"
-".macro ncp_call_ov address overlay; .global ncp_call_\\address_ov\\overlay; .type ncp_call_\\address_ov\\overlay,%function; ncp_call_\\address_ov\\overlay:; .endm\n"
-".macro ncp_hook_ov address overlay; .global ncp_hook_\\address_ov\\overlay; .type ncp_hook_\\address_ov\\overlay,%function; ncp_hook_\\address_ov\\overlay:; .endm\n"
+".macro ncp_jump_ov address overlay; .global ncp_jump_\\address\\()_ov\\overlay; .type ncp_jump_\\address\\()_ov\\overlay,%function; ncp_jump_\\address\\()_ov\\overlay:; .endm\n"
+".macro ncp_call_ov address overlay; .global ncp_call_\\address\\()_ov\\overlay; .type ncp_call_\\address\\()_ov\\overlay,%function; ncp_call_\\address\\()_ov\\overlay:; .endm\n"
+".macro ncp_hook_ov address overlay; .global ncp_hook_\\address\\()_ov\\overlay; .type ncp_hook_\\address\\()_ov\\overlay,%function; ncp_hook_\\address\\()_ov\\overlay:; .endm\n"
 "\n"
 "@ THUMB\n"
 "\n"
@@ -24,15 +24,19 @@ asm(
 ".macro ncp_tcall address; .global ncp_tcall_\\address; .type ncp_tcall_\\address,%function; ncp_tcall_\\address:; .endm\n"
 ".macro ncp_thook address; .global ncp_thook_\\address; .type ncp_thook_\\address,%function; ncp_thook_\\address:; .endm\n"
 "\n"
-".macro ncp_tjump_ov address overlay; .global ncp_tjump_\\address_ov\\overlay; .type ncp_tjump_\\address_ov\\overlay,%function; ncp_tjump_\\address_ov\\overlay:; .endm\n"
-".macro ncp_tcall_ov address overlay; .global ncp_tcall_\\address_ov\\overlay; .type ncp_tcall_\\address_ov\\overlay,%function; ncp_tcall_\\address_ov\\overlay:; .endm\n"
-".macro ncp_thook_ov address overlay; .global ncp_thook_\\address_ov\\overlay; .type ncp_thook_\\address_ov\\overlay,%function; ncp_thook_\\address_ov\\overlay:; .endm\n"
+".macro ncp_tjump_ov address overlay; .global ncp_tjump_\\address\\()_ov\\overlay; .type ncp_tjump_\\address\\()_ov\\overlay,%function; ncp_tjump_\\address\\()_ov\\overlay:; .endm\n"
+".macro ncp_tcall_ov address overlay; .global ncp_tcall_\\address\\()_ov\\overlay; .type ncp_tcall_\\address\\()_ov\\overlay,%function; ncp_tcall_\\address\\()_ov\\overlay:; .endm\n"
+".macro ncp_thook_ov address overlay; .global ncp_thook_\\address\\()_ov\\overlay; .type ncp_thook_\\address\\()_ov\\overlay,%function; ncp_thook_\\address\\()_ov\\overlay:; .endm\n"
 "\n"
 "@ OTHER\n"
 "\n"
 ".macro ncp_over_begin address; .pushsection .ncp_over_\\address; .set ncp_dest, \\address; .endm\n"
-".macro ncp_over_ov_begin address overlay; .pushsection .ncp_over_\\address_ov\\overlay; .set ncp_dest, \\address; .endm\n"
+".macro ncp_over_ov_begin address overlay; .pushsection .ncp_over_\\address\\()_ov\\overlay; .set ncp_dest, \\address; .endm\n"
 ".macro ncp_over_end; .popsection; .endm\n"
+"\n"
+".macro ncp_repl address assembly; ncp_over_begin \\address; \\assembly; ncp_over_end; .endm\n"
+".macro ncp_repl_ov address overlay assembly; ncp_over_ov_begin \\address, \\overlay; \\assembly; ncp_over_end; .endm\n"
+""
 );
 #endif
 
@@ -114,13 +118,13 @@ asm(
 #define ncp_repl(...) __ncp_get_macro(__VA_ARGS__, __ncp_ovxx_repl, __ncp_main_repl, )(__VA_ARGS__)
 
 #define ncp_file(path, sym) \
-asm(#sym":\n.incbin \""path"\"\n__"#sym"_end:"); \
-__ncp_extern_var const char sym[]; \
+asm(#sym":\n.incbin \"" path"\"\n__"#sym"_end:"); \
+__ncp_extern_var char sym[]; \
 __ncp_extern_var const char __##sym##_end[];
 
 #define ncp_filez(path, sym) \
-asm(#sym":\n.incbin \""path"\"\n.byte 0\n__"#sym"_end:"); \
-__ncp_extern_var const char sym[]; \
+asm(#sym":\n.incbin \"" path"\"\n.byte 0\n__"#sym"_end:"); \
+__ncp_extern_var char sym[]; \
 __ncp_extern_var const char __##sym##_end[];
 
 #define ncp_filesize(sym) ((unsigned long)(__##sym##_end - sym))

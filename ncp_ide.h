@@ -45,14 +45,14 @@
 
 // Includes a file as binary data
 #define ncp_file(path, sym) \
-asm(#sym":\n.incbin \""path"\"\n__"#sym"_end:"); \
-__ncp_extern_var const char sym[]; \
+asm(#sym":\n.incbin \"" path"\"\n__"#sym"_end:"); \
+__ncp_extern_var char sym[]; \
 __ncp_extern_var const char __##sym##_end[];
 
 // Includes a file as binary data and null terminates it
 #define ncp_filez(path, sym) \
-asm(#sym":\n.incbin \""path"\"\n.byte 0\n__"#sym"_end:"); \
-__ncp_extern_var const char sym[]; \
+asm(#sym":\n.incbin \"" path"\"\n.byte 0\n__"#sym"_end:"); \
+__ncp_extern_var char sym[]; \
 __ncp_extern_var const char __##sym##_end[];
 
 // Returns the size of a file imported with ncp_file
@@ -66,5 +66,5 @@ __ncp_extern_var const char __##sym##_end[];
 #define always_inline __attribute__((always_inline))
 // Makes the function never be inlined
 #define noinline __attribute__((noinline))
-// Prevents the compiler from modifying the assembly inside the function 
+// Prevents the compiler from modifying the assembly inside the function
 #define asm_func __attribute__((naked))
