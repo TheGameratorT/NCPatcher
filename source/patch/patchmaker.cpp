@@ -152,6 +152,16 @@ static void forEachElfSymbol(
 	}
 }
 
+static u32 getPatchOverwriteAmount(const GenericPatchInfo* p)
+{
+	std::size_t pt = p->patchType;
+	if (pt == PatchType::Over)
+		return p->sectionSize;
+	if (pt == PatchType::Jump && p->destThumb)
+		return 8;
+	return 4;
+}
+
 PatchMaker::PatchMaker() = default;
 PatchMaker::~PatchMaker() = default;
 
@@ -1231,7 +1241,6 @@ void PatchMaker::gatherInfoFromElf()
 	});
 
 	// Check if any overlapping patches exist
-	// TODO: "thumb" and "over" support
 	bool foundOverlapping = false;
 	for (std::size_t i = 0; i < m_patchInfo.size(); i++)
 	{
@@ -1239,17 +1248,16 @@ void PatchMaker::gatherInfoFromElf()
         for (std::size_t j = i + 1; j < m_patchInfo.size(); j++)
 		{
 			auto& b = m_patchInfo[j];
-			if (a->destAddressOv == b->destAddressOv)
+			if (a->destAddressOv != b->destAddressOv)
+				continue;
+			u32 aSz = getPatchOverwriteAmount(a.get());
+			u32 bSz = getPatchOverwriteAmount(b.get());
+			if (Util::overlaps(a->destAddress, a->destAddress + aSz, b->destAddress, b->destAddress + bSz))
 			{
-				u32 aSz = a->patchType == PatchType::Over ? a->sectionSize : 4;
-				u32 bSz = b->patchType == PatchType::Over ? b->sectionSize : 4;
-				if (Util::overlaps(a->destAddress, a->destAddress + aSz, b->destAddress, b->destAddress + bSz))
-				{
-					Log::out << OERROR
-						<< OSTRa(a->symbol) << "[sz=" << aSz << "] (" << OSTR(a->job->srcFilePath.string()) << ") overlaps with "
-						<< OSTRa(b->symbol) << "[sz=" << bSz << "] (" << OSTR(b->job->srcFilePath.string()) << ")\n";
-					foundOverlapping = true;
-				}
+				Log::out << OERROR
+					<< OSTRa(a->symbol) << "[sz=" << aSz << "] (" << OSTR(a->job->srcFilePath.string()) << ") overlaps with "
+					<< OSTRa(b->symbol) << "[sz=" << bSz << "] (" << OSTR(b->job->srcFilePath.string()) << ")\n";
+				foundOverlapping = true;
 			}
         }
     }
