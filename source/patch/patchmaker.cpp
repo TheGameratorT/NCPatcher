@@ -192,8 +192,8 @@ void PatchMaker::makeTarget(
 	loadOverlayTableBin();
 
 	std::vector<u32>& patchedOverlays = m_target->getArm9() ?
-	RebuildConfig::getArm7PatchedOvs() :
-	RebuildConfig::getArm9PatchedOvs();
+		RebuildConfig::getArm7PatchedOvs() :
+		RebuildConfig::getArm9PatchedOvs();
 
 	for (u32 ovID : patchedOverlays)
 		loadOverlayBin(ovID);
@@ -315,6 +315,14 @@ void PatchMaker::gatherInfoFromObjects()
 					});
 				}
 				return;
+			}
+
+			if (region->mode != BuildTarget::Mode::Append)
+			{
+				std::ostringstream oss;
+				oss << OSTRa(symbolName) << " (" << OSTR(srcFileJob->srcFilePath.string())
+				    << ") cannot be applied to an overlay that is not in " << OSTRa("append") << " mode.";
+				throw ncp::exception(oss.str());
 			}
 
 			bool forceThumb = false;
@@ -1671,6 +1679,7 @@ void PatchMaker::applyPatchesToRom()
 					ovtEntry.bssSize += newcodeInfo->bssSize;
 				}
 
+				bin->setDirty(true);
 				break;
 			}
 			case BuildTarget::Mode::Replace:
@@ -1705,6 +1714,8 @@ void PatchMaker::applyPatchesToRom()
 					data.resize(newcodeInfo->binSize);
 					writeNewcode(data.data());
 				}
+
+				bin->setDirty(true);
 				break;
 			}
 			case BuildTarget::Mode::Create:
