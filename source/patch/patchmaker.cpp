@@ -781,7 +781,7 @@ void PatchMaker::saveOverlayBins()
 		if (!ov->backupData().empty())
 		{
 			fs::current_path(Main::getWorkPath());
-			saveOvData(ov->data(), BuildConfig::getBackupDir() / binName);
+			saveOvData(ov->backupData(), BuildConfig::getBackupDir() / binName);
 		}
 	}
 }
