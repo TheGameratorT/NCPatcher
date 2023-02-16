@@ -105,6 +105,7 @@ void ObjMaker::getSourceFiles()
 					std::string buildPath = (*m_buildDir / srcPath).string();
 					fs::path objPath = buildPath + ".o";
 					fs::path depPath = buildPath + ".d";
+					fs::path asmPath = buildPath + ".s";
 
 					bool buildSrc;
 					fs::file_time_type objTime;
@@ -122,6 +123,7 @@ void ObjMaker::getSourceFiles()
 					srcFile->srcFilePath = srcPath;
 					srcFile->objFilePath = objPath;
 					srcFile->depFilePath = depPath;
+					srcFile->asmFilePath = asmPath;
 					srcFile->objFileWriteTime = objTime;
 					srcFile->fileType = fileType;
 					srcFile->region = &region;
@@ -263,27 +265,70 @@ void ObjMaker::compileSources()
 
 			const BuildTarget::Region* region = srcFile->region;
 
-			const std::string& flags = [&](){
-				switch (srcFile->fileType)
-				{
-				case SourceFileType::C:
-					return region->cFlags;
-				case SourceFileType::CPP:
-					return region->cppFlags;
-				case SourceFileType::ASM:
-					return region->asmFlags;
-				default:
-					throw ncp::exception("Tried to get flags of invalid file type.");
-				}
-			}();
+			auto makeBuildCmd = [&](
+				bool outputDeps, std::size_t fileType,
+				const std::string& inputFile, const std::string& outputFile)
+			{
+				const std::string& flags = [&](){
+					switch (fileType)
+					{
+					case SourceFileType::C:
+						return region->cFlags;
+					case SourceFileType::CPP:
+						return region->cppFlags;
+					case SourceFileType::ASM:
+						return region->asmFlags;
+					default:
+						throw ncp::exception("Tried to get flags of invalid file type.");
+					}
+				}();
 
-			std::string ccmd = Util::concat(256,
-				BuildConfig::getToolchain(),
-				CompilerForSourceFileType[srcFile->fileType],
-				flags, " -D", DefineForSourceFileType[srcFile->fileType], " ", m_includeFlags,
-				"-c -fdiagnostics-color -fdata-sections -ffunction-sections -MMD -MF \"",
-				depS, "\" \"", srcS, "\" -o \"", objS, "\""
-			);
+				std::string ccmd;
+				ccmd.reserve(256);
+				ccmd += BuildConfig::getToolchain();
+				ccmd += CompilerForSourceFileType[fileType];
+				ccmd += flags;
+				if (fileType != SourceFileType::ASM)
+					ccmd += " -S";
+				ccmd += " -D";
+				ccmd += DefineForSourceFileType[fileType];
+				ccmd += " ";
+				ccmd += m_includeFlags;
+				ccmd += "-c -fdiagnostics-color -fdata-sections -ffunction-sections ";
+				if (outputDeps)
+				{
+					ccmd += "-MMD -MF \"";
+					ccmd += depS;
+					ccmd += "\" ";
+				}
+				ccmd += "\"";
+				ccmd += inputFile;
+				ccmd += "\" -o \"";
+				ccmd += outputFile;
+				ccmd += "\"";
+				return ccmd;
+			};
+
+			if (srcFile->fileType != SourceFileType::ASM)
+			{
+				std::string asmS = srcFile->asmFilePath.string();
+
+				std::string ccmd = makeBuildCmd(true, srcFile->fileType, srcS, asmS);
+
+				int retcode = Process::start(ccmd.c_str(), &out);
+				if (retcode != 0)
+				{
+					srcFile->failed = true;
+					out << "Exit code: " << retcode << "\n";
+					srcFile->output = out.str();
+					srcFile->finished = true;
+					return;
+				}
+
+				srcS = asmS;
+			}
+
+			std::string ccmd = makeBuildCmd(srcFile->fileType == SourceFileType::ASM, SourceFileType::ASM, srcS, objS);
 
 			int retcode = Process::start(ccmd.c_str(), &out);
 			if (retcode != 0)

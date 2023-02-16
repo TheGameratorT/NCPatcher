@@ -40,5 +40,5 @@
 #define __ncp_main_over(address) __ncp_main_section(over, address)
 #define __ncp_ovxx_over(address, overlay) __ncp_ovxx_section(over, address, overlay)
 
-#define ncp_over_begin(...) __ncp_get_macro(__VA_ARGS__, , __ncp_ovxx_over, __ncp_main_over)(__VA_ARGS__)
-#define ncp_over_end() .popsection
+#define ncp_over(...) __ncp_get_macro(__VA_ARGS__, , __ncp_ovxx_over, __ncp_main_over)(__VA_ARGS__)
+#define ncp_endover() .popsection

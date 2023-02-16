@@ -12,6 +12,7 @@ public:
 	std::filesystem::path srcFilePath;
 	std::filesystem::path objFilePath;
 	std::filesystem::path depFilePath;
+	std::filesystem::path asmFilePath;
 
 	std::filesystem::file_time_type objFileWriteTime;
 	std::size_t fileType;

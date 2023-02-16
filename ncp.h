@@ -4,42 +4,6 @@
 
 #if defined __ncp_lang_c || defined __ncp_lang_cpp
 
-#ifdef __ncp_c_asmwcpp
-asm("#include \"ncp_asm.h\"");
-#else
-asm(
-"@ ARM\n"
-"\n"
-".macro ncp_jump address; .global ncp_jump_\\address; .type ncp_jump_\\address,%function; ncp_jump_\\address:; .endm\n"
-".macro ncp_call address; .global ncp_call_\\address; .type ncp_call_\\address,%function; ncp_call_\\address:; .endm\n"
-".macro ncp_hook address; .global ncp_hook_\\address; .type ncp_hook_\\address,%function; ncp_hook_\\address:; .endm\n"
-"\n"
-".macro ncp_jump_ov address overlay; .global ncp_jump_\\address\\()_ov\\overlay; .type ncp_jump_\\address\\()_ov\\overlay,%function; ncp_jump_\\address\\()_ov\\overlay:; .endm\n"
-".macro ncp_call_ov address overlay; .global ncp_call_\\address\\()_ov\\overlay; .type ncp_call_\\address\\()_ov\\overlay,%function; ncp_call_\\address\\()_ov\\overlay:; .endm\n"
-".macro ncp_hook_ov address overlay; .global ncp_hook_\\address\\()_ov\\overlay; .type ncp_hook_\\address\\()_ov\\overlay,%function; ncp_hook_\\address\\()_ov\\overlay:; .endm\n"
-"\n"
-"@ THUMB\n"
-"\n"
-".macro ncp_tjump address; .global ncp_tjump_\\address; .type ncp_tjump_\\address,%function; ncp_tjump_\\address:; .endm\n"
-".macro ncp_tcall address; .global ncp_tcall_\\address; .type ncp_tcall_\\address,%function; ncp_tcall_\\address:; .endm\n"
-".macro ncp_thook address; .global ncp_thook_\\address; .type ncp_thook_\\address,%function; ncp_thook_\\address:; .endm\n"
-"\n"
-".macro ncp_tjump_ov address overlay; .global ncp_tjump_\\address\\()_ov\\overlay; .type ncp_tjump_\\address\\()_ov\\overlay,%function; ncp_tjump_\\address\\()_ov\\overlay:; .endm\n"
-".macro ncp_tcall_ov address overlay; .global ncp_tcall_\\address\\()_ov\\overlay; .type ncp_tcall_\\address\\()_ov\\overlay,%function; ncp_tcall_\\address\\()_ov\\overlay:; .endm\n"
-".macro ncp_thook_ov address overlay; .global ncp_thook_\\address\\()_ov\\overlay; .type ncp_thook_\\address\\()_ov\\overlay,%function; ncp_thook_\\address\\()_ov\\overlay:; .endm\n"
-"\n"
-"@ OTHER\n"
-"\n"
-".macro ncp_over_begin address; .pushsection .ncp_over_\\address; .set ncp_dest, \\address; .endm\n"
-".macro ncp_over_ov_begin address overlay; .pushsection .ncp_over_\\address\\()_ov\\overlay; .set ncp_dest, \\address; .endm\n"
-".macro ncp_over_end; .popsection; .endm\n"
-"\n"
-".macro ncp_repl address assembly; ncp_over_begin \\address; \\assembly; ncp_over_end; .endm\n"
-".macro ncp_repl_ov address overlay assembly; ncp_over_ov_begin \\address, \\overlay; \\assembly; ncp_over_end; .endm\n"
-""
-);
-#endif
-
 #ifdef __ncp_lang_cpp
 #define __ncp_extern extern "C"
 #define __ncp_extern_var extern "C"

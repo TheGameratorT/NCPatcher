@@ -34,16 +34,6 @@ static inline std::string strRepl(std::string str, char chr, char new_chr)
 	return str;
 }
 
-template<class... Args>
-constexpr std::string concat(std::size_t preAllocSz, const Args&... args)
-{
-	std::string result;
-	result.reserve(preAllocSz);
-	for (auto s : {std::string_view(args)...})
-		result += s;
-	return result;
-}
-
 template<typename T>
 inline void write(void* address, T value)
 {
