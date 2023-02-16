@@ -818,6 +818,11 @@ void PatchMaker::createLinkerScript()
 		return a->destination > b->destination;
 	});
 
+	std::vector<int> orderedDestWithNcpSet = m_destWithNcpSet;
+	std::sort(orderedDestWithNcpSet.begin(), orderedDestWithNcpSet.end(), [](int a, int b){
+		return a > b;
+	});
+
 	for (const BuildTarget::Region* region : orderedRegions)
 	{
 		LDSMemoryEntry* memEntry;
@@ -882,7 +887,7 @@ void PatchMaker::createLinkerScript()
 		}
 	}
 
-	if (!m_destWithNcpSet.empty())
+	if (!orderedDestWithNcpSet.empty())
 		memoryEntries.emplace_back(new LDSMemoryEntry{ "ncp_set", 0, 0x100000 });
 
 	std::string o;
@@ -1049,12 +1054,12 @@ void PatchMaker::createLinkerScript()
 	if (!overPatches.empty())
 		o += '\n';
 
-	for (auto& p : m_destWithNcpSet)
+	for (auto& p : orderedDestWithNcpSet)
 	{
 		o += "\t.ncp_set";
 		if (p == -1)
 		{
-			o += " : { KEEP(* (.ncp_set)) } > ncp_set AT > bin\n";
+			o += " : { KEEP(* (.ncp_set)) } > ncp_set AT > bin\n\n";
 		}
 		else
 		{
@@ -1068,13 +1073,11 @@ void PatchMaker::createLinkerScript()
 					o += "\t\t KEEP(\"";
 					o += fs::relative(j->objFilePath).string();
 					o += "\" (.ncp_set))\n\t"
-						 "} > ncp_set AT > bin\n";
+						 "} > ncp_set AT > bin\n\n";
 				}
 			}
 		}
 	}
-	if (!m_destWithNcpSet.empty())
-		o += '\n';
 
 	o += "\t/DISCARD/ : {*(.*)}\n"
 		 "}\n";
