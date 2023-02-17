@@ -664,8 +664,6 @@ void PatchMaker::loadOverlayTableBin()
 
 	fs::path bakBinName = BuildConfig::getBackupDir() / binName;
 
-	bool doBackup = false;
-
 	fs::path workBinName;
 	if (fs::exists(bakBinName)) //has backup
 	{
@@ -677,7 +675,6 @@ void PatchMaker::loadOverlayTableBin()
 		if (!fs::exists(binName))
 			throw ncp::file_error(binName, ncp::file_error::find);
 		workBinName = binName;
-		doBackup = true;
 	}
 
 	uintmax_t fileSize = fs::file_size(workBinName);
@@ -692,11 +689,8 @@ void PatchMaker::loadOverlayTableBin()
 		inputFile.read(reinterpret_cast<char*>(&m_ovtEntries[i]), sizeof(OvtEntry));
 	inputFile.close();
 
-	if (doBackup)
-	{
-		m_bakOvtEntries.resize(m_ovtEntries.size());
-		std::memcpy(m_bakOvtEntries.data(), m_ovtEntries.data(), m_ovtEntries.size() * sizeof(OvtEntry));
-	}
+	m_bakOvtEntries.resize(m_ovtEntries.size());
+	std::memcpy(m_bakOvtEntries.data(), m_ovtEntries.data(), m_ovtEntries.size() * sizeof(OvtEntry));
 }
 
 void PatchMaker::saveOverlayTableBin()
@@ -711,7 +705,7 @@ void PatchMaker::saveOverlayTableBin()
 
 	const char* binName = m_target->getArm9() ? "arm9ovt.bin" : "arm7ovt.bin";
 
-	if (!m_bakOvtEntries.empty())
+	if (m_bakOvtChanged)
 	{
 		fs::current_path(Main::getWorkPath());
 		saveOvtEntries(m_bakOvtEntries, BuildConfig::getBackupDir() / binName);
@@ -748,10 +742,10 @@ OverlayBin* PatchMaker::loadOverlayBin(std::size_t ovID)
 		std::vector<u8>& backupBytes = overlay->backupData();
 		backupBytes.resize(bytes.size());
 		std::memcpy(backupBytes.data(), bytes.data(), bytes.size());
-	}
-	
-	if (!m_bakOvtEntries.empty())
+
 		m_bakOvtEntries[ovID].flag = 0;
+		m_bakOvtChanged = true;
+	}
 
 	m_loadedOverlays.emplace(ovID, std::unique_ptr<OverlayBin>(overlay));
 	return overlay;

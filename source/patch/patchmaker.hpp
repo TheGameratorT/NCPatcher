@@ -42,6 +42,7 @@ private:
 	std::unordered_map<std::size_t, std::unique_ptr<OverlayBin>> m_loadedOverlays;
 	std::vector<OvtEntry> m_ovtEntries;
 	std::vector<OvtEntry> m_bakOvtEntries;
+	bool m_bakOvtChanged = false;
 	std::vector<std::unique_ptr<GenericPatchInfo>> m_patchInfo;
 	std::vector<std::unique_ptr<RtReplPatchInfo>> m_rtreplPatches;
 	std::vector<int> m_destWithNcpSet;
