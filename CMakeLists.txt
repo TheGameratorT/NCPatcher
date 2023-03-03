@@ -14,6 +14,9 @@ include_directories(${RAPIDJSON_INCLUDE_DIR})
 include("${CMAKE_SOURCE_DIR}/vendor/thread-pool.cmake")
 include_directories(${THREADPOOL_INCLUDE_DIR})
 
+#add pthread to the libraries because that's required apparently
+add_link_options(-pthread)
+
 # Find the source files
 file(GLOB_RECURSE SOURCES "source/*.cpp")
 

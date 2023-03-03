@@ -14,6 +14,11 @@
 #pragma GCC diagnostic pop
 #endif
 
+//this line right here allows for linux support, by replacing fopen_s with fopen.
+#ifdef __unix
+#define fopen_s(pFile,filename,mode) ((*(pFile))=fopen((filename),(mode)))==NULL
+#endif
+
 class JsonMember
 {
 public:
