@@ -1,6 +1,7 @@
 #include "buildtarget.hpp"
 
 #include <array>
+#include <sstream>
 
 #include "../main.hpp"
 #include "../log.hpp"

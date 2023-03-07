@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <filesystem>
+#include <sstream>
 
 #include "../main.hpp"
 #include "json.hpp"

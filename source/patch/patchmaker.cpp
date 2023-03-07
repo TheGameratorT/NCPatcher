@@ -3,6 +3,7 @@
 #include <fstream>
 #include <functional>
 #include <iomanip>
+#include <sstream>
 
 #include "../elf.hpp"
 
@@ -1554,16 +1555,20 @@ void PatchMaker::applyPatchesToRom()
 	{
 		u32 newcodeAddr = m_newcodeAddrForDest[dest];
 
+		// Fixes clang bug: https://marc.info/?l=llvm-bugs&m=154455815918394
+		const auto& clang_dest = dest;
+		const auto& clang_newcodeInfo = newcodeInfo;
+
 		auto writeNewcode = [&](u8* addr){
 			std::size_t autogenDataSize = 0;
-			auto& autogenDataInfo = m_autogenDataInfoForDest[dest];
+			auto& autogenDataInfo = m_autogenDataInfoForDest[clang_dest];
 			if (autogenDataInfo != nullptr)
 				autogenDataSize = autogenDataInfo->data.size();
 
 			// Write the patch data
-			std::memcpy(addr, newcodeInfo->binData, newcodeInfo->binSize - autogenDataSize);
+			std::memcpy(addr, clang_newcodeInfo->binData, clang_newcodeInfo->binSize - autogenDataSize);
 			if (autogenDataSize != 0)
-				std::memcpy(&addr[newcodeInfo->binSize - autogenDataSize], autogenDataInfo->data.data(), autogenDataSize);
+				std::memcpy(&addr[clang_newcodeInfo->binSize - autogenDataSize], autogenDataInfo->data.data(), autogenDataSize);
 		};
 
 		if (dest == -1)

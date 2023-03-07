@@ -2,6 +2,7 @@
 
 #include <cstring>
 #include <fstream>
+#include <sstream>
 
 #include "../blz.hpp"
 #include "../except.hpp"

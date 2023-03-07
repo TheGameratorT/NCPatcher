@@ -4,6 +4,7 @@
 #include <thread>
 #include <chrono>
 #include <unordered_map>
+#include <sstream>
 
 #include <BS_thread_pool.hpp>
 

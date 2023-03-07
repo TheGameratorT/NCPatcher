@@ -22,6 +22,9 @@
 #include <windows.h>
 #elif __linux__
 #include <unistd.h>
+#elif __APPLE__
+#include <mach-o/dyld.h>
+#include <limits.h>
 #else
 #error Unsupported operating system
 #endif
@@ -196,6 +199,14 @@ static std::filesystem::path fetchAppPath()
 	{
 		throw std::runtime_error(std::string("Could not query application directory path: ") + e.what());
 	}
+
+#elif __APPLE__
+
+	char buf[PATH_MAX];
+	uint32_t bufsize = PATH_MAX;
+	if (_NSGetExecutablePath(buf, &bufsize) != 0)
+		throw std::runtime_error("Could not query application directory path.");
+	return std::filesystem::path(buf).parent_path();
 
 #endif
 }

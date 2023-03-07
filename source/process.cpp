@@ -109,8 +109,6 @@ int Process::start(const char* cmd, std::ostream* out)
 #include <sys/wait.h>
 #define SHELL "/bin/sh"
 
-#warning TIAGO. YOU DID NOT FINISH THIS!!! MAKE SURE TO COME BACK OK, THANKS
-
 int Process::start(const char* cmd, std::ostream* out)
 {
 	int pipefd[2];
@@ -125,19 +123,20 @@ int Process::start(const char* cmd, std::ostream* out)
 
 	if (pid == 0) // Child
 	{
-		close(pipefd[0]);               // Close reading end in the child
+		close(pipefd[0]); // Close the unused read end
+
 		dup2(pipefd[1], STDOUT_FILENO); // Send stdout to the pipe
 		dup2(pipefd[1], STDERR_FILENO); // Send stderr to the pipe
 		close(pipefd[1]);               // This descriptor is no longer needed
 
-		// This is the child process. Execute the shell command.
-		execl(SHELL, SHELL, "-c", cmd, NULL);
+		execl(SHELL, SHELL, "-c", cmd, NULL); // Execute the shell command
 		_exit(EXIT_FAILURE);
 	}
 	else // Parent
 	{
-		close(pipefd[1]); // Close the write end of the pipe in the parent
+		close(pipefd[1]); // Close the unused write end
 
+		// Read from the child
 		char buffer[BUFSIZE];
 		for (int len; (len = read(pipefd[0], buffer, sizeof(buffer)));)
 		{

@@ -4,6 +4,7 @@
 #include <fstream>
 #include <string>
 #include <algorithm>
+#include <sstream>
 
 #include "../main.hpp"
 #include "../log.hpp"

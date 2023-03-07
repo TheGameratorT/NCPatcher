@@ -3,6 +3,7 @@
 #include <iostream>
 #include <fstream>
 #include <filesystem>
+#include <sstream>
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -10,7 +11,8 @@
 #endif
 #include <windows.h>
 #else
-//#include <termios.h>
+#include <unistd.h>
+#include <termios.h>
 #endif
 
 #include "types.hpp"
@@ -304,18 +306,60 @@ void showCursor(bool flag)
 
 Coords getXY()
 {
-	Coords coords{0, 0};
+	char buf[30];
+	int ret, i, pow;
+	char ch;
+	Coords coords{0,0};
+
+	struct termios term, restore;
+
+	tcgetattr(0, &term);
+	tcgetattr(0, &restore);
+	term.c_lflag &= ~(ICANON|ECHO);
+	tcsetattr(0, TCSANOW, &term);
+
+	write(1, "\033[6n", 4);
+
+	for(i = 0, ch = 0; ch != 'R'; i++)
+	{
+		ret = read(0, &ch, 1);
+		if (!ret)
+		{
+			tcsetattr(0, TCSANOW, &restore);
+			fprintf(stderr, "getpos: error reading response!\n");
+			return coords;
+		}
+		buf[i] = ch;
+	}
+
+	if (i < 2)
+	{
+		tcsetattr(0, TCSANOW, &restore);
+		printf("Log::getXY() error: i < 2\n");
+		return coords;
+	}
+
+	for(i -= 2, pow = 1; buf[i] != ';'; i--, pow *= 10)
+		coords.x += (buf[i] - '0') * pow;
+
+	for(i--, pow = 1; buf[i] != '['; i--, pow *= 10)
+		coords.y += (buf[i] - '0') * pow;
+
+	coords.x -= 1;
+	coords.y -= 1;
+
+	tcsetattr(0, TCSANOW, &restore);
 	return coords;
 }
 
 void gotoXY(int x, int y)
 {
-	std::cout << "\x1b[" << x << ";" << y << "H" << std::flush;
+	std::cout << "\x1b[" << (y + 1) << ";" << (x + 1) << "H" << std::flush;
 }
 
 void showCursor(bool flag)
 {
-
+	std::cout << (flag ? "\x1b[?25h" : "\x1b[?25l") << std::flush;
 }
 
 #endif

@@ -5,6 +5,7 @@
 #include <fstream>
 #include <string_view>
 #include <filesystem>
+#include <sstream>
 
 #include <rapidjson/filereadstream.h>
 #include <rapidjson/error/en.h>
@@ -236,8 +237,8 @@ JsonReader::JsonReader(const fs::path& path)
 	if (!fs::exists(path))
 		throw ncp::file_error(path, ncp::file_error::find);
 
-	FILE* file;
-	if (fopen_s(&file, path.string().c_str(), s_fileReadMode) != 0)
+	FILE* file = fopen(path.string().c_str(), s_fileReadMode);
+	if (file == nullptr)
 		throw ncp::file_error(path, ncp::file_error::read);
 
 	const size_t streamBufferSize = 65536;
