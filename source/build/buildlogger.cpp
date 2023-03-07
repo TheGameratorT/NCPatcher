@@ -13,18 +13,29 @@ void BuildLogger::start(const std::filesystem::path& targetRoot)
 	Log::out << OBUILD << "Starting..." << std::endl;
 
 	Log::setMode(LogMode::Console);
+#ifndef _WIN32
 	Log::showCursor(false);
+#endif
 
-	m_cursorOffsetY = Log::getXY().y;
 	m_currentFrame = 0;
 	m_failureFound = false;
 	m_filesToBuild = 0;
 
 	for (const std::unique_ptr<SourceFileJob>& job : *m_jobs)
 	{
+		if (job->rebuild)
+			m_filesToBuild++;
+	}
+
+	std::size_t bufRemainingLines = Log::getRemainingLines();
+	std::size_t bufLineShift = (bufRemainingLines < m_filesToBuild) ? (m_filesToBuild - bufRemainingLines) : 0;
+
+	m_cursorOffsetY = Log::getXY().y - bufLineShift;
+
+	for (const std::unique_ptr<SourceFileJob>& job : *m_jobs)
+	{
 		if (!job->rebuild)
 			continue;
-		m_filesToBuild++;
 		std::string filePath = job->srcFilePath.string();
 		Log::out << OBUILD << OSQRTBRKTS(ANSI_bWHITE, , "-") << ' ' << ANSI_bYELLOW << filePath << ANSI_RESET;
 		Log::out << std::endl;
@@ -37,25 +48,25 @@ void BuildLogger::update()
 	{
 		if (!job->buildStarted || (job->finished && job->logWasFinished))
 			continue;
-		Log::gotoXY(9, m_cursorOffsetY + int(job->jobID));
+		const int writeX = 9;
+		const int writeY = m_cursorOffsetY + int(job->jobID);
 		if (job->finished && !job->logWasFinished)
 		{
 			if (job->failed)
 			{
-				Log::out << ANSI_bRED "E" ANSI_RESET;
+				Log::writeChar(writeX, writeY, 'E', Log::Red, true);
 				m_failureFound = true;
 			}
 			else
 			{
-				Log::out << ANSI_bGREEN "S" ANSI_RESET;
+				Log::writeChar(writeX, writeY, 'S', Log::Green, true);
 			}
 			job->logWasFinished = true;
 		}
 		else
 		{
-			Log::out.put(s_progAnimFrames[m_currentFrame]);
+			Log::writeChar(writeX, writeY, s_progAnimFrames[m_currentFrame]);
 		}
-		Log::out.flush();
 	}
 	m_currentFrame++;
 	if (m_currentFrame > 7)
@@ -115,5 +126,7 @@ void BuildLogger::finish()
 		}
 	}
 
+#ifndef _WIN32
 	Log::showCursor(true);
+#endif
 }

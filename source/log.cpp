@@ -11,8 +11,10 @@
 #endif
 #include <windows.h>
 #else
-#include <unistd.h>
+#include <stdio.h>
+#include <sys/ioctl.h>
 #include <termios.h>
+#include <unistd.h>
 #endif
 
 #include "types.hpp"
@@ -266,7 +268,7 @@ Coords getXY()
 {
 	Coords coords{0, 0};
 	HANDLE hStdOut = GetStdHandle(STD_OUTPUT_HANDLE);
-	if (hStdOut)
+	if (hStdOut != INVALID_HANDLE_VALUE)
 	{
 		CONSOLE_SCREEN_BUFFER_INFO cbsi;
 		if (GetConsoleScreenBufferInfo(hStdOut, &cbsi))
@@ -281,17 +283,64 @@ Coords getXY()
 void gotoXY(int x, int y)
 {
 	HANDLE hStdOut = GetStdHandle(STD_OUTPUT_HANDLE);
-	if (hStdOut)
+	if (hStdOut != INVALID_HANDLE_VALUE)
 	{
 		COORD coord = {static_cast<SHORT>(x), static_cast<SHORT>(y)};
 		SetConsoleCursorPosition(hStdOut, coord);
 	}
 }
 
+void writeChar(int x, int y, char chr)
+{
+	HANDLE hStdOut = GetStdHandle(STD_OUTPUT_HANDLE);
+	if (hStdOut != INVALID_HANDLE_VALUE)
+	{
+		DWORD dw;
+		COORD coord{ short(x), short(y) };
+		WriteConsoleOutputCharacterA(hStdOut, &chr, 1, coord, &dw);
+	}
+}
+
+void writeChar(int x, int y, char chr, int color, bool bold)
+{
+	HANDLE hStdOut = GetStdHandle(STD_OUTPUT_HANDLE);
+	if (hStdOut != INVALID_HANDLE_VALUE)
+	{
+		DWORD dw;
+		COORD coord{ short(x), short(y) };
+
+		WORD attr;
+		if (ReadConsoleOutputAttribute(hStdOut, &attr, 1, coord, &dw))
+		{
+			attr &= ~0xF;
+			attr |= wincolors[color - 30] + (int(bold) * 8);
+			WriteConsoleOutputAttribute(hStdOut, &attr, 1, coord, &dw);
+		}
+
+		WriteConsoleOutputCharacterA(hStdOut, &chr, 1, coord, &dw);
+	}
+}
+
+std::size_t getRemainingLines()
+{
+	HANDLE hStdOut = GetStdHandle(STD_OUTPUT_HANDLE);
+	if (hStdOut != INVALID_HANDLE_VALUE)
+	{
+		CONSOLE_SCREEN_BUFFER_INFO cbsi;
+		if (GetConsoleScreenBufferInfo(hStdOut, &cbsi))
+		{
+			COORD& bufSize = cbsi.dwSize;
+			COORD& cursorPos = cbsi.dwCursorPosition;
+			return bufSize.Y - cursorPos.Y - 1;
+		}
+	}
+	return 0;
+}
+
 void showCursor(bool flag)
 {
 	HANDLE hStdOut = GetStdHandle(STD_OUTPUT_HANDLE);
-	if (hStdOut)
+	if (hStdOut != INVALID_HANDLE_VALUE)
 	{
 		CONSOLE_CURSOR_INFO cursorInfo;
 		if (GetConsoleCursorInfo(hStdOut, &cursorInfo))
@@ -354,7 +403,41 @@ Coords getXY()
 
 void gotoXY(int x, int y)
 {
-	std::cout << "\x1b[" << (y + 1) << ";" << (x + 1) << "H" << std::flush;
+	if (x < 0 || y < 0)
+	{
+		struct winsize ws;
+		ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws);
+		x = 0;
+		y = ws.ws_row-1;
+	}
+	std::cout << "\x1b[" << (y + 1) << ';' << (x + 1) << 'H' << std::flush;
+}
+
+void writeChar(int x, int y, char chr)
+{
+	Coords coords = getXY();
+	gotoXY(x, y);
+	std::cout << chr << std::flush;
+	gotoXY(coords.x, coords.y);
+}
+
+void writeChar(int x, int y, char chr, int color, bool bold)
+{
+	Coords coords = getXY();
+	gotoXY(x, y);
+	std::cout << "\x1b[" << std::to_string(color);
+	if (bold)
+		std::cout << ";1";
+	std::cout << 'm' << chr << ANSI_RESET << std::flush;
+	gotoXY(coords.x, coords.y);
+}
+
+std::size_t getRemainingLines()
+{
+	struct winsize ws;
+	ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws);
+	Coords cursorPos = getXY();
+	return ws.ws_row - cursorPos.y - 1;
 }
 
 void showCursor(bool flag)
