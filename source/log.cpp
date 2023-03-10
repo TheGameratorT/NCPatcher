@@ -285,7 +285,7 @@ void gotoXY(int x, int y)
 	HANDLE hStdOut = GetStdHandle(STD_OUTPUT_HANDLE);
 	if (hStdOut != INVALID_HANDLE_VALUE)
 	{
-		COORD coord = {static_cast<SHORT>(x), static_cast<SHORT>(y)};
+		COORD coord{SHORT(x), SHORT(y)};
 		SetConsoleCursorPosition(hStdOut, coord);
 	}
 }
@@ -296,7 +296,8 @@ void writeChar(int x, int y, char chr)
 	if (hStdOut != INVALID_HANDLE_VALUE)
 	{
 		DWORD dw;
-		COORD coord{ short(x), short(y) };
+		COORD coord{SHORT(x), SHORT(y)};
+		
 		WriteConsoleOutputCharacterA(hStdOut, &chr, 1, coord, &dw);
 	}
 }
@@ -307,7 +308,7 @@ void writeChar(int x, int y, char chr, int color, bool bold)
 	if (hStdOut != INVALID_HANDLE_VALUE)
 	{
 		DWORD dw;
-		COORD coord{ short(x), short(y) };
+		COORD coord{SHORT(x), SHORT(y)};
 
 		WORD attr;
 		if (ReadConsoleOutputAttribute(hStdOut, &attr, 1, coord, &dw))
@@ -367,7 +368,12 @@ Coords getXY()
 	term.c_lflag &= ~(ICANON|ECHO);
 	tcsetattr(0, TCSANOW, &term);
 
-	write(1, "\033[6n", 4);
+	ret = write(1, "\033[6n", 4);
+	if (ret == -1)
+	{
+		fprintf(stderr, "Log::getXY() error: query failed!\n");
+		return coords;
+	}
 
 	for(i = 0, ch = 0; ch != 'R'; i++)
 	{
@@ -375,7 +381,7 @@ Coords getXY()
 		if (!ret)
 		{
 			tcsetattr(0, TCSANOW, &restore);
-			fprintf(stderr, "getpos: error reading response!\n");
+			fprintf(stderr, "Log::getXY() error: response read failed!\n");
 			return coords;
 		}
 		buf[i] = ch;
@@ -384,7 +390,7 @@ Coords getXY()
 	if (i < 2)
 	{
 		tcsetattr(0, TCSANOW, &restore);
-		printf("Log::getXY() error: i < 2\n");
+		fprintf(stderr, "Log::getXY() error: i < 2\n");
 		return coords;
 	}
 
