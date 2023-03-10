@@ -8,6 +8,32 @@ It was created because of the need to have move flexible patching features that 
 This program was made with the help of the [Mamma Mia Team](https://github.com/MammaMiaTeam) members. \
 NCPatcher was heavily inspired by Fireflower.
 
+## Building
+
+### Windows
+Make sure that CMake and a compatible compiler (MSVC, GCC or Clang) is installed. MSVC is recommended. \
+Then run the following commands:
+
+Example for MSVC (2022):
+```bat
+git clone https://github.com/TheGameratorT/NCPatcher.git
+mkdir build && cd build
+cmake ../ -G "Visual Studio 17 2022" -A x64
+cmake --build . --config Release
+```
+Note: You might need to change the version or the architecture used in the example. \
+The output files can be found in the `build` directory.
+
+### Linux and MacOS
+Make sure that the following packages `cmake` and `build-essential` are installed on the system and run these commands:
+```sh
+git clone https://github.com/TheGameratorT/NCPatcher.git
+mkdir build && cd build
+cmake ../ -DCMAKE_BUILD_TYPE=Release
+make
+```
+The output files can be found in the `build` directory.
+
 ## Running
 
 Follow the steps on how to configure, after that execute NCPatcher in your current directory which contains the ncpatcher.json file. \
