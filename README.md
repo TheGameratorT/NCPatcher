@@ -2,7 +2,7 @@
 A universal Nintendo DS code maker/patcher.
 
 NCPatcher is a program that modifies the executable binaries of a Nintendo DS ROM. \
-It was created because of the need to have move flexible patching features that other patchers did not have.
+It was created because of the need to have more flexible patching features that other patchers did not have.
 
 ## Credits
 This program was made with the help of the [Mamma Mia Team](https://github.com/MammaMiaTeam) members. \
@@ -329,6 +329,9 @@ This means that all hooks made from ARM mode to any target will always be safe b
 ever overwrites one instruction, but when hooking from THUMB, 4 or 8 bytes are always
 overwritten depending on the hook type used and not just 2 bytes. So be careful because
 you might accidentally overwrite more instructions than you intended to!
+
+A jump patch is equivalent to a branch instruction (`B srcAddr`). \
+A call patch is equivalent to a linked branch instruction (`BL srcAddr`).
 
 If the patch type is a ARM->THUMB jump, the instruction at
 `destAddr` becomes a jump to a ARM->THUMB jump bridge generated
