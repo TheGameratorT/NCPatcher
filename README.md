@@ -142,7 +142,8 @@ Structure:
  - symbols - A file containing symbol definitions to include when linking. (Optional)
 
 The "$" symbol allows to define or access a variable that is for its own file scope. \
-The "$$" symbol allows a target to access a variable that is defined in the ncpatcher.json file scope.
+The "$$" symbol allows a target to access a variable that is defined in the ncpatcher.json file scope. \
+The "${env:ENV_VARIABLE}" syntax allows to access a variable that is defined in the system's environment variable list.
 
 ## Patches
 

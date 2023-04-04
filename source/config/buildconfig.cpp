@@ -41,21 +41,46 @@ static std::time_t lastWriteTime;
 
 static void expandTemplates(std::string& val)
 {
+	auto throwInvalidExpansion = [&val](){
+		std::ostringstream oss;
+		oss << "Invalid variable template expansion in string " << OSTR(val) << " in " << OSTR(s_jsonFileName);
+		throw ncp::exception(oss.str());
+	};
+
 	size_t pos = 0;
 	while ((pos = val.find('$', pos)) != std::string::npos)
 	{
 		if (pos + 4 > val.size())
 			break;
-		if (val[pos + 1] == '{')
+		if (val[pos + 1] != '{')
+			throwInvalidExpansion();
+
+		size_t endpos = val.find('}', pos + 1);
+		if (endpos == std::string::npos)
+			break;
+
+		std::string varname = val.substr(pos + 2, endpos - (pos + 2));
+		std::string varvalue;
+		if (varname.starts_with("env:"))
 		{
-			size_t endpos = val.find('}', pos + 1);
-			if (endpos == std::string::npos)
-				break;
-			std::string varname = val.substr(pos + 2, endpos - (pos + 2));
-			const std::string& varvalue = getVariable(varname);
-			val.replace(pos, endpos - pos + 1, varvalue);
-			pos += varvalue.size();
+			if (varname.size() == 4)
+				throwInvalidExpansion();
+			std::string envvarname = varname.substr(4);
+			const char* envvarvalue = std::getenv(envvarname.c_str());
+			if (envvarvalue == nullptr)
+			{
+				std::ostringstream oss;
+				oss << "Could not find environment variable " << OSTR(envvarname) << " referenced in " << OSTR(s_jsonFileName);
+				throw ncp::exception(oss.str());
+			}
+			varvalue = envvarvalue;
 		}
+		else
+		{
+			varvalue = getVariable(varname);
+		}
+		val.replace(pos, endpos - pos + 1, varvalue);
+		pos += varvalue.size();
 	}
 }
 

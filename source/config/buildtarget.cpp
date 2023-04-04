@@ -2,6 +2,7 @@
 
 #include <array>
 #include <sstream>
+#include <cstdlib>
 
 #include "../main.hpp"
 #include "../log.hpp"
@@ -93,6 +94,12 @@ const std::string& BuildTarget::getVariable(const std::string& value)
 
 void BuildTarget::expandTemplates(std::string& val)
 {
+	auto throwInvalidExpansion = [this, &val](){
+		std::ostringstream oss;
+		oss << "Invalid variable template expansion in string " << OSTR(val) << " in the " << OSTR(m_isArm9 ? "arm9" : "arm7") << " target.";
+		throw ncp::exception(oss.str());
+	};
+
 	size_t pos = 0;
 	while ((pos = val.find('$', pos)) != std::string::npos)
 	{
@@ -101,16 +108,38 @@ void BuildTarget::expandTemplates(std::string& val)
 		int off = val[pos + 1] == '$';
 		if (pos + off + 4 > val.size())
 			break;
-		if (val[pos + off + 1] == '{')
+		if (val[pos + off + 1] != '{')
+			throwInvalidExpansion();
+		
+		size_t endpos = val.find('}', pos + off + 1);
+		if (endpos == std::string::npos)
+			break;
+		std::string varname = val.substr(pos + off + 2, endpos - (pos + off + 2));
+		bool env = varname.starts_with("env:");
+		if (off && env)
+			throwInvalidExpansion();
+
+		std::string varvalue;
+		if (env)
 		{
-			size_t endpos = val.find('}', pos + off + 1);
-			if (endpos == std::string::npos)
-				break;
-			std::string varname = val.substr(pos + off + 2, endpos - (pos + off + 2));
-			const std::string& varvalue = off ? BuildConfig::getVariable(varname) : getVariable(varname);
-			val.replace(pos, endpos - pos + 1, varvalue);
-			pos += varvalue.size();
+			if (varname.size() == 4)
+				throwInvalidExpansion();
+			std::string envvarname = varname.substr(4);
+			const char* envvarvalue = std::getenv(envvarname.c_str());
+			if (envvarvalue == nullptr)
+			{
+				std::ostringstream oss;
+				oss << "Could not find environment variable " << OSTR(envvarname) << " referenced in the " << OSTR(m_isArm9 ? "arm9" : "arm7") << " target.";
+				throw ncp::exception(oss.str());
+			}
+			varvalue = envvarvalue;
 		}
+		else
+		{
+			varvalue = off ? BuildConfig::getVariable(varname) : getVariable(varname);
+		}
+		val.replace(pos, endpos - pos + 1, varvalue);
+		pos += varvalue.size();
 	}
 }
 

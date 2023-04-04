@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 # Set the project name and version
-project(ncpatcher VERSION 1.0)
+project(ncpatcher VERSION 1.0.4)
 
 if (WIN32)
 add_compile_definitions(_CRT_SECURE_NO_DEPRECATE)
@@ -20,6 +20,9 @@ file(GLOB_RECURSE SOURCES "source/*.cpp")
 # Add the executable
 add_executable(${PROJECT_NAME} ${SOURCES} $<IF:$<BOOL:${WIN32}>,win_resources.rc,>)
 add_dependencies(${PROJECT_NAME} rapidjson thread-pool)
+if (NOT WIN32)
+target_compile_options(${PROJECT_NAME} PUBLIC pthread)
+endif()
 
 # Specify the C++ standard
 set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 20)
