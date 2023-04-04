@@ -21,7 +21,8 @@ file(GLOB_RECURSE SOURCES "source/*.cpp")
 add_executable(${PROJECT_NAME} ${SOURCES} $<IF:$<BOOL:${WIN32}>,win_resources.rc,>)
 add_dependencies(${PROJECT_NAME} rapidjson thread-pool)
 if (NOT WIN32)
-target_compile_options(${PROJECT_NAME} PUBLIC pthread)
+find_package(Threads REQUIRED)
+target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads)
 endif()
 
 # Specify the C++ standard
@@ -37,8 +38,34 @@ set(DEPLOY_HEADERS
 	"ncprt.c"
 )
 
+if (MAKE_PACK)
+
+set(PACK_DIR "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}_pack")
+
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+	COMMAND ${CMAKE_COMMAND} -E echo "Making pack..."
+)
+
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+	COMMAND ${CMAKE_COMMAND} -E make_directory ${PACK_DIR}
+)
+
+foreach(_file ${DEPLOY_HEADERS})
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+	COMMAND ${CMAKE_COMMAND} -E copy_if_different "${PROJECT_SOURCE_DIR}/${_file}" ${PACK_DIR}
+)
+endforeach()
+
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+	COMMAND ${CMAKE_COMMAND} -E rename $<TARGET_FILE:${PROJECT_NAME}> "${PACK_DIR}/$<TARGET_FILE_NAME:${PROJECT_NAME}>"
+)
+
+else()
+
 foreach(_file ${DEPLOY_HEADERS})
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
 	COMMAND ${CMAKE_COMMAND} -E copy_if_different "${PROJECT_SOURCE_DIR}/${_file}" $<TARGET_FILE_DIR:${PROJECT_NAME}>
 )
 endforeach()
+
+endif()

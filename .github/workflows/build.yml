@@ -1,0 +1,108 @@
+name: C/C++ CI
+
+on:
+  push:
+    branches: ["*"]
+  pull_request:
+    branches: ["*"]
+  release:
+    types: [published]
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    env:
+      package_name: ncpatcher_${{ github.ref_name }}_linux_x64
+    steps:
+    - uses: actions/checkout@v3
+    - name: Build package
+      run: |
+        mkdir build
+        cd build
+        cmake ../ -DCMAKE_BUILD_TYPE=Release -DMAKE_PACK=ON
+        make -j$(nproc)
+        mv ncpatcher_pack ../$package_name
+    - name: Upload artifact
+      uses: actions/upload-artifact@v2
+      with:
+        path: ${{ env.package_name }}
+        name: linux_x64
+    - name: Compress package
+      if: ${{ success() && startsWith(github.ref, 'refs/tags') }}
+      run: tar -cvzf $package_name.tgz $package_name
+    - name: Upload to release
+      if: ${{ success() && startsWith(github.ref, 'refs/tags') }}
+      uses: AButler/upload-release-assets@v2.0
+      with:
+        files: ${{ env.package_name }}.tgz
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+  macos:
+    runs-on: macos-latest
+    env:
+      package_name: ncpatcher_${{ github.ref_name }}_macos_x64
+    steps:
+    - uses: actions/checkout@v3
+    - name: Build package
+      run: |
+        mkdir build
+        cd build
+        cmake ../ -DCMAKE_BUILD_TYPE=Release -DMAKE_PACK=ON
+        make -j$(nproc)
+        mv ncpatcher_pack ../$package_name
+    - name: Upload artifact
+      uses: actions/upload-artifact@v2
+      with:
+        path: ${{ env.package_name }}
+        name: macos_x64
+    - name: Compress package
+      if: ${{ success() && startsWith(github.ref, 'refs/tags') }}
+      run: tar -cvzf $package_name.tgz $package_name
+    - name: Upload to release
+      if: ${{ success() && startsWith(github.ref, 'refs/tags') }}
+      uses: AButler/upload-release-assets@v2.0
+      with:
+        files: ${{ env.package_name }}.tgz
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+  windows:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            cmake-arch: x64
+            package-arch: x64
+          - arch: amd64_x86
+            cmake-arch: Win32
+            package-arch: x86
+    env:
+      package_name: ncpatcher_${{ github.ref_name }}_win_${{ matrix.package-arch }}
+    steps:
+    - uses: actions/checkout@v3
+    - uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: ${{ matrix.arch }}
+        vsversion: "2022"
+    - name: Build package
+      run: |
+        mkdir build
+        cd build
+        cmake ../ -G "Visual Studio 17 2022" -A ${{ matrix.cmake-arch }} -DMAKE_PACK=ON
+        cmake --build . --config Release
+        move ncpatcher_pack ..\${{ env.package_name }}
+    - name: Upload artifact
+      uses: actions/upload-artifact@v2
+      with:
+        path: ${{ env.package_name }}
+        name: windows_${{ matrix.package-arch }}
+    - name: Compress package
+      if: ${{ success() && startsWith(github.ref, 'refs/tags') }}
+      shell: powershell
+      run: Compress-Archive -Path $env:package_name -DestinationPath $env:package_name'.zip'
+    - name: Upload to release
+      if: ${{ success() && startsWith(github.ref, 'refs/tags') }}
+      uses: AButler/upload-release-assets@v2.0
+      with:
+        files: ${{ env.package_name }}.zip
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
