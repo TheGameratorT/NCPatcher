@@ -255,17 +255,17 @@ ncp_repl(0x02010000, 0, R"(
 Assembly:
 
 ```
-ncp_over_begin(int address, [int overlay])
-ncp_over_end()
+ncp_over(int address, [int overlay])
+ncp_endover()
 ```
 
 Example:
 ```
-ncp_over_begin(0x02000000) // Places the following code at 0x02000000
+ncp_over(0x02000000) // Places the following code at 0x02000000
     MOV     R0, #1
     MOV     R1, R0
     BX      LR
-ncp_over_end():
+ncp_endover():
 ```
 
 ### Dynamic Patching
