@@ -33,7 +33,6 @@ set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_EXTENSIONS OFF)
 # Copy headers to the executable output directory
 set(DEPLOY_HEADERS
 	"ncp.h"
-	"ncp_asm.h"
 	"ncp_ide.h"
 	"ncprt.c"
 )
@@ -52,7 +51,7 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
 
 foreach(_file ${DEPLOY_HEADERS})
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-	COMMAND ${CMAKE_COMMAND} -E copy_if_different "${PROJECT_SOURCE_DIR}/${_file}" ${PACK_DIR}
+	COMMAND ${CMAKE_COMMAND} -E copy_if_different "${PROJECT_SOURCE_DIR}/runtime/${_file}" ${PACK_DIR}
 )
 endforeach()
 
@@ -64,7 +63,7 @@ else()
 
 foreach(_file ${DEPLOY_HEADERS})
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-	COMMAND ${CMAKE_COMMAND} -E copy_if_different "${PROJECT_SOURCE_DIR}/${_file}" $<TARGET_FILE_DIR:${PROJECT_NAME}>
+	COMMAND ${CMAKE_COMMAND} -E copy_if_different "${PROJECT_SOURCE_DIR}/runtime/${_file}" $<TARGET_FILE_DIR:${PROJECT_NAME}>
 )
 endforeach()
 

@@ -318,14 +318,6 @@ void PatchMaker::gatherInfoFromObjects()
 				return;
 			}
 
-			if (region->mode != BuildTarget::Mode::Append)
-			{
-				std::ostringstream oss;
-				oss << OSTRa(symbolName) << " (" << OSTR(srcFileJob->srcFilePath.string())
-				    << ") cannot be applied to an overlay that is not in " << OSTRa("append") << " mode.";
-				throw ncp::exception(oss.str());
-			}
-
 			bool forceThumb = false;
 			if (patchType >= PatchType::TJump && patchType <= PatchType::THook)
 			{
@@ -380,6 +372,17 @@ void PatchMaker::gatherInfoFromObjects()
 				} catch (std::exception& e) {
 					Log::out << OWARN << "Found invalid overlay for patch: " << labelName << std::endl;
 					return;
+				}
+			}
+
+			for (auto& region : m_target->regions)
+			{
+				if (region.destination == destAddressOv && region.mode != BuildTarget::Mode::Append)
+				{
+					std::ostringstream oss;
+					oss << OSTRa(symbolName) << " (" << OSTR(srcFileJob->srcFilePath.string())
+						<< ") cannot be applied to an overlay that is not in " << OSTRa("append") << " mode.";
+					throw ncp::exception(oss.str());
 				}
 			}
 
