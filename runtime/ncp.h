@@ -93,21 +93,21 @@ __ncp_extern_var const char __##sym##_end[];
 
 #define ncp_filesize(sym) ((unsigned long)(__##sym##_end - sym))
 
-#define arm __attribute__((target("arm")))
-#define thumb __attribute__((target("thumb")))
-#define always_inline __attribute__((always_inline))
-#define noinline __attribute__((noinline))
-#define asm_func __attribute__((naked))
+#define ncp_arm __attribute__((target("arm")))
+#define ncp_thumb __attribute__((target("thumb")))
+#define ncp_forceinline __attribute__((always_inline))
+#define ncp_noinline __attribute__((noinline))
+#define ncp_asmfunc __attribute__((naked))
 
 // NCP Real Time
 
-#define arm_opcode_b 0xEA000000
-#define arm_opcode_bl 0xEB000000
-#define arm_opcode_nop 0xE1A00000
+#define ncprt_arm_opcode_b 0xEA000000
+#define ncprt_arm_opcode_bl 0xEB000000
+#define ncprt_arm_opcode_nop 0xE1A00000
 
 static inline void __ncprt_set(int address, int value) { *(int*)address = value; }
-static inline void __ncprt_set_jump(int address, void* function) { *(int*)address = (arm_opcode_b | (((((int)function - address) >> 2) - 2) & 0xFFFFFF)); }
-static inline void __ncprt_set_call(int address, void* function) { *(int*)address = (arm_opcode_bl | (((((int)function - address) >> 2) - 2) & 0xFFFFFF)); }
+static inline void __ncprt_set_jump(int address, void* function) { *(int*)address = (ncprt_arm_opcode_b | (((((int)function - address) >> 2) - 2) & 0xFFFFFF)); }
+static inline void __ncprt_set_call(int address, void* function) { *(int*)address = (ncprt_arm_opcode_bl | (((((int)function - address) >> 2) - 2) & 0xFFFFFF)); }
 
 #define ncprt_set(address, value) __ncprt_set(address, value)
 #define ncprt_set_jump(address, function) __ncprt_set_jump(address, (void*)(function))
