@@ -101,6 +101,12 @@ int Process::start(const char* cmd, std::ostream* out)
 	return int(dwExitCode);
 }
 
+bool Process::exists(const char* app)
+{
+	std::string cmd = std::string("where /q ") + app;
+	return Process::start(cmd.c_str()) == 0;
+}
+
 #else
 
 #include <stddef.h>
@@ -150,6 +156,12 @@ int Process::start(const char* cmd, std::ostream* out)
 	}
 
 	return status;
+}
+
+bool Process::exists(const char* app)
+{
+	std::string cmd = std::string("which ") + app;
+	return Process::start(cmd.c_str()) == 0;
 }
 
 #endif

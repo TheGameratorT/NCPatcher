@@ -6,6 +6,7 @@
 #include "types.hpp"
 #include "process.hpp"
 #include "log.hpp"
+#include "except.hpp"
 #include "config/buildconfig.hpp"
 #include "config/buildtarget.hpp"
 #include "config/rebuildconfig.hpp"
@@ -53,6 +54,16 @@ static void ncpMain()
 
 	BuildConfig::load();
 	RebuildConfig::load();
+
+	const std::string& toolchain = BuildConfig::getToolchain();
+	std::string gccPath = toolchain + "gcc";
+	if (!Process::exists(gccPath.c_str()))
+	{
+		std::ostringstream oss;
+		oss << "The building toolchain " << OSTR(toolchain) << " was not found." << OREASONNL;
+		oss << "Make sure that it is correctly specified in the " << OSTR("ncpatcher.json") << " file and that it is present on your system.";
+		throw ncp::exception(oss.str());
+	}
 
 	const fs::path& workDir = Main::getWorkPath();
 	Main::s_romPath = fs::absolute(BuildConfig::getFilesystemDir());
