@@ -17,6 +17,7 @@ Then run the following commands:
 Example for MSVC (2022):
 ```bat
 git clone https://github.com/TheGameratorT/NCPatcher.git
+cd NCPatcher
 mkdir build && cd build
 cmake ../ -G "Visual Studio 17 2022" -A x64
 cmake --build . --config Release
@@ -28,6 +29,7 @@ The output files can be found in the `build` directory.
 Make sure that the following packages `cmake` and `build-essential` are installed on the system and run these commands:
 ```sh
 git clone https://github.com/TheGameratorT/NCPatcher.git
+cd NCPatcher
 mkdir build && cd build
 cmake ../ -DCMAKE_BUILD_TYPE=Release
 make
