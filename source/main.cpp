@@ -2,6 +2,7 @@
 
 #include <vector>
 #include <filesystem>
+#include <sstream>
 
 #include "types.hpp"
 #include "process.hpp"
@@ -47,6 +48,8 @@ void setErrorContext(const char* errorContext) { s_errorContext = errorContext; 
 bool getVerbose() { return s_verbose; }
 
 }
+
+static void runCommandList(const std::vector<std::string>& buildCmds, const char* msg, const char* errorCtx);
 
 static void ncpMain()
 {
@@ -117,6 +120,10 @@ static void ncpMain()
 		Main::setErrorContext(nullptr);
 	};
 
+	runCommandList(BuildConfig::getPreBuildCmds(), "Running pre-build commands...", "Not all pre-build commands succeeded.");
+
+	const std::vector<std::string>& preBuildCmds = BuildConfig::getPreBuildCmds();
+
 	if (BuildConfig::getLastWriteTime() > RebuildConfig::getBuildConfigWriteTime())
 		forceRebuild = true;
 
@@ -129,7 +136,37 @@ static void ncpMain()
 	RebuildConfig::setBuildConfigWriteTime(BuildConfig::getLastWriteTime());
 	RebuildConfig::save();
 
+	runCommandList(BuildConfig::getPostBuildCmds(), "Running post-build commands...", "Not all post-build commands succeeded.");
+
 	Log::info("All tasks finished.");
+}
+
+static void runCommandList(const std::vector<std::string>& buildCmds, const char* msg, const char* errorCtx)
+{
+	if (buildCmds.empty())
+		return;
+
+	Log::info(msg);
+
+	Main::setErrorContext(errorCtx);
+
+	int i = 1;
+	for (const std::string& buildCmd : buildCmds)
+	{
+		std::ostringstream oss;
+		oss << ANSI_bWHITE "[#" << i << "] " ANSI_bYELLOW << buildCmd << ANSI_RESET;
+		Log::info(oss.str());
+
+		fs::current_path(Main::getWorkPath());
+
+		int retcode = Process::start(buildCmd.c_str(), &std::cout);
+		if (retcode != 0)
+			throw ncp::exception("Process returned: " + std::to_string(retcode));
+		
+		i++;
+	}
+
+	Main::setErrorContext(nullptr);
 }
 
 static std::filesystem::path fetchAppPath()
