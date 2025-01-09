@@ -5,7 +5,7 @@
 #include <iomanip>
 #include <sstream>
 
-#include "arenalo.hpp"
+#include "arenalofinder.hpp"
 
 #include "../elf.hpp"
 
@@ -222,45 +222,35 @@ void PatchMaker::makeTarget(
 	saveArmBin();
 }
 
-void PatchMaker::findArenaLo()
-{
-	ArmBin *arm9 = getArm();
-	std::vector<u8> &data = arm9->data();
-	BuildTarget *target = (BuildTarget *) m_target;
-
-	u32 arm9RamAddress = arm9->getRamAddress();
-	u32 autoloadStart = arm9->getModuleParams()->autoloadStart;
-	std::vector<u8> subset(data.begin(), data.begin() + (autoloadStart - arm9RamAddress));
-	if (ArenaLoFinder::processMatches(arm9, subset, arm9RamAddress, target, &ArenaLoFinder::patternMatchesArm) ||
-		ArenaLoFinder::processMatches(arm9, subset, arm9RamAddress, target, &ArenaLoFinder::patternMatchesThumb))
-		return;
-
-	for (const ArmBin::AutoLoadEntry& autoload : arm9->getAutoloadList())
-	{
-		std::vector<u8> subset(data.begin() + autoload.dataOff, data.begin() + autoload.dataOff + autoload.size);
-		if (ArenaLoFinder::processMatches(arm9, subset, autoload.address, target, &ArenaLoFinder::patternMatchesArm) ||
-			ArenaLoFinder::processMatches(arm9, subset, autoload.address, target, &ArenaLoFinder::patternMatchesThumb))
-			return;
-	}
-
-	throw ncp::exception("Failed to find arenaLo automatically, and no valid arenaLo was provided.");
-}
-
 void PatchMaker::fetchNewcodeAddr()
 {
-	if (m_target->getArm9())
+	ArmBin* arm = getArm();
+
+	auto newcodeAddrFromMissingArenaLo = [&](){
+		int arenaLo;
+		ArenaLoFinder::findArenaLo(arm, arenaLo, m_newcodeAddrForDest[-1]);
+		Log::out << OINFO << "Found ArenaLow at: " << std::uppercase << std::hex << arenaLo << std::endl;
+	};
+
+	if (m_target->arenaLo == 0)
 	{
-		ArmBin *arm = getArm();
-		if (m_target->arenaLo == 0)
-			findArenaLo();
-		m_newcodeAddrForDest[-1] = arm->read<u32>(m_target->arenaLo);
-		if (!arm->sanityCheckAddress(m_newcodeAddrForDest[-1]))
+		Log::out << OINFO << OSTR("arenaLo") << " not specified, searching..." << std::endl;
+		newcodeAddrFromMissingArenaLo();
+	}
+	else
+	{
+		u32 addr = arm->read<u32>(m_target->arenaLo);
+		if (arm->sanityCheckAddress(addr))
 		{
-			Log::out << OWARN << "Invalid arenaLo provided, attempting to find arenaLo automatically..." << std::endl;
-			findArenaLo();
-			m_newcodeAddrForDest[-1] = arm->read<u32>(m_target->arenaLo);
+			m_newcodeAddrForDest[-1] = addr;
+		}
+		else
+		{
+			Log::out << OWARN << "Invalid " << OSTR("arenaLo") << " provided, searching..." << std::endl;
+			newcodeAddrFromMissingArenaLo();
 		}
 	}
+	
 	for (auto& region : m_target->regions)
 	{
 		int dest = region.destination;

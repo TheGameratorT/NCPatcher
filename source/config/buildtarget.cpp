@@ -43,6 +43,7 @@ void BuildTarget::load(const fs::path& targetFilePath, bool isArm9)
 	}
 
 	arenaLo = json.hasMember("arenaLo") ? json["arenaLo"].getInt() : 0;
+	
 	if (json.hasMember("symbols"))
 	{
 		symbols = getString(json["symbols"]);

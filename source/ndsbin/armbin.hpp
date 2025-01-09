@@ -48,7 +48,7 @@ public:
 	[[nodiscard]] constexpr const std::vector<AutoLoadEntry>& getAutoloadList() const { return m_autoloadList; }
 	[[nodiscard]] constexpr std::vector<u8>& data() { return m_bytes; }
 	[[nodiscard]] constexpr const std::vector<u8>& data() const { return m_bytes; }
-	[[nodiscard]] constexpr const bool sanityCheckAddress(u32 addr) { return addr >= m_ramAddr && addr < (m_ramAddr + 0x00400000); }
+	[[nodiscard]] constexpr bool sanityCheckAddress(u32 addr) const { return addr >= m_ramAddr && addr < (m_ramAddr + 0x00400000); }
 
 private:
 	u32 m_ramAddr; //The offset of this binary in memory

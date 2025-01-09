@@ -57,7 +57,6 @@ private:
 
 	[[nodiscard]] inline ArmBin* getArm() const { return m_arm.get(); }
 
-	void findArenaLo();
 	void fetchNewcodeAddr();
 	void gatherInfoFromObjects();
 	static std::string ldFlagsToGccFlags(std::string flags);
