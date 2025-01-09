@@ -42,7 +42,7 @@ void BuildTarget::load(const fs::path& targetFilePath, bool isArm9)
 			varmap.emplace(name.substr(1), getString(member));
 	}
 
-	arenaLo = json["arenaLo"].getInt();
+	arenaLo = json.hasMember("arenaLo") ? json["arenaLo"].getInt() : 0;
 	if (json.hasMember("symbols"))
 	{
 		symbols = getString(json["symbols"]);
