@@ -54,6 +54,7 @@ private:
 	std::unordered_map<int, u32> m_newcodeAddrForDest;
 	std::unordered_map<int, std::unique_ptr<NewcodePatch>> m_newcodeDataForDest;
 	std::unordered_map<int, std::unique_ptr<AutogenDataInfo>> m_autogenDataInfoForDest;
+	int m_arenalo;
 
 	[[nodiscard]] inline ArmBin* getArm() const { return m_arm.get(); }
 

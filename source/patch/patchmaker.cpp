@@ -225,21 +225,21 @@ void PatchMaker::makeTarget(
 void PatchMaker::fetchNewcodeAddr()
 {
 	ArmBin* arm = getArm();
+	m_arenalo = m_target->arenaLo;
 
 	auto newcodeAddrFromMissingArenaLo = [&](){
-		int arenaLo;
-		ArenaLoFinder::findArenaLo(arm, arenaLo, m_newcodeAddrForDest[-1]);
-		Log::out << OINFO << "Found ArenaLow at: " << std::uppercase << std::hex << arenaLo << std::endl;
+		ArenaLoFinder::findArenaLo(arm, m_arenalo, m_newcodeAddrForDest[-1]);
+		Log::out << OINFO << "Found ArenaLo at: 0x" << std::uppercase << std::hex << m_arenalo << std::endl;
 	};
 
-	if (m_target->arenaLo == 0)
+	if (m_arenalo == 0)
 	{
 		Log::out << OINFO << OSTR("arenaLo") << " not specified, searching..." << std::endl;
 		newcodeAddrFromMissingArenaLo();
 	}
 	else
 	{
-		u32 addr = arm->read<u32>(m_target->arenaLo);
+		u32 addr = arm->read<u32>(m_arenalo);
 		if (arm->sanityCheckAddress(addr))
 		{
 			m_newcodeAddrForDest[-1] = addr;
@@ -1615,7 +1615,7 @@ void PatchMaker::applyPatchesToRom()
 
 				// Write the new relocated code address
 				u32 heapReloc = newcodeAddr + newcodeInfo->binSize + (newcodeInfo->bssAlign - newcodeInfo->binSize % newcodeInfo->bssAlign) + newcodeInfo->bssSize;
-				bin->write<u32>(m_target->arenaLo, heapReloc);
+				bin->write<u32>(m_arenalo, heapReloc);
 
 				ArmBin::ModuleParams* moduleParams = bin->getModuleParams();
 				u32 ramAddress = bin->getRamAddress();
