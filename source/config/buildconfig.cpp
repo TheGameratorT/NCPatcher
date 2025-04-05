@@ -145,7 +145,7 @@ void load()
 		throw ncp::exception("No targets to build were specified.");
 
 	readBuildCommands(json["pre-build"], preBuildCmds);
-	readBuildCommands(json["post-build"], preBuildCmds);
+	readBuildCommands(json["post-build"], postBuildCmds);
 
 	threadCount = json["thread-count"].getInt();
 
