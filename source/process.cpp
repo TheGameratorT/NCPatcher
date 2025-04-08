@@ -103,8 +103,8 @@ int Process::start(const char* cmd, std::ostream* out)
 
 bool Process::exists(const char* app)
 {
-	std::string cmd = std::string("where /q ") + app;
-	return Process::start(cmd.c_str()) == 0;
+	char fullPath[MAX_PATH];
+	return SearchPathA(nullptr, app, ".exe", MAX_PATH, fullPath, nullptr) > 0;
 }
 
 #else

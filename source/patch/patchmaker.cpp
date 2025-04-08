@@ -947,7 +947,7 @@ void PatchMaker::createLinkerScript()
 	if (!symbolsFile.empty())
 	{
 		o += "INCLUDE \"";
-		o += fs::relative(symbolsFile).string();
+		o += Util::relativeIfSubpath(symbolsFile).string();
 		o += "\"\n\n";
 	}
 	
@@ -955,12 +955,12 @@ void PatchMaker::createLinkerScript()
 	for (auto& srcFileJob : *m_srcFileJobs)
 	{
 		o += "\t\"";
-		o += fs::relative(srcFileJob->objFilePath).string();
+		o += Util::relativeIfSubpath(srcFileJob->objFilePath).string();
 		o += "\"\n";
 	}
 
 	o += ")\n\nOUTPUT (\"";
-	o += fs::relative(m_elfPath).string();
+	o += Util::relativeIfSubpath(m_elfPath).string();
 	o += "\")\n\nMEMORY {\n";
 
 	for (auto& memoryEntry : memoryEntries)
@@ -1032,7 +1032,7 @@ void PatchMaker::createLinkerScript()
 			{
 				if (f->region == s->region)
 				{
-					std::string objPath = fs::relative(f->objFilePath).string();
+					std::string objPath = Util::relativeIfSubpath(f->objFilePath).string();
 					static const char* secIncs[] = {
 						"text",
 						"rodata",
@@ -1078,7 +1078,7 @@ void PatchMaker::createLinkerScript()
 			{
 				if (f->region == s->region)
 				{
-					std::string objPath = fs::relative(f->objFilePath).string();
+					std::string objPath = Util::relativeIfSubpath(f->objFilePath).string();
 					addSectionInclude(o, objPath, "bss");
 					addSectionInclude(o, objPath, "bss.*");
 				}
@@ -1120,7 +1120,7 @@ void PatchMaker::createLinkerScript()
 				if (j->region->destination == p)
 				{
 					o += "\t\t KEEP(\"";
-					o += fs::relative(j->objFilePath).string();
+					o += Util::relativeIfSubpath(j->objFilePath).string();
 					o += "\" (.ncp_set))\n\t"
 						 "} > ncp_set AT > bin\n\n";
 				}
@@ -1175,7 +1175,7 @@ void PatchMaker::linkElfFile()
 	ccmd.reserve(64);
 	ccmd += BuildConfig::getToolchain();
 	ccmd += "gcc -nostartfiles -Wl,--gc-sections,-T\"";
-	ccmd += fs::relative(m_ldscriptPath).string();
+	ccmd += Util::relativeIfSubpath(m_ldscriptPath).string();
 	ccmd += '\"';
 	std::string targetFlags = ldFlagsToGccFlags(m_target->ldFlags);
 	if (!targetFlags.empty())
