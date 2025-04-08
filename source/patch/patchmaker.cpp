@@ -234,20 +234,35 @@ void PatchMaker::fetchNewcodeAddr()
 
 	if (m_arenalo == 0)
 	{
+		if (!m_target->getArm9())
+		{
+			std::ostringstream oss;
+			oss << OSTR("arenaLo") << " was not set and finding it automatically for ARM7 is not yet supported.";
+			throw ncp::exception(oss.str());
+		}
+
 		Log::out << OINFO << OSTR("arenaLo") << " not specified, searching..." << std::endl;
 		newcodeAddrFromMissingArenaLo();
 	}
 	else
 	{
-		u32 addr = arm->read<u32>(m_arenalo);
-		if (arm->sanityCheckAddress(addr))
+		if (m_target->getArm9())
 		{
-			m_newcodeAddrForDest[-1] = addr;
+			u32 addr = arm->read<u32>(m_arenalo);
+			if (arm->sanityCheckAddress(addr))
+			{
+				m_newcodeAddrForDest[-1] = addr;
+			}
+			else
+			{
+				Log::out << OWARN << "Invalid " << OSTR("arenaLo") << " provided, searching..." << std::endl;
+				newcodeAddrFromMissingArenaLo();
+			}
 		}
 		else
 		{
-			Log::out << OWARN << "Invalid " << OSTR("arenaLo") << " provided, searching..." << std::endl;
-			newcodeAddrFromMissingArenaLo();
+			// ARM7 sanity check address not yet supported
+			m_newcodeAddrForDest[-1] = arm->read<u32>(m_arenalo);
 		}
 	}
 	
