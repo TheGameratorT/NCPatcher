@@ -25,6 +25,7 @@ private:
 	const std::filesystem::path* m_targetWorkDir;
 	const std::filesystem::path* m_buildDir;
 	std::string m_includeFlags;
+	std::string m_defineFlags;
 	std::vector<std::unique_ptr<SourceFileJob>>* m_jobs;
 
 	void getSourceFiles();

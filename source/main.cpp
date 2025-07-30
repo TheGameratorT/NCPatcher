@@ -40,12 +40,14 @@ static std::filesystem::path s_workPath;
 static std::filesystem::path s_romPath;
 static const char* s_errorContext = nullptr;
 static bool s_verbose = false;
+static std::vector<std::string> s_defines;
 
 const std::filesystem::path& getAppPath() { return s_appPath; }
 const std::filesystem::path& getWorkPath() { return s_workPath; }
 const std::filesystem::path& getRomPath() { return s_romPath; }
 void setErrorContext(const char* errorContext) { s_errorContext = errorContext; }
 bool getVerbose() { return s_verbose; }
+const std::vector<std::string>& getDefines() { return s_defines; }
 
 }
 
@@ -124,7 +126,7 @@ static void ncpMain()
 
 	const std::vector<std::string>& preBuildCmds = BuildConfig::getPreBuildCmds();
 
-	if (BuildConfig::getLastWriteTime() > RebuildConfig::getBuildConfigWriteTime())
+	if (BuildConfig::getLastWriteTime() > RebuildConfig::getBuildConfigWriteTime() || Main::getDefines() != RebuildConfig::getDefines())
 		forceRebuild = true;
 
 	if (BuildConfig::getBuildArm7())
@@ -134,6 +136,7 @@ static void ncpMain()
 		doWorkOnTarget(true);
 
 	RebuildConfig::setBuildConfigWriteTime(BuildConfig::getLastWriteTime());
+	RebuildConfig::setDefines(Main::getDefines());
 	RebuildConfig::save();
 
 	runCommandList(BuildConfig::getPostBuildCmds(), "Running post-build commands...", "Not all post-build commands succeeded.");
@@ -284,8 +287,25 @@ int main(int argc, char* argv[])
 		return 1;
 	}
 
-	if (argc > 1)
-		Main::s_verbose = ((strcmp(argv[1], "--verbose") == 0) || (strcmp(argv[1], "-v") == 0));
+	// Parse command line arguments
+	for (int i = 1; i < argc; i++) {
+		if ((strcmp(argv[i], "--verbose") == 0) || (strcmp(argv[i], "-v") == 0)) {
+			Main::s_verbose = true;
+		} else if (strcmp(argv[i], "--define") == 0) {
+			if (i + 1 < argc) {
+				Main::s_defines.push_back(argv[i + 1]);
+				i++; // Skip the next argument since we consumed it
+			} else {
+				Log::error("--define option requires a value");
+				return 1;
+			}
+		} else {
+			std::ostringstream oss;
+			oss << "Unknown argument: " << argv[i];
+			Log::error(oss.str());
+			return 1;
+		}
+	}
 
 	try
 	{

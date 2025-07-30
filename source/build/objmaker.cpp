@@ -68,6 +68,15 @@ void ObjMaker::makeTarget(
 	for (const fs::path& include : m_target->includes)
 		m_includeFlags += "-I\"" + include.string() + "\" ";
 
+	// Build define flags from command line arguments
+	m_defineFlags.clear();
+	const std::vector<std::string>& defines = Main::getDefines();
+	for (const std::string& define : defines) {
+		m_defineFlags += "-D";
+		m_defineFlags += define;
+		m_defineFlags += " ";
+	}
+
 	getSourceFiles();
 	checkIfSourcesNeedRebuild();
 
@@ -294,6 +303,7 @@ void ObjMaker::compileSources()
 				ccmd += " -D";
 				ccmd += DefineForSourceFileType[fileType];
 				ccmd += " ";
+				ccmd += m_defineFlags;
 				ccmd += m_includeFlags;
 				ccmd += "-c -fdiagnostics-color -fdata-sections -ffunction-sections ";
 				if (outputDeps)
