@@ -53,6 +53,25 @@ const std::vector<std::string>& getDefines() { return s_defines; }
 
 static void runCommandList(const std::vector<std::string>& buildCmds, const char* msg, const char* errorCtx);
 
+static void printHelp()
+{
+	Log::out << ANSI_bWHITE " ----- Nitro Code Patcher -----" ANSI_RESET << std::endl;
+	Log::out << std::endl;
+	Log::out << "Usage: ncpatcher [options]" << std::endl;
+	Log::out << std::endl;
+	Log::out << "Options:" << std::endl;
+	Log::out << "  -h, --help       Show this help message and exit" << std::endl;
+	Log::out << "  -v, --verbose    Enable verbose logging output" << std::endl;
+	Log::out << "  --define VALUE   Define a preprocessor macro for compilation" << std::endl;
+	Log::out << std::endl;
+	Log::out << "Description:" << std::endl;
+	Log::out << "  NCPatcher is a tool for patching Nintendo DS ROMs by compiling" << std::endl;
+	Log::out << "  and injecting custom ARM7/ARM9 code into the ROM filesystem." << std::endl;
+	Log::out << std::endl;
+	Log::out << "  The tool reads configuration from 'ncpatcher.json' in the current" << std::endl;
+	Log::out << "  directory and processes ARM7/ARM9 targets as specified." << std::endl;
+}
+
 static void ncpMain()
 {
 	Log::out << ANSI_bWHITE " ----- Nitro Code Patcher -----" ANSI_RESET << std::endl;
@@ -289,7 +308,10 @@ int main(int argc, char* argv[])
 
 	// Parse command line arguments
 	for (int i = 1; i < argc; i++) {
-		if ((strcmp(argv[i], "--verbose") == 0) || (strcmp(argv[i], "-v") == 0)) {
+		if ((strcmp(argv[i], "--help") == 0) || (strcmp(argv[i], "-h") == 0)) {
+			printHelp();
+			return 0;
+		} else if ((strcmp(argv[i], "--verbose") == 0) || (strcmp(argv[i], "-v") == 0)) {
 			Main::s_verbose = true;
 		} else if (strcmp(argv[i], "--define") == 0) {
 			if (i + 1 < argc) {
@@ -303,6 +325,8 @@ int main(int argc, char* argv[])
 			std::ostringstream oss;
 			oss << "Unknown argument: " << argv[i];
 			Log::error(oss.str());
+			Log::out << std::endl;
+			Log::out << "Use --help or -h to see available options." << std::endl;
 			return 1;
 		}
 	}
