@@ -1285,7 +1285,8 @@ void PatchMaker::gatherInfoFromElf()
 						oss << "Tried to read " << OSTR(sectionName) << " data out of bounds.";
 						throw ncp::exception(oss.str());
 					}
-					p->srcAddress = Util::read<u32>(&sectionData[dataOffset]);
+					// ncp_set comes with the THUMB bit, we must clear it!
+					p->srcAddress = Util::read<u32>(&sectionData[dataOffset]) & ~1;
 				}
 			}
 		}
