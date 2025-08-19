@@ -1394,15 +1394,82 @@ void PatchMaker::unloadElfFile()
 
 u32 PatchMaker::makeJumpOpCode(u32 opCode, u32 fromAddr, u32 toAddr)
 {
-	return opCode | ((((toAddr - fromAddr) >> 2) - 2) & 0xFFFFFF);
+	s32 offset = (s32(toAddr) - s32(fromAddr)) >> 2;
+	offset -= 2;
+	
+	// Check ARM BL/B range: ±32MB (±0x800000 instructions * 4 bytes = ±0x2000000 bytes)
+	if (offset < -0x800000 || offset > 0x7FFFFF) {
+		std::ostringstream oss;
+		oss << "ARM BL/B instruction offset out of range: " << std::uppercase << std::hex 
+			<< "0x" << fromAddr << " -> 0x" << toAddr 
+			<< " (offset: " << std::dec << (offset * 4) << " bytes)";
+		throw ncp::exception(oss.str());
+	}
+	
+	return opCode | (u32(offset) & 0xFFFFFF);
+}
+
+u32 PatchMaker::makeBLXOpCode(u32 fromAddr, u32 toAddr)
+{
+	// BLX (immediate) instruction encoding for ARMv5TE
+	// Target must be halfword aligned but can be ARM or THUMB
+	if (toAddr & 1) {
+		std::ostringstream oss;
+        oss << "BLX target address must be halfword aligned: from 0x"
+            << std::uppercase << std::hex << fromAddr << " to 0x" << toAddr;
+		throw ncp::exception(oss.str());
+	}
+	
+	s32 offset = s32(toAddr) - s32(fromAddr) - 8;
+	
+	// Check BLX range: ±32MB (±0x2000000 bytes)
+	if (offset < -0x2000000 || offset > 0x1FFFFFF) {
+		std::ostringstream oss;
+		oss << "ARM BLX instruction offset out of range: " << std::uppercase << std::hex 
+			<< "0x" << fromAddr << " -> 0x" << toAddr 
+			<< " (offset: " << std::dec << offset << " bytes)";
+		throw ncp::exception(oss.str());
+	}
+	
+	// Extract H bit (bit 1 of offset after alignment)
+	u32 h = (offset & 2) >> 1;
+	
+	// Calculate 24-bit immediate (offset >> 2)
+	u32 imm24 = (offset >> 2) & 0xFFFFFF;
+	
+	// BLX encoding: 1111 101 H imm24
+	return 0xFA000000 | (h << 24) | imm24;
 }
 
 u32 PatchMaker::makeThumbCallOpCode(bool exchange, u32 fromAddr, u32 toAddr)
 {
-	// toAddr in BLX is always ARM, so it is a multiple of 4
-	// BLX executes in ARM mode, so the low/high offset of fromAddr must be discarded
-	u32 offset = ((toAddr - (exchange ? (fromAddr & ~3) : fromAddr)) >> 1) - 2;
-	u16 opcode0 = thumbOpCodeBL0 | (offset & 0x3FF800) >> 11;
+	s32 offset;
+	
+	if (exchange) {
+		// BLX: target is always ARM (word-aligned), fromAddr alignment doesn't matter for calculation
+		// Target address must be word-aligned
+		if (toAddr & 3) {
+			std::ostringstream oss;
+			oss << "BLX target address must be word-aligned: 0x" << std::uppercase << std::hex << toAddr;
+			throw ncp::exception(oss.str());
+		}
+		offset = (s32(toAddr) - s32(fromAddr)) >> 1;
+	} else {
+		// BL: both addresses are THUMB (halfword-aligned)
+		offset = (s32(toAddr) - s32(fromAddr)) >> 1;
+	}
+	offset -= 2;
+	
+	// Check THUMB BL/BLX range: ±16MB (±0x400000 instructions * 2 bytes = ±0x800000 bytes)
+	if (offset < -0x400000 || offset > 0x3FFFFF) {
+		std::ostringstream oss;
+		oss << "THUMB BL/BLX instruction offset out of range: " << std::uppercase << std::hex 
+			<< "0x" << fromAddr << " -> 0x" << toAddr 
+			<< " (offset: " << std::dec << (offset * 2) << " bytes)";
+		throw ncp::exception(oss.str());
+	}
+	
+	u16 opcode0 = thumbOpCodeBL0 | ((offset & 0x7FF800) >> 11);
 	u16 opcode1 = (exchange ? thumbOpCodeBLX1 : thumbOpCodeBL1) | (offset & 0x7FF);
 	return (u32(opcode1) << 16) | opcode0;
 }
@@ -1522,8 +1589,7 @@ void PatchMaker::applyPatchesToRom()
 			}
 			else if (!p->destThumb && p->srcThumb) // ARM -> THUMB
 			{
-				u32 opcode = armOpCodeBLX | (((p->srcAddress % 4) >> 1) << 23);
-				bin->write<u32>(p->destAddress, makeJumpOpCode(opcode, p->destAddress, p->srcAddress));
+				bin->write<u32>(p->destAddress, makeBLXOpCode(p->destAddress, p->srcAddress));
 			}
 			else if (p->destThumb && !p->srcThumb) // THUMB -> ARM
 			{
@@ -1574,10 +1640,10 @@ void PatchMaker::applyPatchesToRom()
 
 			u8* hookDataPtr = hookData.data() + offset;
 
-			u32 jmpOpCode = p->srcThumb ? (armOpCodeBLX | (((p->srcAddress % 4) >> 1) << 23)) : armOpcodeBL;
+			u32 jmpOpCode = p->srcThumb ? makeBLXOpCode(hookBridgeAddr + 4, p->srcAddress) : makeJumpOpCode(armOpcodeBL, hookBridgeAddr + 4, p->srcAddress);
 
 			Util::write<u32>(hookDataPtr, armHookPush);
-			Util::write<u32>(hookDataPtr + 4, makeJumpOpCode(jmpOpCode, hookBridgeAddr + 4, p->srcAddress));
+			Util::write<u32>(hookDataPtr + 4, jmpOpCode);
 			Util::write<u32>(hookDataPtr + 8, armHookPop);
 			Util::write<u32>(hookDataPtr + 12, fixupOpCode(ogOpCode, p->destAddress, hookBridgeAddr + 12));
 			Util::write<u32>(hookDataPtr + 16, makeJumpOpCode(armOpcodeB, hookBridgeAddr + 16, p->destAddress + 4));
