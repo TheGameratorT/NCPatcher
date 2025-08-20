@@ -986,7 +986,7 @@ void PatchMaker::createLinkerScript()
 		{
 			// Convert the section patches into label patches,
 			// except for over and set types
-			o += "\t\t";
+			o += "\t\t. = ALIGN(4);\n\t\t";
 			o += std::string_view(p->symbol).substr(1);
 			o += " = .;\n\t\tKEEP(* (";
 			o += p->symbol;
