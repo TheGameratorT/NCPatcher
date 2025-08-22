@@ -48,6 +48,7 @@
 #define OSQRTBRKTS(c1, c2, txt) c1 "[" ANSI_RESET c2 txt ANSI_RESET c1 "]" ANSI_RESET
 
 #define OSTR(x) ANSI_bYELLOW "\"" << (x) << "\"" ANSI_RESET
+#define OSTRa(x) ANSI_bWHITE "\"" << (x) << "\"" ANSI_RESET
 #define OREASONNL "\n        "
 
 extern const char* log_OERROR;

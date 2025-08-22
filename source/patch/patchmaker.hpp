@@ -12,13 +12,18 @@
 #include "../ndsbin/armbin.hpp"
 #include "../ndsbin/overlaybin.hpp"
 
-class Elf32;
+// Forward declarations for component classes
+class FileSystemManager;
+class PatchInfoAnalyzer; 
+class OverwriteRegionManager;
+class LinkerScriptGenerator;
+class ElfAnalyzer;
+
+// Forward declarations for data structures
 struct GenericPatchInfo;
 struct RtReplPatchInfo;
 struct NewcodePatch;
 struct AutogenDataInfo;
-struct SectionInfo;
-struct OverwriteRegionInfo;
 
 class PatchMaker
 {
@@ -35,58 +40,33 @@ public:
 	);
 
 private:
+	// Core data
 	const BuildTarget* m_target;
 	const std::filesystem::path* m_targetWorkDir;
 	const std::filesystem::path* m_buildDir;
 	const HeaderBin* m_header;
 	std::vector<std::unique_ptr<SourceFileJob>>* m_srcFileJobs;
-	std::unique_ptr<ArmBin> m_arm;
-	std::unordered_map<std::size_t, std::unique_ptr<OverlayBin>> m_loadedOverlays;
-	std::vector<OvtEntry> m_ovtEntries;
-	std::vector<OvtEntry> m_bakOvtEntries;
-	bool m_bakOvtChanged = false;
-	std::vector<std::unique_ptr<GenericPatchInfo>> m_patchInfo;
-	std::vector<std::unique_ptr<RtReplPatchInfo>> m_rtreplPatches;
-	std::vector<int> m_destWithNcpSet;
-	std::vector<const SourceFileJob*> m_jobsWithNcpSet;
-	std::vector<std::string> m_externSymbols;
-	std::vector<std::unique_ptr<struct SectionInfo>> m_overwriteCandidateSections;
-	std::vector<std::unique_ptr<struct OverwriteRegionInfo>> m_overwriteRegions;
-	std::filesystem::path m_ldscriptPath;
-	std::filesystem::path m_elfPath;
-	std::unique_ptr<Elf32> m_elf;
+	
+	// Component managers
+	std::unique_ptr<FileSystemManager> m_fileSystemManager;
+	std::unique_ptr<PatchInfoAnalyzer> m_patchInfoAnalyzer;
+	std::unique_ptr<OverwriteRegionManager> m_overwriteRegionManager;
+	std::unique_ptr<LinkerScriptGenerator> m_linkerScriptGenerator;
+	std::unique_ptr<ElfAnalyzer> m_elfAnalyzer;
+
+	// Data managed by this coordinator
 	std::unordered_map<int, u32> m_newcodeAddrForDest;
-	std::unordered_map<int, std::unique_ptr<NewcodePatch>> m_newcodeDataForDest;
-	std::unordered_map<int, std::unique_ptr<AutogenDataInfo>> m_autogenDataInfoForDest;
 	int m_arenalo;
 
-	[[nodiscard]] inline ArmBin* getArm() const { return m_arm.get(); }
-
+	// Core coordination methods
 	void fetchNewcodeAddr();
-	void gatherInfoFromObjects();
-	static std::string ldFlagsToGccFlags(std::string flags);
-	void linkElfFile();
-	static u32 makeJumpOpCode(u32 opCode, u32 fromAddr, u32 toAddr);
-	static u32 makeBLXOpCode(u32 fromAddr, u32 toAddr);
-	static u32 makeThumbCallOpCode(bool exchange, u32 fromAddr, u32 toAddr);
-	static u32 fixupOpCode(u32 opCode, u32 ogAddr, u32 newAddr);
-	void applyPatchesToRom();
-	void gatherInfoFromElf();
+	void applyPatchesToRom(
+		const std::vector<std::unique_ptr<GenericPatchInfo>>& patchInfo,
+		const std::unordered_map<int, std::unique_ptr<NewcodePatch>>& newcodeDataForDest,
+		const std::unordered_map<int, std::unique_ptr<AutogenDataInfo>>& autogenDataInfoForDest
+	);
 
-	void loadElfFile();
-	void unloadElfFile();
-
-	void createBuildDirectory();
-	void createBackupDirectory();
-	void loadArmBin();
-	void saveArmBin();
-	void loadOverlayTableBin();
-	void saveOverlayTableBin();
-	OverlayBin* loadOverlayBin(std::size_t ovID);
-	OverlayBin* getOverlay(std::size_t ovID);
-	void saveOverlayBins();
-
-    void createLinkerScript();
-    void setupOverwriteRegions();
-	void assignSectionsToOverwrites();
+	// Helper methods
+	[[nodiscard]] ArmBin* getArm() const;
+	OverlayBin* getOverlay(std::size_t ovID) const;
 };
