@@ -4,6 +4,7 @@
 #include <functional>
 #include <iomanip>
 #include <sstream>
+#include <unordered_map>
 
 #include "arenalofinder.hpp"
 
@@ -110,6 +111,30 @@ struct LDSOverPatch
 	LDSMemoryEntry* memory;
 };
 
+struct SectionInfo
+{
+	std::string name;
+	std::size_t size;
+	SourceFileJob* job;
+	u32 alignment;
+	u32 address = 0;
+	const u8* data = nullptr;
+	int destination = -1;
+};
+
+struct OverwriteRegionInfo
+{
+	u32 startAddress;
+	u32 endAddress;
+	int destination;
+	std::vector<SectionInfo*> assignedSections;
+	std::vector<GenericPatchInfo*> sectionPatches;
+	u32 usedSize;
+	std::string memName;
+	int sectionIdx;
+	int sectionSize;
+};
+
 static const char* s_patchTypeNames[] = {
 	"jump", "call", "hook", "over",
 	"setjump", "setcall", "sethook",
@@ -203,6 +228,8 @@ void PatchMaker::makeTarget(
 
 	fetchNewcodeAddr();
 	gatherInfoFromObjects();
+	setupOverwriteRegions();
+	assignSectionsToOverwrites();
 	createLinkerScript();
 	linkElfFile();
 	loadElfFile();
@@ -559,6 +586,41 @@ void PatchMaker::gatherInfoFromObjects()
 				m_externSymbols.emplace_back(p->symbol);
 		}
 
+		// Find sections suitable to place in overwrites
+		forEachElfSection(eh, sh_tbl, str_tbl,
+		[&](std::size_t sectionIdx, const Elf32_Shdr& section, std::string_view sectionName){
+			bool ncpSectionSupportsOverrideRegion =
+				sectionName.starts_with(".ncp_jump") || 
+				sectionName.starts_with(".ncp_call") || 
+				sectionName.starts_with(".ncp_hook");
+			
+			if ((sectionName.starts_with(".ncp_") && !ncpSectionSupportsOverrideRegion) ||
+				sectionName.starts_with(".rel") || 
+				sectionName.starts_with(".debug") ||
+				sectionName == ".shstrtab" || 
+				sectionName == ".strtab" || 
+				sectionName == ".symtab" ||
+				section.sh_size == 0)
+			{
+				return false;
+			}
+
+			if (sectionName.starts_with(".text") || 
+				sectionName.starts_with(".rodata") ||
+				sectionName.starts_with(".data") ||
+				ncpSectionSupportsOverrideRegion)
+			{
+				auto* sectionInfo = new SectionInfo{
+					.name = std::string(sectionName),
+					.size = section.sh_size,
+					.job = srcFileJob.get(),
+					.alignment = section.sh_addralign > 0 ? section.sh_addralign : 4
+				};
+				m_overwriteCandidateSections.emplace_back(sectionInfo);
+			}
+			return false;
+		});
+
 		if (Main::getVerbose())
 		{
 			if (patchInfoForThisObj.empty())
@@ -597,6 +659,174 @@ void PatchMaker::gatherInfoFromObjects()
 			for (const std::string& sym : m_externSymbols)
 				Log::out << sym << '\n';
 			Log::out << std::flush;
+		}
+	}
+}
+
+void PatchMaker::setupOverwriteRegions()
+{
+	Log::info("Setting up overwrite regions...");
+
+	for (const auto& region : m_target->regions)
+	{
+		for (const auto& overwrite : region.overwrites)
+		{
+			std::string memName = "overwrite_";
+			memName += Util::intToAddr(int(overwrite.startAddress), 8, false);
+			if (region.destination != -1)
+			{
+				memName += "_ov";
+				memName += std::to_string(region.destination);
+			}
+
+			auto* overwriteRegion = new OverwriteRegionInfo{
+				.startAddress = overwrite.startAddress,
+				.endAddress = overwrite.endAddress,
+				.destination = region.destination,
+				.assignedSections = {},
+				.usedSize = 0,
+				.memName = memName
+			};
+			m_overwriteRegions.emplace_back(overwriteRegion);
+
+			if (Main::getVerbose())
+			{
+				Log::out << OINFO << "Found overwrite region: 0x" << std::hex << std::uppercase 
+					<< overwrite.startAddress << "-0x" << overwrite.endAddress 
+					<< " (size: " << std::dec << (overwrite.endAddress - overwrite.startAddress) 
+					<< " bytes)" << std::endl;
+			}
+		}
+	}
+}
+
+void PatchMaker::assignSectionsToOverwrites()
+{
+	if (m_overwriteRegions.empty())
+		return;
+
+	// Group sections by destination
+	std::unordered_map<int, std::vector<SectionInfo*>> sectionsByDest;
+	for (auto& section : m_overwriteCandidateSections)
+	{
+		int dest = section->job->region->destination;
+		sectionsByDest[dest].emplace_back(section.get());
+	}
+
+	// Structure to store assignment information for table printing
+	struct SectionAssignment {
+		std::string sectionName;
+		std::size_t sectionSize;
+		u32 startAddress;
+		u32 endAddress;
+		bool assigned;
+	};
+	std::vector<SectionAssignment> assignments;
+
+	// Process each destination
+	for (auto& [dest, sections] : sectionsByDest)
+	{
+		// Get overwrite regions for this destination
+		std::vector<OverwriteRegionInfo*> destOverwrites;
+		for (auto& overwrite : m_overwriteRegions)
+		{
+			if (overwrite->destination == dest)
+				destOverwrites.emplace_back(overwrite.get());
+		}
+
+		if (destOverwrites.empty())
+			continue;
+
+		// Sort sections by size (largest first for best fit)
+		std::sort(sections.begin(), sections.end(), [](const SectionInfo* a, const SectionInfo* b){
+			return a->size > b->size;
+		});
+
+		// Sort overwrite regions by available space (largest first)
+		std::sort(destOverwrites.begin(), destOverwrites.end(), [](const OverwriteRegionInfo* a, const OverwriteRegionInfo* b){
+			u32 sizeA = a->endAddress - a->startAddress - a->usedSize;
+			u32 sizeB = b->endAddress - b->startAddress - b->usedSize;
+			return sizeA > sizeB;
+		});
+
+		// Assign sections to overwrite regions using best fit algorithm
+		for (auto* section : sections)
+		{
+			bool assigned = false;
+			
+			for (auto* overwrite : destOverwrites)
+			{
+				u32 currentPos = overwrite->startAddress + overwrite->usedSize;
+				u32 alignedPos = (currentPos + section->alignment - 1) & ~(section->alignment - 1);
+				u32 endPos = alignedPos + section->size;
+				
+				if (endPos <= overwrite->endAddress)
+				{
+					// Assign this section to the overwrite region
+					overwrite->assignedSections.emplace_back(section);
+					overwrite->usedSize = endPos - overwrite->startAddress;
+					assigned = true;
+
+					// Store assignment info for table printing
+					if (Main::getVerbose())
+					{
+						assignments.push_back({
+							.sectionName = section->name,
+							.sectionSize = section->size,
+							.startAddress = overwrite->startAddress,
+							.endAddress = overwrite->endAddress,
+							.assigned = true
+						});
+					}
+					break;
+				}
+			}
+
+			if (!assigned && Main::getVerbose())
+			{
+				assignments.push_back({
+					.sectionName = section->name,
+					.sectionSize = section->size,
+					.startAddress = 0,
+					.endAddress = 0,
+					.assigned = false
+				});
+			}
+		}
+	}
+
+	// Print assignment table if verbose mode is enabled
+	if (Main::getVerbose() && !assignments.empty())
+	{
+		Log::out << ANSI_bCYAN "Assigned sections:" ANSI_RESET "\n" 
+			<< ANSI_bWHITE "SECTION_NAME" ANSI_RESET "                     " 
+			<< ANSI_bWHITE "SIZE" ANSI_RESET "     " 
+			<< ANSI_bWHITE "OVERWRITE_REGION" ANSI_RESET "        " 
+			<< ANSI_bWHITE "STATUS" ANSI_RESET << std::endl;
+		
+		for (const auto& assignment : assignments)
+		{
+			// Section name - yellow for readability
+			Log::out << ANSI_YELLOW << std::setw(64) << std::left << assignment.sectionName << ANSI_RESET << std::right << " ";
+			
+			// Size - white/cyan
+			Log::out << ANSI_CYAN << std::setw(8) << std::dec << assignment.sectionSize << ANSI_RESET << "  ";
+			
+			if (assignment.assigned)
+			{
+				// Address range - blue
+				Log::out << ANSI_BLUE "0x" << std::setw(7) << std::hex << std::uppercase << assignment.startAddress 
+					<< ANSI_BLUE "-0x" << std::setw(7) << assignment.endAddress << ANSI_RESET "  ";
+				// Success status - green
+				Log::out << ANSI_bGREEN << std::setw(8) << "ASSIGNED" << ANSI_RESET << std::endl;
+			}
+			else
+			{
+				// N/A - gray/white
+				Log::out << ANSI_WHITE << std::setw(19) << "N/A" << ANSI_RESET << "  ";
+				// Failed status - red
+				Log::out << ANSI_bRED << std::setw(8) << "FAILED" << ANSI_RESET << std::endl;
+			}
 		}
 	}
 }
@@ -845,6 +1075,16 @@ void PatchMaker::createLinkerScript()
 		o += ")\n";
 	};
 
+	auto addSectionPatchInclude = [](std::string& o, GenericPatchInfo*& p) {
+		// Convert the section patches into label patches,
+		// except for over and set types
+		o += "\t\t. = ALIGN(4);\n\t\t";
+		o += std::string_view(p->symbol).substr(1);
+		o += " = .;\n\t\tKEEP(* (";
+		o += p->symbol;
+		o += "))\n";
+	};
+
 	Log::out << OLINK << "Generating the linker script..." << std::endl;
 
 	fs::current_path(*m_targetWorkDir);
@@ -856,6 +1096,17 @@ void PatchMaker::createLinkerScript()
 
 	std::vector<std::unique_ptr<LDSMemoryEntry>> memoryEntries;
 	memoryEntries.emplace_back(new LDSMemoryEntry{ "bin", 0, 0x100000 });
+
+	// Add memory entries for overwrite regions
+	for (const auto& overwrite : m_overwriteRegions)
+	{
+		if (overwrite->assignedSections.empty())
+			continue;
+			
+		u32 regionSize = overwrite->endAddress - overwrite->startAddress;
+		auto* memEntry = new LDSMemoryEntry{ overwrite->memName, overwrite->startAddress, static_cast<int>(regionSize) };
+		memoryEntries.emplace_back(memEntry);
+	}
 
 	std::vector<std::unique_ptr<LDSRegionEntry>> regionEntries;
 
@@ -909,7 +1160,7 @@ void PatchMaker::createLinkerScript()
 				memName += '_';
 				memName += std::to_string(info->destAddressOv);
 			}
-			auto* memEntry = new LDSMemoryEntry({ std::move(memName), info->destAddress, info->sectionSize });
+			auto* memEntry = new LDSMemoryEntry({ std::move(memName), info->destAddress, static_cast<int>(info->sectionSize) });
 			memoryEntries.emplace_back(memEntry);
 			overPatches.emplace_back(new LDSOverPatch{ info.get(), memEntry });
 		}
@@ -920,7 +1171,32 @@ void PatchMaker::createLinkerScript()
 				if (ldsRegion->dest == info->job->region->destination)
 				{
 					if (info->sectionIdx != -1)
-						ldsRegion->sectionPatches.emplace_back(info.get());
+					{
+						// Check if this patch's section is assigned to an overwrite region
+						bool patchInOverwrite = false;
+						for (const auto& overwrite : m_overwriteRegions)
+						{
+							if (overwrite->destination == ldsRegion->dest)
+							{
+								for (const auto* section : overwrite->assignedSections)
+								{
+									if (section->name == info->symbol)
+									{
+										// Add to sectionPatches of the overwrite region
+										overwrite->sectionPatches.emplace_back(info.get());
+
+										patchInOverwrite = true;
+										break;
+									}
+								}
+							}
+							if (patchInOverwrite) break;
+						}
+						
+						// Only add to sectionPatches if not in overwrite region
+						if (!patchInOverwrite)
+							ldsRegion->sectionPatches.emplace_back(info.get());
+					}
 
 					if (info->patchType == PatchType::Hook)
 					{
@@ -976,6 +1252,43 @@ void PatchMaker::createLinkerScript()
 
 	o += "}\n\nSECTIONS {\n";
 
+	// Add overwrite sections
+	for (const auto& overwrite : m_overwriteRegions)
+	{
+		if (overwrite->assignedSections.empty())
+			continue;
+		
+		o += "\t.";
+		o += overwrite->memName;
+		o += " : ALIGN(4) {\n";
+
+		for (auto& p : overwrite->sectionPatches)
+			addSectionPatchInclude(o, p);
+		
+		for (const auto* section : overwrite->assignedSections)
+		{
+			// Skip ncp_jump, ncp_call, ncp_hook sections as they are already handled above
+			if (section->name.starts_with(".ncp_jump") || 
+				section->name.starts_with(".ncp_call") || 
+				section->name.starts_with(".ncp_hook"))
+				continue;
+
+			std::string objPath = Util::relativeIfSubpath(section->job->objFilePath).string();
+			o += "\t\t. = ALIGN(";
+			o += std::to_string(section->alignment);
+			o += ");\n\t\t\"";
+			o += objPath;
+			o += "\" (";
+			o += section->name;
+			o += ")\n";
+		}
+		
+		o += "\t\t. = ALIGN(4);\n"
+				"\t} > ";
+		o += overwrite->memName;
+		o += " AT > bin\n\n";
+	}
+
 	for (auto& s : regionEntries)
 	{
 		// TEXT
@@ -984,13 +1297,7 @@ void PatchMaker::createLinkerScript()
 		o += ".text : ALIGN(4) {\n";
 		for (auto& p : s->sectionPatches)
 		{
-			// Convert the section patches into label patches,
-			// except for over and set types
-			o += "\t\t. = ALIGN(4);\n\t\t";
-			o += std::string_view(p->symbol).substr(1);
-			o += " = .;\n\t\tKEEP(* (";
-			o += p->symbol;
-			o += "))\n";
+			addSectionPatchInclude(o, p);
 		}
 		for (auto& p : m_rtreplPatches)
 		{
@@ -1317,6 +1624,32 @@ void PatchMaker::gatherInfoFromElf()
 	if (foundOverlapping)
 		throw ncp::exception("Overlapping patches were detected.");
 	
+	// Check that no patch is being written to an overwrite region
+	bool foundPatchInOverwrite = false;
+	for (const auto& patch : m_patchInfo)
+	{
+		for (const auto& overwrite : m_overwriteRegions)
+		{
+			// Check if patch targets the same destination as the overwrite region
+			if (patch->destAddressOv == overwrite->destination)
+			{
+				u32 patchEnd = patch->destAddress + getPatchOverwriteAmount(patch.get());
+				
+				// Check if patch overlaps with overwrite region
+				if (Util::overlaps(patch->destAddress, patchEnd, overwrite->startAddress, overwrite->endAddress))
+				{
+					Log::out << OERROR
+						<< "Patch " << OSTRa(patch->symbol) << " (" << OSTR(patch->job->srcFilePath.string()) 
+						<< ") conflicts with overwrite region 0x" << std::hex << std::uppercase 
+						<< overwrite->startAddress << "-0x" << overwrite->endAddress << std::endl;
+					foundPatchInOverwrite = true;
+				}
+			}
+		}
+	}
+	if (foundPatchInOverwrite)
+		throw ncp::exception("Patches targeting overwrite regions were detected.");
+	
 	if (Main::getVerbose())
 	{
 		Log::out << "Patches:\nSRC_ADDR, SRC_ADDR_OV, DST_ADDR, DST_ADDR_OV, PATCH_TYPE, SEC_IDX, SEC_SIZE, NCP_SET, SRC_THUMB, DST_THUMB, SYMBOL" << std::endl;
@@ -1353,7 +1686,7 @@ void PatchMaker::gatherInfoFromElf()
 		{
 			insertSection(-1, sectionName.substr(5) == "bss");
 		}
-		else if (sectionName.starts_with(".ov"))
+		else if (sectionName.starts_with(".ov") && !sectionName.starts_with(".overwrite"))
 		{
 			std::size_t pos = sectionName.find('.', 3);
 			if (pos != std::string::npos)
@@ -1374,6 +1707,56 @@ void PatchMaker::gatherInfoFromElf()
 				std::setw(8) << std::left << (dest == -1 ? "ARM" : ("OV" + std::to_string(dest))) << std::right <<
 				std::setw(9) << std::dec << newcodeInfo->binSize << "    " <<
 				std::setw(8) << std::dec << newcodeInfo->bssSize << std::endl;
+		}
+	}
+
+	// Gather overwrite section data
+	for (const auto& overwrite : m_overwriteRegions)
+	{
+		overwrite->sectionIdx = -1;
+
+		forEachElfSection(eh, sh_tbl, str_tbl,
+		[&](std::size_t sectionIdx, const Elf32_Shdr& section, std::string_view sectionName) -> bool {
+			if (sectionName == "." + overwrite->memName)
+			{
+				overwrite->sectionIdx = sectionIdx;
+				overwrite->sectionSize = section.sh_size;
+
+				if (overwrite->sectionSize != overwrite->usedSize)
+				{
+					Log::out << OWARN << "Overwrite region " << OSTR(overwrite->memName)
+						<< " at 0x" << std::hex << std::uppercase << overwrite->startAddress
+						<< " has section size " << std::dec << section.sh_size
+						<< " bytes, but expected " << overwrite->usedSize << " bytes." << std::endl;
+				}
+
+				u32 maxSize = overwrite->endAddress - overwrite->startAddress;
+
+				if (overwrite->sectionSize > maxSize)
+				{
+					std::ostringstream oss;
+					oss << OERROR << "Overwrite region is smaller than the generated section "
+						<< " (size: " << std::dec << overwrite->sectionSize << " bytes, max size: "  << maxSize << ")" << std::endl;
+					throw ncp::exception(oss.str());
+				}
+				
+				if (Main::getVerbose())
+				{
+					Log::out << OINFO << "Found overwrite region " << OSTR(overwrite->memName) 
+						<< " at 0x" << std::hex << std::uppercase << overwrite->startAddress
+						<< " (size: " << std::dec << section.sh_size << " bytes)" << std::endl;
+				}
+				
+				return true;
+			}
+			return false;
+		});
+
+		if (overwrite->sectionIdx == -1)
+		{
+			std::ostringstream oss;
+			oss << "Failed to get section " << OSTR(overwrite->memName) << " from ELF file.";
+			throw ncp::exception(oss.str());
 		}
 	}
 }
@@ -1661,6 +2044,34 @@ void PatchMaker::applyPatchesToRom()
 			bin->writeBytes(p->destAddress, sectionData, p->sectionSize);
 			break;
 		}
+		}
+	}
+
+	// Apply overwrite regions using sections with runtime data
+	for (const auto& overwrite : m_overwriteRegions)
+	{
+		if (overwrite->assignedSections.empty())
+			continue;
+
+		ICodeBin* bin = (overwrite->destination == -1) ?
+						static_cast<ICodeBin*>(getArm()) :
+						static_cast<ICodeBin*>(getOverlay(overwrite->destination));
+
+		const char* sectionData = m_elf->getSection<char>(sh_tbl[overwrite->sectionIdx]);
+
+		bin->writeBytes(overwrite->startAddress, sectionData, overwrite->sectionSize);
+		
+		if (Main::getVerbose())
+		{
+			Log::out << OINFO << "Applied overwrite region " << OSTR(overwrite->memName) 
+				<< " at 0x" << std::hex << std::uppercase << overwrite->startAddress
+				<< " (size: " << std::dec << overwrite->sectionSize << " bytes)" << std::endl;
+		}
+		
+		// Mark overlay as dirty if it's an overlay
+		if (overwrite->destination != -1)
+		{
+			static_cast<OverlayBin*>(bin)->setDirty(true);
 		}
 	}
 	

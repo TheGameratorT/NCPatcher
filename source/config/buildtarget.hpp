@@ -18,6 +18,12 @@ public:
 		Create
 	};
 
+	struct Overwrites
+	{
+		u32 startAddress;
+		u32 endAddress;
+	};
+
 	struct Region
 	{
 		std::vector<std::filesystem::path> sources;
@@ -30,6 +36,7 @@ public:
 		std::string cppFlags;
 		std::string asmFlags;
 		//std::string ldFlags;
+		std::vector<Overwrites> overwrites;
 	};
 
 	std::unordered_map<std::string, std::string> varmap;
@@ -59,6 +66,7 @@ private:
 	void getDirectoryArray(const JsonMember& member, std::vector<std::filesystem::path>& out);
 	static void readDestination(BuildTarget::Region& region, const JsonMember& member);
 	static void readRegionMode(BuildTarget::Region& region, const JsonMember& member);
+	void readOverwrites(BuildTarget::Region& region, const JsonMember& member);
 
 	bool m_isArm9{};
 	std::time_t m_lastWriteTime;

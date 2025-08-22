@@ -17,6 +17,8 @@ struct GenericPatchInfo;
 struct RtReplPatchInfo;
 struct NewcodePatch;
 struct AutogenDataInfo;
+struct SectionInfo;
+struct OverwriteRegionInfo;
 
 class PatchMaker
 {
@@ -48,6 +50,8 @@ private:
 	std::vector<int> m_destWithNcpSet;
 	std::vector<const SourceFileJob*> m_jobsWithNcpSet;
 	std::vector<std::string> m_externSymbols;
+	std::vector<std::unique_ptr<struct SectionInfo>> m_overwriteCandidateSections;
+	std::vector<std::unique_ptr<struct OverwriteRegionInfo>> m_overwriteRegions;
 	std::filesystem::path m_ldscriptPath;
 	std::filesystem::path m_elfPath;
 	std::unique_ptr<Elf32> m_elf;
@@ -82,5 +86,7 @@ private:
 	OverlayBin* getOverlay(std::size_t ovID);
 	void saveOverlayBins();
 
-	void createLinkerScript();
+    void createLinkerScript();
+    void setupOverwriteRegions();
+	void assignSectionsToOverwrites();
 };

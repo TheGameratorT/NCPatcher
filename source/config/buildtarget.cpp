@@ -74,6 +74,7 @@ void BuildTarget::load(const fs::path& targetFilePath, bool isArm9)
 		else
 			region.address = (region.mode == Mode::Create) ? regionObj["address"].getInt() : 0;
 		region.length = regionObj.hasMember("length") ? regionObj["length"].getInt() : 0x100000;
+		readOverwrites(region, regionObj);
 		regions.push_back(region);
 	}
 
@@ -224,4 +225,36 @@ void BuildTarget::readRegionMode(BuildTarget::Region& region, const JsonMember& 
 		throw ncp::exception(oss.str());
 	}
 	region.mode = BuildTarget::Mode::Append;
+}
+
+void BuildTarget::readOverwrites(BuildTarget::Region& region, const JsonMember& member)
+{
+	if (member.hasMember("overwrites"))
+	{
+		JsonMember overwritesArray = member["overwrites"];
+		size_t overwriteCount = overwritesArray.size();
+		for (size_t i = 0; i < overwriteCount; i++)
+		{
+			JsonMember overwritePair = overwritesArray[i];
+			
+			Overwrites overwrite;
+			overwrite.startAddress = overwritePair[size_t(0)].getInt();
+			overwrite.endAddress = overwritePair[size_t(1)].getInt();
+
+			if (overwrite.startAddress == overwrite.endAddress)
+			{
+				std::ostringstream oss;
+				oss << OERROR << "Overwrite startAddress " << OSTR(overwrite.startAddress) << " must not be the same as the endAddress " << OSTR(overwrite.endAddress) << ".";
+				throw ncp::exception(oss.str());
+			}
+			else if (overwrite.startAddress > overwrite.endAddress)
+			{
+				std::ostringstream oss;
+				oss << OERROR << "Overwrite startAddress " << OSTR(overwrite.startAddress) << " must not be higher than the endAddress " << OSTR(overwrite.endAddress) << ".";
+				throw ncp::exception(oss.str());
+			}
+
+			region.overwrites.push_back(overwrite);
+		}
+	}
 }
