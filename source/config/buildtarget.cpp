@@ -83,6 +83,36 @@ void BuildTarget::load(const fs::path& targetFilePath, bool isArm9)
 	fs::current_path(curPath);
 }
 
+const BuildTarget::Region* BuildTarget::getRegionByDestination(int destination) const
+{
+	for (const auto& region : regions)
+	{
+		if (region.destination == destination)
+			return &region;
+	}
+	return nullptr;
+}
+
+BuildTarget::Region* BuildTarget::getRegionByDestination(int destination)
+{
+	for (auto& region : regions)
+	{
+		if (region.destination == destination)
+			return &region;
+	}
+	return nullptr;
+}
+
+const BuildTarget::Region* BuildTarget::getMainRegion() const
+{
+	return getRegionByDestination(-1);
+}
+
+BuildTarget::Region* BuildTarget::getMainRegion()
+{
+	return getRegionByDestination(-1);
+}
+
 const std::string& BuildTarget::getVariable(const std::string& value)
 {
 	try {

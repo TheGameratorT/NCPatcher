@@ -1,8 +1,9 @@
 #pragma once
 
 #include <cstdint>
-
 #include <filesystem>
+#include <functional>
+#include <string_view>
 
 typedef uint32_t Elf32_Addr;
 typedef uint16_t Elf32_Half;
@@ -36,6 +37,12 @@ typedef uint32_t Elf32_Word;
 #define SHT_HIPROC   0x7fffffff
 #define SHT_LOUSER   0x80000000
 #define SHT_HIUSER   0xffffffff
+
+#define SHN_UNDEF     0x0
+#define SHF_WRITE     0x1
+#define SHF_ALLOC     0x2
+#define SHF_EXECINSTR 0x4
+#define SHF_MASKPROC  0xf0000000
 
 #define STB_LOCAL  0
 #define STB_GLOBAL 1
@@ -127,6 +134,7 @@ public:
 	~Elf32();
 
 	bool load(const std::filesystem::path& elf);
+	bool loadFromMemory(const char* data, std::size_t size);
 
 	[[nodiscard]] inline const Elf32_Ehdr& getHeader() const {
 		return *reinterpret_cast<const Elf32_Ehdr*>(dataptr);
@@ -144,6 +152,22 @@ public:
 	constexpr const T* getSection(const Elf32_Shdr& sh) const {
 		return reinterpret_cast<const T*>(dataptr + sh.sh_offset);
 	}
+
+	// ELF iteration utilities
+	static void forEachSection(
+		const Elf32_Ehdr& eh, const Elf32_Shdr* sh_tbl, const char* str_tbl,
+		const std::function<bool(std::size_t, const Elf32_Shdr&, std::string_view)>& cb
+	);
+
+	static void forEachSymbol(
+		const Elf32& elf, const Elf32_Ehdr& eh, const Elf32_Shdr* sh_tbl,
+		const std::function<bool(const Elf32_Sym&, std::string_view)>& cb
+	);
+
+	static void forEachRelocation(
+		const Elf32& elf, const Elf32_Ehdr& eh, const Elf32_Shdr* sh_tbl,
+		const std::function<bool(const Elf32_Rel&, std::string_view, std::string_view)>& cb
+	);
 
 private:
 	char* dataptr;

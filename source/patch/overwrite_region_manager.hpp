@@ -6,20 +6,12 @@
 
 #include "../types.hpp"
 #include "../config/buildtarget.hpp"
-#include "patch_info_analyzer.hpp"
+#include "types.hpp"
 
-struct OverwriteRegionInfo
-{
-    u32 startAddress;
-    u32 endAddress;
-    int destination;
-    std::vector<SectionInfo*> assignedSections;
-    std::vector<GenericPatchInfo*> sectionPatches;
-    u32 usedSize;
-    std::string memName;
-    int sectionIdx;
-    int sectionSize;
-};
+// Use the centralized types from patch::types
+using patch::SectionInfo;
+using patch::GenericPatchInfo;
+using patch::OverwriteRegionInfo;
 
 class OverwriteRegionManager
 {

@@ -6,27 +6,13 @@
 
 #include "../types.hpp"
 #include "../elf.hpp"
-#include "patch_info_analyzer.hpp"
+#include "types.hpp"
 
-// Forward declaration
-struct OverwriteRegionInfo;
-
-struct NewcodePatch
-{
-    const u8* binData;
-    const u8* bssData;
-    std::size_t binSize;
-    std::size_t binAlign;
-    std::size_t bssSize;
-    std::size_t bssAlign;
-};
-
-struct AutogenDataInfo
-{
-    u32 address;
-    u32 curAddress;
-    std::vector<u8> data;
-};
+// Use the centralized types from patch::types
+using patch::GenericPatchInfo;
+using patch::OverwriteRegionInfo;
+using patch::NewcodePatch;
+using patch::AutogenDataInfo;
 
 class ElfAnalyzer
 {
@@ -59,14 +45,4 @@ private:
     
     std::unordered_map<int, std::unique_ptr<NewcodePatch>> m_newcodeDataForDest;
     std::unordered_map<int, std::unique_ptr<AutogenDataInfo>> m_autogenDataInfoForDest;
-
-    static void forEachElfSection(
-        const Elf32_Ehdr& eh, const Elf32_Shdr* sh_tbl, const char* str_tbl,
-        const std::function<bool(std::size_t, const Elf32_Shdr&, std::string_view)>& cb
-    );
-
-    static void forEachElfSymbol(
-        const Elf32& elf, const Elf32_Ehdr& eh, const Elf32_Shdr* sh_tbl,
-        const std::function<bool(const Elf32_Sym&, std::string_view)>& cb
-    );
 };

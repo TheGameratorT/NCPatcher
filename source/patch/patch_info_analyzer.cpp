@@ -8,85 +8,29 @@
 #include "../log.hpp"
 #include "../except.hpp"
 #include "../util.hpp"
+#include "../archive.hpp"
 
 namespace fs = std::filesystem;
-
-struct PatchType {
-    enum {
-        Jump, Call, Hook, Over,
-        SetJump, SetCall, SetHook,
-        RtRepl,
-        TJump, TCall, THook,
-        SetTJump, SetTCall, SetTHook,
-    };
-};
-
-static const char* s_patchTypeNames[] = {
-    "jump", "call", "hook", "over",
-    "setjump", "setcall", "sethook",
-    "rtrepl",
-    "tjump", "tcall", "thook",
-    "settjump", "settcall", "setthook"
-};
 
 PatchInfoAnalyzer::PatchInfoAnalyzer() = default;
 PatchInfoAnalyzer::~PatchInfoAnalyzer() = default;
 
 void PatchInfoAnalyzer::initialize(
     const BuildTarget& target,
-    const std::vector<std::unique_ptr<SourceFileJob>>& srcFileJobs,
     const std::filesystem::path& targetWorkDir
 )
 {
     m_target = &target;
-    m_srcFileJobs = &srcFileJobs;
     m_targetWorkDir = &targetWorkDir;
 }
 
-void PatchInfoAnalyzer::forEachElfSection(
-    const Elf32_Ehdr& eh, const Elf32_Shdr* sh_tbl, const char* str_tbl,
-    const std::function<bool(std::size_t, const Elf32_Shdr&, std::string_view)>& cb
-)
-{
-    for (std::size_t i = 0; i < eh.e_shnum; i++)
-    {
-        const Elf32_Shdr& sh = sh_tbl[i];
-        std::string_view sectionName(&str_tbl[sh.sh_name]);
-        if (cb(i, sh, sectionName))
-            break;
-    }
-}
-
-void PatchInfoAnalyzer::forEachElfSymbol(
-    const Elf32& elf, const Elf32_Ehdr& eh, const Elf32_Shdr* sh_tbl,
-    const std::function<bool(const Elf32_Sym&, std::string_view)>& cb
-)
-{
-    for (std::size_t i = 0; i < eh.e_shnum; i++)
-    {
-        const Elf32_Shdr& sh = sh_tbl[i];
-        if ((sh.sh_type == SHT_SYMTAB) || (sh.sh_type == SHT_DYNSYM))
-        {
-            auto sym_tbl = elf.getSection<Elf32_Sym>(sh);
-            auto sym_str_tbl = elf.getSection<char>(sh_tbl[sh.sh_link]);
-            for (std::size_t j = 0; j < sh.sh_size / sizeof(Elf32_Sym); j++)
-            {
-                const Elf32_Sym& sym = sym_tbl[j];
-                std::string_view symbolName(&sym_str_tbl[sym.st_name]);
-                if (cb(sym, symbolName))
-                    break;
-            }
-        }
-    }
-}
-
-void PatchInfoAnalyzer::gatherInfoFromObjects()
+void PatchInfoAnalyzer::gatherInfoFromObjects(const std::vector<std::unique_ptr<SourceFileJob>>& srcFileJobs)
 {
     fs::current_path(*m_targetWorkDir);
 
     Log::info("Getting patches from objects...");
 
-    for (auto& srcFileJob : *m_srcFileJobs)
+    for (auto& srcFileJob : srcFileJobs)
     {
         const fs::path& objPath = srcFileJob->objFilePath;
 
@@ -97,11 +41,31 @@ void PatchInfoAnalyzer::gatherInfoFromObjects()
 
         std::vector<GenericPatchInfo*> patchInfoForThisObj;
 
-        if (!std::filesystem::exists(objPath))
-            throw ncp::file_error(objPath, ncp::file_error::find);
+        // Check if this is an archive path (contains a colon separator)
         Elf32 elf;
-        if (!elf.load(objPath))
-            throw ncp::file_error(objPath, ncp::file_error::read);
+        if (objPath.string().find(':') != std::string::npos && objPath.extension() == ".o")
+        {
+            // This is an archive member: path/to/archive.a:member.o
+            size_t colonPos = objPath.string().find_last_of(':');
+            fs::path archivePath = objPath.string().substr(0, colonPos);
+            std::string memberName = objPath.string().substr(colonPos + 1);
+            
+            if (!loadElfFromArchive(elf, archivePath, memberName))
+            {
+                if (Main::getVerbose())
+                    Log::out << OWARN << "Failed to load archive member: " << memberName 
+                             << " from " << archivePath.string() << std::endl;
+                continue;
+            }
+        }
+        else
+        {
+            // Regular object file
+            if (!std::filesystem::exists(objPath))
+                throw ncp::file_error(objPath, ncp::file_error::find);
+            if (!elf.load(objPath))
+                throw ncp::file_error(objPath, ncp::file_error::read);
+        }
 
         const Elf32_Ehdr& eh = elf.getHeader();
         auto sh_tbl = elf.getSectionHeaderTable();
@@ -120,20 +84,20 @@ void PatchInfoAnalyzer::gatherInfoFromObjects()
                 return;
 
             std::string_view patchTypeName = labelName.substr(0, patchTypeNameEnd);
-            std::size_t patchType = Util::indexOf(patchTypeName, s_patchTypeNames, sizeof(s_patchTypeNames) / sizeof(char*));
+            std::size_t patchType = Util::indexOf(patchTypeName, patch::PatchTypeUtils::patchTypeNames, patch::PatchTypeUtils::numPatchTypes);
             if (patchType == -1)
             {
                 Log::out << OWARN << "Found invalid patch type: " << patchTypeName << std::endl;
                 return;
             }
 
-            if (patchType == PatchType::Over && sectionIdx == -1)
+            if (patchType == patch::PatchType::Over && sectionIdx == -1)
             {
                 Log::out << OWARN << "\"over\" patch must be a section type patch: " << patchTypeName << std::endl;
                 return;
             }
 
-            if (patchType == PatchType::RtRepl)
+            if (patchType == patch::PatchType::RtRepl)
             {
                 if (sectionIdx != -1) // we do not want the labels, those are placeholders
                 {
@@ -146,21 +110,21 @@ void PatchInfoAnalyzer::gatherInfoFromObjects()
             }
 
             bool forceThumb = false;
-            if (patchType >= PatchType::TJump && patchType <= PatchType::THook)
+            if (patchType >= patch::PatchType::TJump && patchType <= patch::PatchType::THook)
             {
-                patchType -= PatchType::TJump - PatchType::Jump;
+                patchType -= patch::PatchType::TJump - patch::PatchType::Jump;
                 forceThumb = true;
             }
-            else if (patchType >= PatchType::SetTJump && patchType <= PatchType::SetTHook)
+            else if (patchType >= patch::PatchType::SetTJump && patchType <= patch::PatchType::SetTHook)
             {
-                patchType -= PatchType::SetTJump - PatchType::SetJump;
+                patchType -= patch::PatchType::SetTJump - patch::PatchType::SetJump;
                 forceThumb = true;
             }
 
             bool isNcpSet = false;
-            if (patchType >= PatchType::SetJump && patchType <= PatchType::SetHook)
+            if (patchType >= patch::PatchType::SetJump && patchType <= patch::PatchType::SetHook)
             {
-                patchType -= PatchType::SetJump - PatchType::Jump;
+                patchType -= patch::PatchType::SetJump - patch::PatchType::Jump;
                 isNcpSet = true;
             }
 
@@ -202,40 +166,37 @@ void PatchInfoAnalyzer::gatherInfoFromObjects()
                 }
             }
 
-            for (auto& region : m_target->regions)
+            const auto* targetRegion = m_target->getRegionByDestination(destAddressOv);
+            if (targetRegion && targetRegion->mode != BuildTarget::Mode::Append)
             {
-                if (region.destination == destAddressOv && region.mode != BuildTarget::Mode::Append)
-                {
-                    std::ostringstream oss;
-                    oss << OSTRa(symbolName) << " (" << OSTR(srcFileJob->srcFilePath.string())
-                        << ") cannot be applied to an overlay that is not in " << OSTRa("append") << " mode.";
-                    throw ncp::exception(oss.str());
-                }
+                std::ostringstream oss;
+                oss << OSTRa(symbolName) << " (" << OSTR(srcFileJob->srcFilePath.string())
+                    << ") cannot be applied to an overlay that is not in " << OSTRa("append") << " mode.";
+                throw ncp::exception(oss.str());
             }
 
-            int srcAddressOv = patchType == PatchType::Over ? destAddressOv : region->destination;
+            int srcAddressOv = patchType == patch::PatchType::Over ? destAddressOv : region->destination;
 
-            auto* patchInfoEntry = new GenericPatchInfo({
-                .srcAddress = 0, // we do not yet know it, only after linkage
-                .srcAddressOv = srcAddressOv,
-                .destAddress = (destAddress & ~1),
-                .destAddressOv = destAddressOv,
-                .patchType = patchType,
-                .sectionIdx = sectionIdx,
-                .sectionSize = sectionSize,
-                .isNcpSet = isNcpSet,
-                .srcThumb = bool(symbolAddr & 1),
-                .destThumb = bool(destAddress & 1),
-                .symbol = std::string(symbolName),
-                .job = srcFileJob.get()
-            });
+            auto* patchInfoEntry = new GenericPatchInfo;
+            patchInfoEntry->srcAddress = 0; // we do not yet know it, only after linkage
+            patchInfoEntry->srcAddressOv = srcAddressOv;
+            patchInfoEntry->destAddress = (destAddress & ~1);
+            patchInfoEntry->destAddressOv = destAddressOv;
+            patchInfoEntry->patchType = patchType;
+            patchInfoEntry->sectionIdx = sectionIdx;
+            patchInfoEntry->sectionSize = sectionSize;
+            patchInfoEntry->isNcpSet = isNcpSet;
+            patchInfoEntry->srcThumb = bool(symbolAddr & 1);
+            patchInfoEntry->destThumb = bool(destAddress & 1);
+            patchInfoEntry->symbol = std::string(symbolName);
+            patchInfoEntry->job = srcFileJob.get();
 
             patchInfoForThisObj.emplace_back(patchInfoEntry);
             m_patchInfo.emplace_back(patchInfoEntry);
         };
 
         // Find patches in sections
-        forEachElfSection(eh, sh_tbl, str_tbl,
+        Elf32::forEachSection(eh, sh_tbl, str_tbl,
         [&](std::size_t sectionIdx, const Elf32_Shdr& section, std::string_view sectionName){
             if (sectionName.starts_with(".ncp_"))
             {
@@ -261,7 +222,7 @@ void PatchInfoAnalyzer::gatherInfoFromObjects()
         });
 
         // Find the functions corresponding to the patch to check if they are thumb
-        forEachElfSymbol(elf, eh, sh_tbl,
+        Elf32::forEachSymbol(elf, eh, sh_tbl,
         [&](const Elf32_Sym& symbol, std::string_view symbolName){
             if (ELF32_ST_TYPE(symbol.st_info) == STT_FUNC)
             {
@@ -279,7 +240,7 @@ void PatchInfoAnalyzer::gatherInfoFromObjects()
         });
 
         // Find patches in symbols
-        forEachElfSymbol(elf, eh, sh_tbl,
+        Elf32::forEachSymbol(elf, eh, sh_tbl,
         [&](const Elf32_Sym& symbol, std::string_view symbolName){
             if (symbolName.starts_with("ncp_"))
             {
@@ -338,7 +299,7 @@ void PatchInfoAnalyzer::gatherInfoFromObjects()
         }
 
         // Find sections suitable to place in overwrites
-        forEachElfSection(eh, sh_tbl, str_tbl,
+        Elf32::forEachSection(eh, sh_tbl, str_tbl,
         [&](std::size_t sectionIdx, const Elf32_Shdr& section, std::string_view sectionName){
             bool ncpSectionSupportsOverrideRegion =
                 sectionName.starts_with(".ncp_jump") || 
@@ -361,7 +322,9 @@ void PatchInfoAnalyzer::gatherInfoFromObjects()
 
             if (sectionName.starts_with(".text") || 
                 sectionName.starts_with(".rodata") ||
+                sectionName.starts_with(".init_array") ||
                 sectionName.starts_with(".data") ||
+				sectionName.starts_with(".bss") ||
                 ncpSectionSupportsOverrideRegion)
             {
                 auto* sectionInfo = new SectionInfo{
@@ -390,7 +353,7 @@ void PatchInfoAnalyzer::gatherInfoFromObjects()
                         std::setw(11) << std::dec << p->srcAddressOv << "  " <<
                         std::setw(8) << std::hex << p->destAddress << "  " <<
                         std::setw(11) << std::dec << p->destAddressOv << "  " <<
-                        std::setw(10) << s_patchTypeNames[p->patchType] << "  " <<
+                        std::setw(10) << patch::PatchTypeUtils::getName(p->patchType) << "  " <<
                         std::setw(7) << std::dec << p->sectionIdx << "  " <<
                         std::setw(8) << std::dec << p->sectionSize << "  " <<
                         std::setw(7) << std::boolalpha << p->isNcpSet << "  " <<
@@ -414,5 +377,39 @@ void PatchInfoAnalyzer::gatherInfoFromObjects()
                 Log::out << sym << '\n';
             Log::out << std::flush;
         }
+    }
+}
+
+bool PatchInfoAnalyzer::loadElfFromArchive(Elf32& elf, const std::filesystem::path& archivePath, const std::string& memberName)
+{
+    try
+    {
+        Archive archive;
+        if (!archive.load(archivePath))
+        {
+            return false;
+        }
+
+        const auto& members = archive.getMembers();
+        for (const auto& memberPtr : members)
+        {
+            const ArMember& member = *memberPtr;
+            if (member.name == memberName)
+            {
+                // Found the member, load it as ELF
+                return elf.loadFromMemory(member.data.data(), member.data.size());
+            }
+        }
+        
+        return false; // Member not found
+    }
+    catch (const std::exception& e)
+    {
+        if (Main::getVerbose())
+        {
+            Log::out << OWARN << "Error loading archive member " << memberName 
+                     << " from " << archivePath.string() << ": " << e.what() << std::endl;
+        }
+        return false;
     }
 }

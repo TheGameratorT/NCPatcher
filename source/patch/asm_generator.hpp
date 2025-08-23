@@ -2,7 +2,7 @@
 
 #include "../types.hpp"
 
-class AssemblyCodeGenerator
+class AsmGenerator
 {
 public:
     static u32 makeJumpOpCode(u32 opCode, u32 fromAddr, u32 toAddr);
@@ -25,5 +25,5 @@ public:
     static constexpr u16 thumbOpCodePopPC = 0xBD00; // POP {PC}
 
 private:
-    AssemblyCodeGenerator() = delete;
+    AsmGenerator() = delete;
 };

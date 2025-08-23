@@ -3,6 +3,7 @@
 #include <fstream>
 #include <sstream>
 #include <algorithm>
+#include <map>
 
 #include "../main.hpp"
 #include "../log.hpp"
@@ -41,8 +42,10 @@ void LinkerScriptGenerator::initialize(
     m_srcFileJobs = &srcFileJobs;
     m_newcodeAddrForDest = &newcodeAddrForDest;
 
-    m_ldscriptPath = *m_buildDir / (m_target->getArm9() ? "ldscript9.x" : "ldscript7.x");
-    m_elfPath = *m_buildDir / (m_target->getArm9() ? "arm9.elf" : "arm7.elf");
+    std::string armType = m_target->getArm9() ? "9" : "7";
+    
+    m_ldscriptPath = *m_buildDir / ("ldscript" + armType + ".x");
+    m_elfPath = *m_buildDir / ("arm" + armType + ".elf");
 }
 
 void LinkerScriptGenerator::createLinkerScript(
@@ -72,8 +75,6 @@ void LinkerScriptGenerator::createLinkerScript(
         o += "))\n";
     };
 
-    Log::out << OLINK << "Generating the linker script..." << std::endl;
-
     fs::current_path(Main::getWorkPath());
 
     fs::path symbolsFile;
@@ -84,15 +85,15 @@ void LinkerScriptGenerator::createLinkerScript(
     memoryEntries.emplace_back(new LDSMemoryEntry{ "bin", 0, 0x100000 });
 
     // Add memory entries for overwrite regions
-    for (const auto& overwrite : overwriteRegions)
-    {
-        if (overwrite->assignedSections.empty())
-            continue;
-            
-        u32 regionSize = overwrite->endAddress - overwrite->startAddress;
-        auto* memEntry = new LDSMemoryEntry{ overwrite->memName, overwrite->startAddress, static_cast<int>(regionSize) };
-        memoryEntries.emplace_back(memEntry);
-    }
+	for (const auto& overwrite : overwriteRegions)
+	{
+		if (overwrite->assignedSections.empty())
+			continue;
+			
+		u32 regionSize = overwrite->endAddress - overwrite->startAddress;
+		auto* memEntry = new LDSMemoryEntry{ overwrite->memName, overwrite->startAddress, static_cast<int>(regionSize) };
+		memoryEntries.emplace_back(memEntry);
+	}
 
     std::vector<std::unique_ptr<LDSRegionEntry>> regionEntries;
 
@@ -158,26 +159,27 @@ void LinkerScriptGenerator::createLinkerScript(
                 {
                     if (info->sectionIdx != -1)
                     {
-                        // Check if this patch's section is assigned to an overwrite region
+                        // Check if this patch's section is assigned to an overwrite region (only for final version)
                         bool patchInOverwrite = false;
-                        for (const auto& overwrite : overwriteRegions)
-                        {
-                            if (overwrite->destination == ldsRegion->dest)
-                            {
-                                for (const auto* section : overwrite->assignedSections)
-                                {
-                                    if (section->name == info->symbol)
-                                    {
-                                        // Add to sectionPatches of the overwrite region
-                                        overwrite->sectionPatches.emplace_back(info.get());
 
-                                        patchInOverwrite = true;
-                                        break;
-                                    }
-                                }
-                            }
-                            if (patchInOverwrite) break;
-                        }
+						for (const auto& overwrite : overwriteRegions)
+						{
+							if (overwrite->destination == ldsRegion->dest)
+							{
+								for (const auto* section : overwrite->assignedSections)
+								{
+									if (section->name == info->symbol)
+									{
+										// Add to sectionPatches of the overwrite region
+										overwrite->sectionPatches.emplace_back(info.get());
+
+										patchInOverwrite = true;
+										break;
+									}
+								}
+							}
+							if (patchInOverwrite) break;
+						}
                         
                         // Only add to sectionPatches if not in overwrite region
                         if (!patchInOverwrite)
@@ -214,16 +216,18 @@ void LinkerScriptGenerator::createLinkerScript(
     }
     
     o += "INPUT (\n";
-    for (auto& srcFileJob : *m_srcFileJobs)
-    {
-        o += "\t\"";
-        o += Util::relativeIfSubpath(srcFileJob->objFilePath).string();
-        o += "\"\n";
-    }
+	for (auto& srcFileJob : *m_srcFileJobs)
+	{
+		o += "\t\"";
+		o += Util::relativeIfSubpath(srcFileJob->objFilePath).string();
+		o += "\"\n";
+	}
 
     o += ")\n\nOUTPUT (\"";
     o += Util::relativeIfSubpath(m_elfPath).string();
-    o += "\")\n\nMEMORY {\n";
+    o += "\")\n\n";
+    
+    o += "MEMORY {\n";
 
     for (auto& memoryEntry : memoryEntries)
     {
@@ -238,42 +242,111 @@ void LinkerScriptGenerator::createLinkerScript(
 
     o += "}\n\nSECTIONS {\n";
 
-    // Add overwrite sections
-    for (const auto& overwrite : overwriteRegions)
-    {
-        if (overwrite->assignedSections.empty())
-            continue;
-        
-        o += "\t.";
-        o += overwrite->memName;
-        o += " : ALIGN(4) {\n";
+	// Add overwrite sections
+	for (const auto& overwrite : overwriteRegions)
+	{
+		if (overwrite->assignedSections.empty())
+			continue;
+		
+		o += "\t.";
+		o += overwrite->memName;
+		o += " : ALIGN(4) {\n";
 
-        for (auto& p : overwrite->sectionPatches)
-            addSectionPatchInclude(o, p);
-        
-        for (const auto* section : overwrite->assignedSections)
-        {
-            // Skip ncp_jump, ncp_call, ncp_hook sections as they are already handled above
-            if (section->name.starts_with(".ncp_jump") || 
-                section->name.starts_with(".ncp_call") || 
-                section->name.starts_with(".ncp_hook"))
-                continue;
+		for (auto& p : overwrite->sectionPatches)
+			addSectionPatchInclude(o, p);
+		
+		// Group sections by type and alignment for better memory layout
+		// This reduces memory waste by grouping data sections with similar alignment requirements
+		std::vector<const SectionInfo*> codeSections;
+		std::map<u32, std::vector<const SectionInfo*>> dataSectionsByAlignment;
+		std::vector<const SectionInfo*> otherSections;
+		
+		for (const auto* section : overwrite->assignedSections)
+		{
+			// Skip ncp_jump, ncp_call, ncp_hook sections as they are already handled above (overwrite->sectionPatches)
+			if (section->name.starts_with(".ncp_jump") || 
+				section->name.starts_with(".ncp_call") || 
+				section->name.starts_with(".ncp_hook") || 
+				section->name.starts_with(".ncp_tjump") || 
+				section->name.starts_with(".ncp_tcall") || 
+				section->name.starts_with(".ncp_thook"))
+				continue;
 
-            std::string objPath = Util::relativeIfSubpath(section->job->objFilePath).string();
-            o += "\t\t. = ALIGN(";
-            o += std::to_string(section->alignment);
-            o += ");\n\t\t\"";
-            o += objPath;
-            o += "\" (";
-            o += section->name;
-            o += ")\n";
-        }
-        
-        o += "\t\t. = ALIGN(4);\n"
-                "\t} > ";
-        o += overwrite->memName;
-        o += " AT > bin\n\n";
-    }
+			// Separate code sections from data sections
+			if (section->name.starts_with(".text") || 
+				section->name.starts_with(".rodata") ||
+				section->name.starts_with(".init_array"))
+			{
+				codeSections.push_back(section);
+			}
+			else if (section->name.starts_with(".data") || section->name.starts_with(".bss"))
+			{
+				dataSectionsByAlignment[section->alignment].push_back(section);
+			}
+			else
+			{
+				otherSections.push_back(section);
+			}
+		}
+		
+		// Add code sections first (maintain their original alignment)
+		for (const auto* section : codeSections)
+		{
+			std::string objPath = Util::relativeIfSubpath(section->job->objFilePath).string();
+			o += "\t\t. = ALIGN(";
+			o += std::to_string(section->alignment);
+			o += ");\n\t\t\"";
+			o += objPath;
+			o += "\" (";
+			o += section->name;
+			o += ")\n";
+		}
+		
+		// Add data sections grouped by alignment (from largest to smallest for better packing)
+		// This approach minimizes memory waste by placing larger-aligned items first,
+		// then filling gaps with smaller-aligned items
+		for (auto it = dataSectionsByAlignment.rbegin(); it != dataSectionsByAlignment.rend(); ++it)
+		{
+			u32 alignment = it->first;
+			const auto& sections = it->second;
+			
+			// Add alignment directive once per group
+			if (!sections.empty())
+			{
+				o += "\t\t. = ALIGN(";
+				o += std::to_string(alignment);
+				o += ");\n";
+			}
+			
+			for (const auto* section : sections)
+			{
+				std::string objPath = Util::relativeIfSubpath(section->job->objFilePath).string();
+				o += "\t\t\"";
+				o += objPath;
+				o += "\" (";
+				o += section->name;
+				o += ")\n";
+			}
+		}
+		
+		// Add other sections
+		for (const auto* section : otherSections)
+		{
+			std::string objPath = Util::relativeIfSubpath(section->job->objFilePath).string();
+			o += "\t\t. = ALIGN(";
+			o += std::to_string(section->alignment);
+			o += ");\n\t\t\"";
+			o += objPath;
+			o += "\" (";
+			o += section->name;
+			o += ")\n";
+		}
+		
+		o += "\t\t. = ALIGN(4);\n"
+				"\t} > ";
+		o += overwrite->memName;
+		o += " AT > bin\n\n";
+	}
 
     for (auto& s : regionEntries)
     {
@@ -281,10 +354,12 @@ void LinkerScriptGenerator::createLinkerScript(
         o += "\t.";
         o += s->memory->name;
         o += ".text : ALIGN(4) {\n";
+        
         for (auto& p : s->sectionPatches)
         {
             addSectionPatchInclude(o, p);
         }
+        
         for (auto& p : rtreplPatches)
         {
             if (p->job->region == s->region)
@@ -292,13 +367,15 @@ void LinkerScriptGenerator::createLinkerScript(
                 std::string_view stem = std::string_view(p->symbol).substr(1);
                 o += "\t\t";
                 o += stem;
-                o += "_start = .;\n\t\t* (";
+                o += "_start = .;\n\t\t";
+                o += "KEEP(* (";
                 o += p->symbol;
-                o += ")\n\t\t";
+                o += "))\n\t\t";
                 o += stem;
                 o += "_end = .;\n";
             }
         }
+        
         if (s->dest == -1)
         {
             o += "\t\t* (.text)\n"
@@ -309,6 +386,7 @@ void LinkerScriptGenerator::createLinkerScript(
                  "\t\t* (.rodata.*)\n"
                  "\t\t* (.init_array.*)\n"
                  "\t\t* (.data.*)\n";
+            
             if (s->autogenDataSize != 0)
             {
                 o += "\t\t. = ALIGN(4);\n"
@@ -321,25 +399,26 @@ void LinkerScriptGenerator::createLinkerScript(
         }
         else
         {
-            for (auto& f : *m_srcFileJobs)
-            {
-                if (f->region == s->region)
-                {
-                    std::string objPath = Util::relativeIfSubpath(f->objFilePath).string();
-                    static const char* secIncs[] = {
-                        "text",
-                        "rodata",
-                        "init_array",
-                        "data",
-                        "text.*",
-                        "rodata.*",
-                        "init_array.*",
-                        "data.*"
-                    };
-                    for (auto& secInc : secIncs)
-                        addSectionInclude(o, objPath, secInc);
-                }
-            }
+			for (auto& f : *m_srcFileJobs)
+			{
+				if (f->region == s->region)
+				{
+					std::string objPath = Util::relativeIfSubpath(f->objFilePath).string();
+					static const char* secIncs[] = {
+						"text",
+						"rodata",
+						"init_array",
+						"data",
+						"text.*",
+						"rodata.*",
+						"init_array.*",
+						"data.*"
+					};
+					for (auto& secInc : secIncs)
+						addSectionInclude(o, objPath, secInc);
+				}
+			}
+            
             if (s->autogenDataSize)
             {
                 o += "\t\t. = ALIGN(4);\n\t\tncp_autogendata_";
@@ -367,15 +446,15 @@ void LinkerScriptGenerator::createLinkerScript(
         }
         else
         {
-            for (auto& f : *m_srcFileJobs)
-            {
-                if (f->region == s->region)
-                {
-                    std::string objPath = Util::relativeIfSubpath(f->objFilePath).string();
-                    addSectionInclude(o, objPath, "bss");
-                    addSectionInclude(o, objPath, "bss.*");
-                }
-            }
+			for (auto& f : *m_srcFileJobs)
+			{
+				if (f->region == s->region)
+				{
+					std::string objPath = Util::relativeIfSubpath(f->objFilePath).string();
+					addSectionInclude(o, objPath, "bss");
+					addSectionInclude(o, objPath, "bss.*");
+				}
+			}
         }
         o += "\t\t. = ALIGN(4);\n"
              "\t} > ";
@@ -396,30 +475,30 @@ void LinkerScriptGenerator::createLinkerScript(
     if (!overPatches.empty())
         o += '\n';
 
-    for (auto& p : orderedDestWithNcpSet)
-    {
-        o += "\t.ncp_set";
-        if (p == -1)
-        {
-            o += " : { KEEP(* (.ncp_set)) } > ncp_set AT > bin\n\n";
-        }
-        else
-        {
-            o += "_ov";
-            o += std::to_string(p);
-            o += " : {\n";
-            for (auto& j : jobsWithNcpSet)
-            {
-                if (j->region->destination == p)
-                {
-                    o += "\t\t KEEP(\"";
-                    o += Util::relativeIfSubpath(j->objFilePath).string();
-                    o += "\" (.ncp_set))\n\t"
-                         "} > ncp_set AT > bin\n\n";
-                }
-            }
-        }
-    }
+	for (auto& p : orderedDestWithNcpSet)
+	{
+		o += "\t.ncp_set";
+		if (p == -1)
+		{
+			o += " : { KEEP(* (.ncp_set)) } > ncp_set AT > bin\n\n";
+		}
+		else
+		{
+			o += "_ov";
+			o += std::to_string(p);
+			o += " : {\n";
+			for (auto& j : jobsWithNcpSet)
+			{
+				if (j->region->destination == p)
+				{
+					o += "\t\t KEEP(\"";
+					o += Util::relativeIfSubpath(j->objFilePath).string();
+					o += "\" (.ncp_set))\n\t"
+							"} > ncp_set AT > bin\n\n";
+				}
+			}
+		}
+	}
 
     o += "\t/DISCARD/ : {*(.*)}\n"
          "}\n";
@@ -458,6 +537,66 @@ std::string LinkerScriptGenerator::ldFlagsToGccFlags(std::string flags)
     return flags;
 }
 
+/*
+void LinkerScriptGenerator::parseLinkerOutput(const std::string& output)
+{
+    std::vector<std::string> discardedSections;
+    std::istringstream iss(output);
+    std::string line;
+    
+    // Parse linker output for discarded sections
+    // The --print-gc-sections flag causes the linker to print lines like:
+    // "removing unused section '.text.unused_function' in file 'object.o'"
+    while (std::getline(iss, line))
+    {
+        // Look for lines that indicate removed sections
+        if (line.find("removing unused section") != std::string::npos)
+        {
+            // Extract section name between single quotes
+            size_t firstQuote = line.find('\'');
+            size_t secondQuote = line.find('\'', firstQuote + 1);
+            if (firstQuote != std::string::npos && secondQuote != std::string::npos)
+            {
+                std::string sectionName = line.substr(firstQuote + 1, secondQuote - firstQuote - 1);
+                
+                // Extract object file name
+                size_t inFilePos = line.find("in file");
+                if (inFilePos != std::string::npos)
+                {
+                    size_t fileQuote1 = line.find('\'', inFilePos);
+                    size_t fileQuote2 = line.find('\'', fileQuote1 + 1);
+                    if (fileQuote1 != std::string::npos && fileQuote2 != std::string::npos)
+                    {
+                        std::string fileName = line.substr(fileQuote1 + 1, fileQuote2 - fileQuote1 - 1);
+                        // Just get the filename without path
+                        size_t lastSlash = fileName.find_last_of("/\\");
+                        if (lastSlash != std::string::npos)
+                            fileName = fileName.substr(lastSlash + 1);
+                        
+                        std::string entry = sectionName + " (from " + fileName + ")";
+                        discardedSections.push_back(entry);
+                    }
+                }
+            }
+        }
+    }
+    
+    // Display results
+    if (!discardedSections.empty())
+    {
+        Log::out << "Linker discarded " << discardedSections.size() << " unused sections:" << std::endl;
+        for (const std::string& section : discardedSections)
+        {
+            Log::out << "  " << section << std::endl;
+        }
+    }
+    else
+    {
+        Log::out << OINFO << "No sections were discarded by the linker." << std::endl;
+    }
+}
+*/
+
 void LinkerScriptGenerator::linkElfFile()
 {
     Log::out << OLINK << "Linking the ARM binary..." << std::endl;
@@ -477,9 +616,16 @@ void LinkerScriptGenerator::linkElfFile()
 
     std::ostringstream oss;
     int retcode = Process::start(ccmd.c_str(), &oss);
+    
+	// if (Main::getVerbose())
+	// {
+	// 	// Parse the linker output to extract discarded sections
+	// 	parseLinkerOutput(oss.str());
+	// }
+    
     if (retcode != 0)
     {
         Log::out << oss.str() << std::endl;
-        throw ncp::exception("Could not link the ELF file.");
+        throw ncp::exception("Could not link the final ELF file.");
     }
 }

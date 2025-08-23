@@ -5,6 +5,7 @@
 #include <chrono>
 #include <unordered_map>
 #include <sstream>
+#include <algorithm>
 
 #include <BS_thread_pool.hpp>
 
@@ -112,7 +113,32 @@ void ObjMaker::getSourceFiles()
 					if (fileType == -1)
 						continue;
 
-					std::string buildPath = (*m_buildDir / srcPath).string();
+					// Create a safe build path that works for sources both inside and outside the project
+					fs::path safeBuildPath;
+					if (srcPath.is_absolute())
+					{
+						// For absolute paths, create a relative path structure under build directory
+						// Convert absolute path to a safe relative structure by replacing path separators
+						std::string pathStr = srcPath.string();
+						
+						// Replace drive letter colon and path separators with underscores for safety
+						std::replace(pathStr.begin(), pathStr.end(), ':', '_');
+						std::replace(pathStr.begin(), pathStr.end(), '\\', '_');
+						std::replace(pathStr.begin(), pathStr.end(), '/', '_');
+						
+						// Remove any leading path separator replacements
+						if (pathStr.front() == '_')
+							pathStr = pathStr.substr(1);
+							
+						safeBuildPath = *m_buildDir / "external" / pathStr;
+					}
+					else
+					{
+						// For relative paths, use the original behavior
+						safeBuildPath = *m_buildDir / srcPath;
+					}
+					
+					std::string buildPath = safeBuildPath.string();
 					fs::path objPath = buildPath + ".o";
 					fs::path depPath = buildPath + ".d";
 					fs::path asmPath = buildPath + ".s";

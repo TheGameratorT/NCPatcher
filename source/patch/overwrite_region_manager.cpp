@@ -72,6 +72,7 @@ void OverwriteRegionManager::assignSectionsToOverwrites(std::vector<std::unique_
         std::size_t sectionSize;
         u32 startAddress;
         u32 endAddress;
+		SourceFileJob* job;
         bool assigned;
     };
     std::vector<SectionAssignment> assignments;
@@ -128,6 +129,7 @@ void OverwriteRegionManager::assignSectionsToOverwrites(std::vector<std::unique_
                             .sectionSize = section->size,
                             .startAddress = overwrite->startAddress,
                             .endAddress = overwrite->endAddress,
+							.job = section->job,
                             .assigned = true
                         });
                     }
@@ -142,6 +144,7 @@ void OverwriteRegionManager::assignSectionsToOverwrites(std::vector<std::unique_
                     .sectionSize = section->size,
                     .startAddress = 0,
                     .endAddress = 0,
+					.job = section->job,
                     .assigned = false
                 });
             }
@@ -154,8 +157,9 @@ void OverwriteRegionManager::assignSectionsToOverwrites(std::vector<std::unique_
         Log::out << ANSI_bCYAN "Assigned sections:" ANSI_RESET "\n" 
             << ANSI_bWHITE "SECTION_NAME" ANSI_RESET "                     " 
             << ANSI_bWHITE "SIZE" ANSI_RESET "     " 
+            << ANSI_bWHITE "SOURCE" ANSI_RESET "        "
             << ANSI_bWHITE "OVERWRITE_REGION" ANSI_RESET "        " 
-            << ANSI_bWHITE "STATUS" ANSI_RESET << std::endl;
+            << ANSI_bWHITE "STATUS" ANSI_RESET "        "  << std::endl;
         
         for (const auto& assignment : assignments)
         {
@@ -164,6 +168,8 @@ void OverwriteRegionManager::assignSectionsToOverwrites(std::vector<std::unique_
             
             // Size - white/cyan
             Log::out << ANSI_CYAN << std::setw(8) << std::dec << assignment.sectionSize << ANSI_RESET << "  ";
+
+            Log::out << OSTR(assignment.job->objFilePath.string()) << ANSI_RESET << "  ";
             
             if (assignment.assigned)
             {

@@ -1,11 +1,11 @@
-#include "assembly_code_generator.hpp"
+#include "asm_generator.hpp"
 
 #include <sstream>
 
 #include "../except.hpp"
 #include "../util.hpp"
 
-u32 AssemblyCodeGenerator::makeJumpOpCode(u32 opCode, u32 fromAddr, u32 toAddr)
+u32 AsmGenerator::makeJumpOpCode(u32 opCode, u32 fromAddr, u32 toAddr)
 {
     s32 offset = (s32(toAddr) - s32(fromAddr)) >> 2;
     offset -= 2;
@@ -22,7 +22,7 @@ u32 AssemblyCodeGenerator::makeJumpOpCode(u32 opCode, u32 fromAddr, u32 toAddr)
     return opCode | (u32(offset) & 0xFFFFFF);
 }
 
-u32 AssemblyCodeGenerator::makeBLXOpCode(u32 fromAddr, u32 toAddr)
+u32 AsmGenerator::makeBLXOpCode(u32 fromAddr, u32 toAddr)
 {
     // BLX (immediate) instruction encoding for ARMv5TE
     // Target must be halfword aligned but can be ARM or THUMB
@@ -54,7 +54,7 @@ u32 AssemblyCodeGenerator::makeBLXOpCode(u32 fromAddr, u32 toAddr)
     return 0xFA000000 | (h << 24) | imm24;
 }
 
-u32 AssemblyCodeGenerator::makeThumbCallOpCode(bool exchange, u32 fromAddr, u32 toAddr)
+u32 AsmGenerator::makeThumbCallOpCode(bool exchange, u32 fromAddr, u32 toAddr)
 {
     s32 offset;
     
@@ -87,7 +87,7 @@ u32 AssemblyCodeGenerator::makeThumbCallOpCode(bool exchange, u32 fromAddr, u32 
     return (u32(opcode1) << 16) | opcode0;
 }
 
-u32 AssemblyCodeGenerator::fixupOpCode(u32 opCode, u32 ogAddr, u32 newAddr)
+u32 AsmGenerator::fixupOpCode(u32 opCode, u32 ogAddr, u32 newAddr)
 {
     // TODO: check for other relative instructions other than B and BL, like LDR
     if (((opCode >> 25) & 0b111) == 0b101)

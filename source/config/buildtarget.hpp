@@ -55,6 +55,12 @@ public:
 
 	constexpr void setForceRebuild(bool forceRebuild) { m_forceRebuild = forceRebuild; }
 
+	// Helper functions for region access
+	[[nodiscard]] const Region* getRegionByDestination(int destination) const;
+	[[nodiscard]] Region* getRegionByDestination(int destination);
+	[[nodiscard]] const Region* getMainRegion() const;
+	[[nodiscard]] Region* getMainRegion();
+
 	BuildTarget();
 	void load(const std::filesystem::path& targetFilePath, bool isArm9);
 

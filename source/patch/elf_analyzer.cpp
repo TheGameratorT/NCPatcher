@@ -4,6 +4,8 @@
 #include <functional>
 #include <iomanip>
 #include <sstream>
+#include <unordered_set>
+#include <algorithm>
 
 #include "../main.hpp"
 #include "../log.hpp"
@@ -47,43 +49,6 @@ void ElfAnalyzer::initialize(const std::filesystem::path& elfPath)
     m_elfPath = elfPath;
 }
 
-void ElfAnalyzer::forEachElfSection(
-    const Elf32_Ehdr& eh, const Elf32_Shdr* sh_tbl, const char* str_tbl,
-    const std::function<bool(std::size_t, const Elf32_Shdr&, std::string_view)>& cb
-)
-{
-    for (std::size_t i = 0; i < eh.e_shnum; i++)
-    {
-        const Elf32_Shdr& sh = sh_tbl[i];
-        std::string_view sectionName(&str_tbl[sh.sh_name]);
-        if (cb(i, sh, sectionName))
-            break;
-    }
-}
-
-void ElfAnalyzer::forEachElfSymbol(
-    const Elf32& elf, const Elf32_Ehdr& eh, const Elf32_Shdr* sh_tbl,
-    const std::function<bool(const Elf32_Sym&, std::string_view)>& cb
-)
-{
-    for (std::size_t i = 0; i < eh.e_shnum; i++)
-    {
-        const Elf32_Shdr& sh = sh_tbl[i];
-        if ((sh.sh_type == SHT_SYMTAB) || (sh.sh_type == SHT_DYNSYM))
-        {
-            auto sym_tbl = elf.getSection<Elf32_Sym>(sh);
-            auto sym_str_tbl = elf.getSection<char>(sh_tbl[sh.sh_link]);
-            for (std::size_t j = 0; j < sh.sh_size / sizeof(Elf32_Sym); j++)
-            {
-                const Elf32_Sym& sym = sym_tbl[j];
-                std::string_view symbolName(&sym_str_tbl[sym.st_name]);
-                if (cb(sym, symbolName))
-                    break;
-            }
-        }
-    }
-}
-
 void ElfAnalyzer::loadElfFile()
 {
     if (!std::filesystem::exists(m_elfPath))
@@ -111,7 +76,7 @@ void ElfAnalyzer::gatherInfoFromElf(
     auto str_tbl = m_elf->getSection<char>(sh_tbl[eh.e_shstrndx]);
 
     // Update the patch info with new values
-    forEachElfSymbol(*m_elf, eh, sh_tbl,
+    Elf32::forEachSymbol(*m_elf, eh, sh_tbl,
     [&](const Elf32_Sym& symbol, std::string_view symbolName){
         for (auto& p : patchInfo)
         {
@@ -155,7 +120,7 @@ void ElfAnalyzer::gatherInfoFromElf(
         return false;
     });
 
-    forEachElfSection(eh, sh_tbl, str_tbl,
+    Elf32::forEachSection(eh, sh_tbl, str_tbl,
     [&](std::size_t sectionIdx, const Elf32_Shdr& section, std::string_view sectionName){
         for (auto& p : patchInfo)
         {
@@ -203,6 +168,8 @@ void ElfAnalyzer::gatherInfoFromElf(
         }
         return false;
     });
+
+	// TODO: the overlap checks should probably be moved to before linking, keep here for now
 
     // Check if any overlapping patches exist
     bool foundOverlapping = false;
@@ -274,7 +241,7 @@ void ElfAnalyzer::gatherInfoFromElf(
         }
     }
 
-    forEachElfSection(eh, sh_tbl, str_tbl,
+    Elf32::forEachSection(eh, sh_tbl, str_tbl,
     [&](std::size_t sectionIdx, const Elf32_Shdr& section, std::string_view sectionName){
         auto insertSection = [&](int dest, bool isBss){
             auto& newcodeInfo = m_newcodeDataForDest[dest];
@@ -319,7 +286,7 @@ void ElfAnalyzer::gatherInfoFromElf(
     {
         overwrite->sectionIdx = -1;
 
-        forEachElfSection(eh, sh_tbl, str_tbl,
+        Elf32::forEachSection(eh, sh_tbl, str_tbl,
         [&](std::size_t sectionIdx, const Elf32_Shdr& section, std::string_view sectionName) -> bool {
             if (sectionName == "." + overwrite->memName)
             {

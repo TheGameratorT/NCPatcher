@@ -58,13 +58,18 @@ public:
 
     void linkElfFile();
 
+    // Path accessors
+    const std::filesystem::path& getStripElfPath() const { return m_elfStripPath; }
+
 private:
     const BuildTarget* m_target;
     const std::filesystem::path* m_buildDir;
     const std::vector<std::unique_ptr<SourceFileJob>>* m_srcFileJobs;
     const std::unordered_map<int, u32>* m_newcodeAddrForDest;
     
+    std::filesystem::path m_ldscriptStripPath;
     std::filesystem::path m_ldscriptPath;
+    std::filesystem::path m_elfStripPath;
     std::filesystem::path m_elfPath;
 
     static std::string ldFlagsToGccFlags(std::string flags);
