@@ -343,7 +343,10 @@ void PatchInfoAnalyzer::gatherInfoFromObjects()
             bool ncpSectionSupportsOverrideRegion =
                 sectionName.starts_with(".ncp_jump") || 
                 sectionName.starts_with(".ncp_call") || 
-                sectionName.starts_with(".ncp_hook");
+                sectionName.starts_with(".ncp_hook") ||
+                sectionName.starts_with(".ncp_tjump") || 
+                sectionName.starts_with(".ncp_tcall") || 
+                sectionName.starts_with(".ncp_thook");
             
             if ((sectionName.starts_with(".ncp_") && !ncpSectionSupportsOverrideRegion) ||
                 sectionName.starts_with(".rel") || 
