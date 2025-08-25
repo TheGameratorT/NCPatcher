@@ -5,11 +5,11 @@
 #include <algorithm>
 #include <map>
 
-#include "../main.hpp"
-#include "../log.hpp"
-#include "../except.hpp"
-#include "../util.hpp"
-#include "../process.hpp"
+#include "../app/application.hpp"
+#include "../system/log.hpp"
+#include "../system/except.hpp"
+#include "../utils/util.hpp"
+#include "../system/process.hpp"
 #include "../config/buildconfig.hpp"
 
 namespace fs = std::filesystem;
@@ -33,13 +33,13 @@ LinkerScriptGenerator::~LinkerScriptGenerator() = default;
 void LinkerScriptGenerator::initialize(
     const BuildTarget& target,
     const std::filesystem::path& buildDir,
-    const std::vector<std::unique_ptr<SourceFileJob>>& srcFileJobs,
+    core::CompilationUnitManager& compilationUnitMgr,
     const std::unordered_map<int, u32>& newcodeAddrForDest
 )
 {
     m_target = &target;
     m_buildDir = &buildDir;
-    m_srcFileJobs = &srcFileJobs;
+    m_compilationUnitMgr = &compilationUnitMgr;
     m_newcodeAddrForDest = &newcodeAddrForDest;
 
     std::string armType = m_target->getArm9() ? "9" : "7";
@@ -53,7 +53,7 @@ void LinkerScriptGenerator::createLinkerScript(
     const std::vector<std::unique_ptr<RtReplPatchInfo>>& rtreplPatches,
     const std::vector<std::string>& externSymbols,
     const std::vector<int>& destWithNcpSet,
-    const std::vector<const SourceFileJob*>& jobsWithNcpSet,
+    const core::CompilationUnitPtrCollection& unitsWithNcpSet,
     const std::vector<std::unique_ptr<OverwriteRegionInfo>>& overwriteRegions
 )
 {
@@ -75,7 +75,7 @@ void LinkerScriptGenerator::createLinkerScript(
         o += "))\n";
     };
 
-    fs::current_path(Main::getWorkPath());
+    fs::current_path(ncp::Application::getWorkPath());
 
     fs::path symbolsFile;
     if (!m_target->symbols.empty())
@@ -155,7 +155,7 @@ void LinkerScriptGenerator::createLinkerScript(
         {
             for (auto& ldsRegion : regionEntries)
             {
-                if (ldsRegion->dest == info->job->region->destination)
+                if (ldsRegion->dest == info->unit->getTargetRegion()->destination)
                 {
                     if (info->sectionIdx != -1)
                     {
@@ -216,12 +216,12 @@ void LinkerScriptGenerator::createLinkerScript(
     }
     
     o += "INPUT (\n";
-	for (auto& srcFileJob : *m_srcFileJobs)
-	{
-		o += "\t\"";
-		o += Util::relativeIfSubpath(srcFileJob->objFilePath).string();
-		o += "\"\n";
-	}
+    for (const auto* unit : m_compilationUnitMgr->getUserUnits())
+    {
+        o += "\t\"";
+        o += Util::relativeIfSubpath(unit->getObjectPath()).string();
+        o += "\"\n";
+    }
 
     o += ")\n\nOUTPUT (\"";
     o += Util::relativeIfSubpath(m_elfPath).string();
@@ -255,86 +255,13 @@ void LinkerScriptGenerator::createLinkerScript(
 		for (auto& p : overwrite->sectionPatches)
 			addSectionPatchInclude(o, p);
 		
-		// Group sections by type and alignment for better memory layout
-		// This reduces memory waste by grouping data sections with similar alignment requirements
-		std::vector<const SectionInfo*> codeSections;
-		std::map<u32, std::vector<const SectionInfo*>> dataSectionsByAlignment;
-		std::vector<const SectionInfo*> otherSections;
-		
 		for (const auto* section : overwrite->assignedSections)
 		{
-			// Skip ncp_jump, ncp_call, ncp_hook sections as they are already handled above (overwrite->sectionPatches)
-			if (section->name.starts_with(".ncp_jump") || 
-				section->name.starts_with(".ncp_call") || 
-				section->name.starts_with(".ncp_hook") || 
-				section->name.starts_with(".ncp_tjump") || 
-				section->name.starts_with(".ncp_tcall") || 
-				section->name.starts_with(".ncp_thook"))
-				continue;
-
-			// Separate code sections from data sections
-			if (section->name.starts_with(".text") || 
-				section->name.starts_with(".rodata") ||
-				section->name.starts_with(".init_array"))
-			{
-				codeSections.push_back(section);
-			}
-			else if (section->name.starts_with(".data") || section->name.starts_with(".bss"))
-			{
-				dataSectionsByAlignment[section->alignment].push_back(section);
-			}
-			else
-			{
-				otherSections.push_back(section);
-			}
-		}
-		
-		// Add code sections first (maintain their original alignment)
-		for (const auto* section : codeSections)
-		{
-			std::string objPath = Util::relativeIfSubpath(section->job->objFilePath).string();
+			u32 forcedAlignment = 4;
+            
+            std::string objPath = Util::relativeIfSubpath(section->unit->getObjectPath()).string();
 			o += "\t\t. = ALIGN(";
-			o += std::to_string(section->alignment);
-			o += ");\n\t\t\"";
-			o += objPath;
-			o += "\" (";
-			o += section->name;
-			o += ")\n";
-		}
-		
-		// Add data sections grouped by alignment (from largest to smallest for better packing)
-		// This approach minimizes memory waste by placing larger-aligned items first,
-		// then filling gaps with smaller-aligned items
-		for (auto it = dataSectionsByAlignment.rbegin(); it != dataSectionsByAlignment.rend(); ++it)
-		{
-			u32 alignment = it->first;
-			const auto& sections = it->second;
-			
-			// Add alignment directive once per group
-			if (!sections.empty())
-			{
-				o += "\t\t. = ALIGN(";
-				o += std::to_string(alignment);
-				o += ");\n";
-			}
-			
-			for (const auto* section : sections)
-			{
-				std::string objPath = Util::relativeIfSubpath(section->job->objFilePath).string();
-				o += "\t\t\"";
-				o += objPath;
-				o += "\" (";
-				o += section->name;
-				o += ")\n";
-			}
-		}
-		
-		// Add other sections
-		for (const auto* section : otherSections)
-		{
-			std::string objPath = Util::relativeIfSubpath(section->job->objFilePath).string();
-			o += "\t\t. = ALIGN(";
-			o += std::to_string(section->alignment);
+			o += std::to_string(forcedAlignment);
 			o += ");\n\t\t\"";
 			o += objPath;
 			o += "\" (";
@@ -362,7 +289,7 @@ void LinkerScriptGenerator::createLinkerScript(
         
         for (auto& p : rtreplPatches)
         {
-            if (p->job->region == s->region)
+            if (p->unit->getTargetRegion() == s->region)
             {
                 std::string_view stem = std::string_view(p->symbol).substr(1);
                 o += "\t\t";
@@ -399,11 +326,11 @@ void LinkerScriptGenerator::createLinkerScript(
         }
         else
         {
-			for (auto& f : *m_srcFileJobs)
-			{
-				if (f->region == s->region)
-				{
-					std::string objPath = Util::relativeIfSubpath(f->objFilePath).string();
+    		for (const auto* unit : m_compilationUnitMgr->getUserUnits())
+            {
+                if (unit->getTargetRegion() == s->region)
+                {
+                    std::string objPath = Util::relativeIfSubpath(unit->getObjectPath()).string();
 					static const char* secIncs[] = {
 						"text",
 						"rodata",
@@ -446,15 +373,15 @@ void LinkerScriptGenerator::createLinkerScript(
         }
         else
         {
-			for (auto& f : *m_srcFileJobs)
-			{
-				if (f->region == s->region)
-				{
-					std::string objPath = Util::relativeIfSubpath(f->objFilePath).string();
-					addSectionInclude(o, objPath, "bss");
-					addSectionInclude(o, objPath, "bss.*");
-				}
-			}
+    		for (const auto* unit : m_compilationUnitMgr->getUserUnits())
+            {
+                if (unit->getTargetRegion() == s->region)
+                {
+                    std::string objPath = Util::relativeIfSubpath(unit->getObjectPath()).string();
+                    addSectionInclude(o, objPath, "bss");
+                    addSectionInclude(o, objPath, "bss.*");
+                }
+            }
         }
         o += "\t\t. = ALIGN(4);\n"
              "\t} > ";
@@ -482,22 +409,22 @@ void LinkerScriptGenerator::createLinkerScript(
 		{
 			o += " : { KEEP(* (.ncp_set)) } > ncp_set AT > bin\n\n";
 		}
-		else
-		{
-			o += "_ov";
-			o += std::to_string(p);
-			o += " : {\n";
-			for (auto& j : jobsWithNcpSet)
-			{
-				if (j->region->destination == p)
-				{
-					o += "\t\t KEEP(\"";
-					o += Util::relativeIfSubpath(j->objFilePath).string();
-					o += "\" (.ncp_set))\n\t"
-							"} > ncp_set AT > bin\n\n";
-				}
-			}
-		}
+        else
+        {
+            o += "_ov";
+            o += std::to_string(p);
+            o += " : {\n";
+            for (const auto* unit : unitsWithNcpSet)
+            {
+                if (unit->getTargetRegion()->destination == p)
+                {
+                    o += "\t\t KEEP(\"";
+                    o += Util::relativeIfSubpath(unit->getObjectPath()).string();
+                    o += "\" (.ncp_set))\n\t"
+                            "} > ncp_set AT > bin\n\n";
+                }
+            }
+        }
 	}
 
     o += "\t/DISCARD/ : {*(.*)}\n"
@@ -601,10 +528,10 @@ void LinkerScriptGenerator::linkElfFile()
 {
     Log::out << OLINK << "Linking the ARM binary..." << std::endl;
 
-    fs::current_path(Main::getWorkPath());
+    fs::current_path(ncp::Application::getWorkPath());
 
     std::string ccmd;
-    ccmd.reserve(64);
+    ccmd.reserve(128);
     ccmd += BuildConfig::getToolchain();
     ccmd += "gcc -nostartfiles -Wl,--gc-sections,-T\"";
     ccmd += Util::relativeIfSubpath(m_ldscriptPath).string();
@@ -617,7 +544,7 @@ void LinkerScriptGenerator::linkElfFile()
     std::ostringstream oss;
     int retcode = Process::start(ccmd.c_str(), &oss);
     
-	// if (Main::getVerbose())
+	// if (ncp::Application::isVerbose())
 	// {
 	// 	// Parse the linker output to extract discarded sections
 	// 	parseLinkerOutput(oss.str());

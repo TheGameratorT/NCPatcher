@@ -4,7 +4,7 @@
 #include <vector>
 #include <filesystem>
 
-#include "../types.hpp"
+#include "../utils/types.hpp"
 
 namespace RebuildConfig {
 

@@ -4,9 +4,9 @@
 #include <iomanip>
 #include <unordered_map>
 
-#include "../main.hpp"
-#include "../log.hpp"
-#include "../util.hpp"
+#include "../app/application.hpp"
+#include "../system/log.hpp"
+#include "../utils/util.hpp"
 
 OverwriteRegionManager::OverwriteRegionManager() = default;
 OverwriteRegionManager::~OverwriteRegionManager() = default;
@@ -42,7 +42,7 @@ void OverwriteRegionManager::setupOverwriteRegions()
             };
             m_overwriteRegions.emplace_back(overwriteRegion);
 
-            if (Main::getVerbose())
+            if (ncp::Application::isVerbose())
             {
                 Log::out << OINFO << "Found overwrite region: 0x" << std::hex << std::uppercase 
                     << overwrite.startAddress << "-0x" << overwrite.endAddress 
@@ -62,7 +62,7 @@ void OverwriteRegionManager::assignSectionsToOverwrites(std::vector<std::unique_
     std::unordered_map<int, std::vector<SectionInfo*>> sectionsByDest;
     for (auto& section : candidateSections)
     {
-        int dest = section->job->region->destination;
+        int dest = section->unit->getTargetRegion()->destination;
         sectionsByDest[dest].emplace_back(section.get());
     }
 
@@ -72,7 +72,7 @@ void OverwriteRegionManager::assignSectionsToOverwrites(std::vector<std::unique_
         std::size_t sectionSize;
         u32 startAddress;
         u32 endAddress;
-		SourceFileJob* job;
+        core::CompilationUnit* unit;
         bool assigned;
     };
     std::vector<SectionAssignment> assignments;
@@ -110,8 +110,11 @@ void OverwriteRegionManager::assignSectionsToOverwrites(std::vector<std::unique_
             
             for (auto* overwrite : destOverwrites)
             {
+                // Use the same forced alignment as in the linker script
+                u32 forcedAlignment = 4;
+                
                 u32 currentPos = overwrite->startAddress + overwrite->usedSize;
-                u32 alignedPos = (currentPos + section->alignment - 1) & ~(section->alignment - 1);
+                u32 alignedPos = (currentPos + forcedAlignment - 1) & ~(forcedAlignment - 1);
                 u32 endPos = alignedPos + section->size;
                 
                 if (endPos <= overwrite->endAddress)
@@ -122,14 +125,14 @@ void OverwriteRegionManager::assignSectionsToOverwrites(std::vector<std::unique_
                     assigned = true;
 
                     // Store assignment info for table printing
-                    if (Main::getVerbose())
+                    if (ncp::Application::isVerbose())
                     {
                         assignments.push_back({
                             .sectionName = section->name,
                             .sectionSize = section->size,
                             .startAddress = overwrite->startAddress,
                             .endAddress = overwrite->endAddress,
-							.job = section->job,
+                            .unit = section->unit,
                             .assigned = true
                         });
                     }
@@ -137,22 +140,33 @@ void OverwriteRegionManager::assignSectionsToOverwrites(std::vector<std::unique_
                 }
             }
 
-            if (!assigned && Main::getVerbose())
+            if (!assigned && ncp::Application::isVerbose())
             {
                 assignments.push_back({
                     .sectionName = section->name,
                     .sectionSize = section->size,
                     .startAddress = 0,
                     .endAddress = 0,
-					.job = section->job,
+                    .unit = section->unit,
                     .assigned = false
                 });
             }
         }
     }
 
+    // Apply final alignment to all overwrite regions (as the linker script does with ". = ALIGN(4);")
+    for (auto& overwrite : m_overwriteRegions)
+    {
+        if (!overwrite->assignedSections.empty())
+        {
+            u32 forcedAlignment = 4;
+            u32 alignedSize = (overwrite->usedSize + forcedAlignment - 1) & ~(forcedAlignment - 1);
+            overwrite->usedSize = alignedSize;
+        }
+    }
+
     // Print assignment table if verbose mode is enabled
-    if (Main::getVerbose() && !assignments.empty())
+    if (ncp::Application::isVerbose() && !assignments.empty())
     {
         Log::out << ANSI_bCYAN "Assigned sections:" ANSI_RESET "\n" 
             << ANSI_bWHITE "SECTION_NAME" ANSI_RESET "                     " 
@@ -169,7 +183,7 @@ void OverwriteRegionManager::assignSectionsToOverwrites(std::vector<std::unique_
             // Size - white/cyan
             Log::out << ANSI_CYAN << std::setw(8) << std::dec << assignment.sectionSize << ANSI_RESET << "  ";
 
-            Log::out << OSTR(assignment.job->objFilePath.string()) << ANSI_RESET << "  ";
+            Log::out << OSTR(assignment.unit->getObjectPath().string()) << ANSI_RESET << "  ";
             
             if (assignment.assigned)
             {

@@ -6,7 +6,7 @@
 #include <unordered_map>
 
 #include "json.hpp"
-#include "../types.hpp"
+#include "../utils/types.hpp"
 
 class BuildTarget
 {

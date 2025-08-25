@@ -4,10 +4,10 @@
 #include <sstream>
 #include <cstdlib>
 
-#include "../main.hpp"
-#include "../log.hpp"
-#include "../except.hpp"
-#include "../util.hpp"
+#include "../app/application.hpp"
+#include "../system/log.hpp"
+#include "../system/except.hpp"
+#include "../utils/util.hpp"
 #include "buildconfig.hpp"
 
 namespace fs = std::filesystem;
@@ -25,14 +25,14 @@ void BuildTarget::load(const fs::path& targetFilePath, bool isArm9)
 
 	fs::path curPath = fs::current_path();
 
-	fs::current_path(Main::getWorkPath());
+	fs::current_path(ncp::Application::getWorkPath());
 	fs::current_path(targetFilePath.parent_path());
 
 	fs::path targetFileName = targetFilePath.filename();
 
 	JsonReader json(targetFileName);
 
-	varmap.emplace("root", Main::getWorkPath().string());
+	varmap.emplace("root", ncp::Application::getWorkPath().string());
 
 	const std::vector<JsonMember> members = json.getMembers();
 	for (const JsonMember& member : members)

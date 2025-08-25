@@ -5,7 +5,7 @@
 
 #include "icodebin.hpp"
 
-#include "../types.hpp"
+#include "../utils/types.hpp"
 
 #define OVERLAY_FLAG_COMP 1
 #define OVERLAY_FLAG_AUTH 2

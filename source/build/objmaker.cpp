@@ -9,12 +9,14 @@
 
 #include <BS_thread_pool.hpp>
 
-#include "../main.hpp"
-#include "../util.hpp"
+#include "../app/application.hpp"
+#include "../utils/util.hpp"
 #include "../config/buildconfig.hpp"
-#include "../except.hpp"
-#include "../log.hpp"
-#include "../process.hpp"
+#include "../config/buildtarget.hpp"
+#include "../system/except.hpp"
+#include "../system/log.hpp"
+#include "../system/process.hpp"
+#include "../core/compilation_unit_manager.hpp"
 #include "buildlogger.hpp"
 
 #include <functional>
@@ -48,19 +50,19 @@ void ObjMaker::makeTarget(
 	const BuildTarget& target,
 	const fs::path& targetWorkDir,
 	const fs::path& buildDir,
-	std::vector<std::unique_ptr<SourceFileJob>>& jobs
+	core::CompilationUnitManager& compilationUnitMgr
 	)
 {
 	m_target = &target;
 	m_targetWorkDir = &targetWorkDir;
 	m_buildDir = &buildDir;
-	m_jobs = &jobs;
+	m_compilationUnitMgr = &compilationUnitMgr;
 
 	fs::path curPath = fs::current_path();
 
 	fs::current_path(*m_targetWorkDir);
 
-	fs::path ncpInclude = Main::getAppPath() / "ncp.h";
+	fs::path ncpInclude = ncp::Application::getAppPath() / "ncp.h";
 	if (!fs::exists(ncpInclude))
 		throw ncp::file_error(ncpInclude, ncp::file_error::find);
 
@@ -71,7 +73,7 @@ void ObjMaker::makeTarget(
 
 	// Build define flags from command line arguments
 	m_defineFlags.clear();
-	const std::vector<std::string>& defines = Main::getDefines();
+	const std::vector<std::string>& defines = ncp::Application::getDefines();
 	for (const std::string& define : defines) {
 		m_defineFlags += "-D";
 		m_defineFlags += define;
@@ -82,9 +84,9 @@ void ObjMaker::makeTarget(
 	checkIfSourcesNeedRebuild();
 
 	bool atLeastOneNeedsRebuild = false;
-	for (std::unique_ptr<SourceFileJob>& srcFile : *m_jobs)
+	for (const auto* unit : m_compilationUnitMgr->getUserUnits())
 	{
-		if (!srcFile->rebuild)
+		if (!unit->needsRebuild())
 			continue;
 		atLeastOneNeedsRebuild = true;
 	}
@@ -155,16 +157,21 @@ void ObjMaker::getSourceFiles()
 						buildSrc = true;
 					}
 
-					auto srcFile = std::make_unique<SourceFileJob>();
-					srcFile->srcFilePath = srcPath;
-					srcFile->objFilePath = objPath;
-					srcFile->depFilePath = depPath;
-					srcFile->asmFilePath = asmPath;
-					srcFile->objFileWriteTime = objTime;
-					srcFile->fileType = fileType;
-					srcFile->region = &region;
-					srcFile->rebuild = buildSrc;
-					m_jobs->emplace_back(std::move(srcFile));
+					core::CompilationUnit* unit = m_compilationUnitMgr->createCompilationUnit(
+						core::CompilationUnitType::UserSourceFile,
+						srcPath,
+						objPath
+					);
+					
+					unit->setTargetRegion(&region);
+					unit->setNeedsRebuild(buildSrc);
+					
+					// Set up build info
+					core::BuildInfo& buildInfo = unit->getBuildInfo();
+					buildInfo.dependencyPath = depPath;
+					buildInfo.assemblyPath = asmPath;
+					buildInfo.objectWriteTime = objTime;
+					buildInfo.fileType = fileType;
 				}
 			}
 		}
@@ -176,20 +183,21 @@ void ObjMaker::checkIfSourcesNeedRebuild()
 	Log::info("Parsing object file dependencies...");
 
 	// Fetch dependencies to prevent multiple builds
-
 	std::unordered_map<std::string, fs::file_time_type> timeForDep;
 
-	for (std::unique_ptr<SourceFileJob>& srcFile : *m_jobs)
+	for (auto* unit : m_compilationUnitMgr->getUserUnits())
 	{
+		core::BuildInfo& buildInfo = unit->getBuildInfo();
+
 		// Previously set as needing rebuild, no need to check.
-		if (srcFile->rebuild)
+		if (unit->needsRebuild())
 			continue;
 
 		// If the dependency file doesn't exist,
 		// then we can't be sure if the object is up-to-date.
-		if (!fs::exists(srcFile->depFilePath))
+		if (!fs::exists(buildInfo.dependencyPath))
 		{
-			srcFile->rebuild = true;
+			unit->setNeedsRebuild(true);
 			continue;
 		}
 
@@ -197,10 +205,10 @@ void ObjMaker::checkIfSourcesNeedRebuild()
 
 		// If the dependency file can't be open,
 		// then we can't be sure if the object is up-to-date.
-		std::ifstream depStrm(srcFile->depFilePath);
+		std::ifstream depStrm(buildInfo.dependencyPath);
 		if (!depStrm.is_open())
 		{
-			srcFile->rebuild = true;
+			unit->setNeedsRebuild(true);
 			continue;
 		}
 
@@ -237,7 +245,7 @@ void ObjMaker::checkIfSourcesNeedRebuild()
 		{
 			if (!fs::exists(dep))
 			{
-				srcFile->rebuild = true;
+				unit->setNeedsRebuild(true);
 				continue;
 			}
 
@@ -250,9 +258,9 @@ void ObjMaker::checkIfSourcesNeedRebuild()
 			}
 
 			fs::file_time_type depFileWriteTime = timeForDep[depS];
-			if (depFileWriteTime > srcFile->objFileWriteTime)
+			if (depFileWriteTime > buildInfo.objectWriteTime)
 			{
-				srcFile->rebuild = true;
+				unit->setNeedsRebuild(true);
 				continue;
 			}
 		}
@@ -264,16 +272,16 @@ void ObjMaker::compileSources()
 	BS::thread_pool pool(BuildConfig::getThreadCount());
 
 	BuildLogger logger;
-	logger.setJobs(*m_jobs);
+	logger.setUnits(m_compilationUnitMgr->getUserUnits());
 	logger.start(*m_targetWorkDir);
 
 	std::size_t jobID = 0;
-	for (std::unique_ptr<SourceFileJob>& srcFile : *m_jobs)
+	for (auto* unit : m_compilationUnitMgr->getUserUnits())
 	{
-		if (!srcFile->rebuild)
+		if (!unit->needsRebuild())
 			continue;
 
-		fs::path objDestDir = srcFile->objFilePath.parent_path();
+		fs::path objDestDir = unit->getObjectPath().parent_path();
 		if (!fs::exists(objDestDir))
 		{
 			if (!fs::create_directories(objDestDir))
@@ -284,22 +292,26 @@ void ObjMaker::compileSources()
 			}
 		}
 
-		srcFile->jobID = jobID++;
-		srcFile->buildStarted = false;
-		srcFile->logWasFinished = false;
-		srcFile->finished = false;
-		srcFile->failed = false;
+		core::BuildInfo& buildInfo = unit->getBuildInfo();
 
-		pool.push_task([&](){
-			srcFile->buildStarted = true;
+		buildInfo.jobId = jobID++;
+		buildInfo.buildStarted = false;
+		buildInfo.logFinished = false;
+		buildInfo.buildComplete = false;
+		buildInfo.buildFailed = false;
+
+		pool.push_task([unit, this](){
+			core::BuildInfo& buildInfo = unit->getBuildInfo();
+			
+			buildInfo.buildStarted = true;
 
 			std::ostringstream out;
 
-			std::string srcS = srcFile->srcFilePath.string();
-			std::string objS = srcFile->objFilePath.string();
-			std::string depS = srcFile->depFilePath.string();
+			std::string srcS = unit->getSourcePath().string();
+			std::string objS = unit->getObjectPath().string();
+			std::string depS = buildInfo.dependencyPath.string();
 
-			const BuildTarget::Region* region = srcFile->region;
+			const BuildTarget::Region* region = unit->getTargetRegion();
 
 			auto makeBuildCmd = [&](
 				bool outputDeps, std::size_t fileType,
@@ -346,35 +358,35 @@ void ObjMaker::compileSources()
 				return ccmd;
 			};
 
-			if (srcFile->fileType != SourceFileType::ASM)
+			if (buildInfo.fileType != SourceFileType::ASM)
 			{
-				std::string asmS = srcFile->asmFilePath.string();
+				std::string asmS = buildInfo.assemblyPath.string();
 
-				std::string ccmd = makeBuildCmd(true, srcFile->fileType, srcS, asmS);
+				std::string ccmd = makeBuildCmd(true, buildInfo.fileType, srcS, asmS);
 
 				int retcode = Process::start(ccmd.c_str(), &out);
 				if (retcode != 0)
 				{
-					srcFile->failed = true;
+					buildInfo.buildFailed = true;
 					out << "Exit code: " << retcode << "\n";
-					srcFile->output = out.str();
-					srcFile->finished = true;
+					buildInfo.buildOutput = out.str();
+					buildInfo.buildComplete = true;
 					return;
 				}
 
 				srcS = asmS;
 			}
 
-			std::string ccmd = makeBuildCmd(srcFile->fileType == SourceFileType::ASM, SourceFileType::ASM, srcS, objS);
+			std::string ccmd = makeBuildCmd(buildInfo.fileType == SourceFileType::ASM, SourceFileType::ASM, srcS, objS);
 
 			int retcode = Process::start(ccmd.c_str(), &out);
 			if (retcode != 0)
 			{
-				srcFile->failed = true;
+				buildInfo.buildFailed = true;
 				out << "Exit code: " << retcode << "\n";
 			}
-			srcFile->output = out.str();
-			srcFile->finished = true;
+			buildInfo.buildOutput = out.str();
+			buildInfo.buildComplete = true;
 		});
 	}
 

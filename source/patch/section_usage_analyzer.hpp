@@ -6,9 +6,9 @@
 #include <unordered_set>
 #include <unordered_map>
 
-#include "../types.hpp"
-#include "../elf.hpp"
-#include "../build/sourcefilejob.hpp"
+#include "../utils/types.hpp"
+#include "../formats/elf.hpp"
+#include "../core/compilation_unit_manager.hpp"
 #include "types.hpp"
 
 // Use the centralized types from patch::types
@@ -30,9 +30,9 @@ public:
     ~SectionUsageAnalyzer();
 
     void initialize(
-        const std::vector<std::unique_ptr<SourceFileJob>>& srcFileJobs,
         const std::vector<std::unique_ptr<GenericPatchInfo>>& patchInfo,
-        const std::vector<std::string>& externSymbols
+        const std::vector<std::string>& externSymbols,
+    	core::CompilationUnitManager& compilationUnitMgr
     );
 
     /**
@@ -63,9 +63,9 @@ public:
     const std::unordered_map<std::string, std::unique_ptr<SymbolInfo>>& getSymbolInfo() const { return m_symbolInfo; }
 
 private:
-    const std::vector<std::unique_ptr<SourceFileJob>>* m_srcFileJobs;
     const std::vector<std::unique_ptr<GenericPatchInfo>>* m_patchInfo;
     const std::vector<std::string>* m_externSymbols;
+    core::CompilationUnitManager* m_compilationUnitMgr;
 
     // Composite key for uniquely identifying sections: sectionName + objectFileName
     struct SectionKey
@@ -105,14 +105,14 @@ private:
     
     // Helper methods
     void markSymbolAsUsed(const std::string& symbolName);
-    void markSectionAsUsed(const std::string& sectionName, SourceFileJob* job);
-    bool isSectionMarkedAsUsed(const std::string& sectionName, SourceFileJob* job) const;
+    void markSectionAsUsed(const std::string& sectionName, const core::CompilationUnit* unit);
+    bool isSectionMarkedAsUsed(const std::string& sectionName, const core::CompilationUnit* unit) const;
     bool isSymbolInSection(const std::string& symbolName, const std::string& sectionName);
     bool loadElfFromArchive(Elf32& elf, const std::filesystem::path& archivePath, const std::string& memberName);
     
     // Section lookup helpers
-    SectionUsageInfo* findSection(const std::string& sectionName, SourceFileJob* job);
-    const SectionUsageInfo* findSection(const std::string& sectionName, SourceFileJob* job) const;
+    SectionUsageInfo* findSection(const std::string& sectionName, const core::CompilationUnit* unit);
+    const SectionUsageInfo* findSection(const std::string& sectionName, const core::CompilationUnit* unit) const;
     void buildSectionLookupMap();
     
     // Tree printing helpers

@@ -2,7 +2,7 @@
 
 #include <filesystem>
 
-#include "../types.hpp"
+#include "../utils/types.hpp"
 
 class HeaderBin
 {

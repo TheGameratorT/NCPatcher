@@ -5,8 +5,7 @@
 #include <filesystem>
 
 #include "../config/buildtarget.hpp"
-
-#include "sourcefilejob.hpp"
+#include "../core/compilation_unit_manager.hpp"
 
 class ObjMaker
 {
@@ -17,7 +16,7 @@ public:
 		const BuildTarget& target,
 		const std::filesystem::path& targetWorkDir,
 		const std::filesystem::path& buildDir,
-		std::vector<std::unique_ptr<SourceFileJob>>& jobs
+		core::CompilationUnitManager& compilationUnitMgr
 	);
 
 private:
@@ -26,7 +25,7 @@ private:
 	const std::filesystem::path* m_buildDir;
 	std::string m_includeFlags;
 	std::string m_defineFlags;
-	std::vector<std::unique_ptr<SourceFileJob>>* m_jobs;
+	core::CompilationUnitManager* m_compilationUnitMgr;
 
 	void getSourceFiles();
 	void checkIfSourcesNeedRebuild();

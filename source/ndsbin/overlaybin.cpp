@@ -4,8 +4,8 @@
 #include <fstream>
 #include <sstream>
 
-#include "../blz.hpp"
-#include "../except.hpp"
+#include "../formats/blz.hpp"
+#include "../system/except.hpp"
 
 namespace fs = std::filesystem;
 

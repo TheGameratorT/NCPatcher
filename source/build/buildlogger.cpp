@@ -2,7 +2,7 @@
 
 #include <iostream>
 
-#include "../log.hpp"
+#include "../system/log.hpp"
 
 static char s_progAnimFrames[] = { '-', '\\', '|', '/', '-', '\\', '|', '/' };
 
@@ -21,9 +21,9 @@ void BuildLogger::start(const std::filesystem::path& targetRoot)
 	m_failureFound = false;
 	m_filesToBuild = 0;
 
-	for (const std::unique_ptr<SourceFileJob>& job : *m_jobs)
+	for (const auto& unit : *m_units)
 	{
-		if (job->rebuild)
+		if (unit->needsRebuild())
 			m_filesToBuild++;
 	}
 
@@ -32,11 +32,11 @@ void BuildLogger::start(const std::filesystem::path& targetRoot)
 
 	m_cursorOffsetY = Log::getXY().y - bufLineShift;
 
-	for (const std::unique_ptr<SourceFileJob>& job : *m_jobs)
+	for (const auto& unit : *m_units)
 	{
-		if (!job->rebuild)
+		if (!unit->needsRebuild())
 			continue;
-		std::string filePath = job->srcFilePath.string();
+		std::string filePath = unit->getSourcePath().string();
 		Log::out << OBUILD << OSQRTBRKTS(ANSI_bWHITE, , "-") << ' ' << ANSI_bYELLOW << filePath << ANSI_RESET;
 		Log::out << std::endl;
 	}
@@ -44,15 +44,19 @@ void BuildLogger::start(const std::filesystem::path& targetRoot)
 
 void BuildLogger::update()
 {
-	for (const std::unique_ptr<SourceFileJob>& job : *m_jobs)
+	for (const auto& unit : *m_units)
 	{
-		if (!job->buildStarted || (job->finished && job->logWasFinished))
+		const auto& buildInfo = unit->getBuildInfo();
+		
+		if (!buildInfo.buildStarted || (buildInfo.buildComplete && buildInfo.logFinished))
 			continue;
+			
 		const int writeX = 9;
-		const int writeY = m_cursorOffsetY + int(job->jobID);
-		if (job->finished && !job->logWasFinished)
+		const int writeY = m_cursorOffsetY + int(buildInfo.jobId);
+		
+		if (buildInfo.buildComplete && !buildInfo.logFinished)
 		{
-			if (job->failed)
+			if (buildInfo.buildFailed)
 			{
 				Log::writeChar(writeX, writeY, 'E', Log::Red, true);
 				m_failureFound = true;
@@ -61,7 +65,8 @@ void BuildLogger::update()
 			{
 				Log::writeChar(writeX, writeY, 'S', Log::Green, true);
 			}
-			job->logWasFinished = true;
+			// Note: We need to modify this through the unit, not const reference
+			const_cast<core::BuildInfo&>(buildInfo).logFinished = true;
 		}
 		else
 		{
@@ -80,24 +85,26 @@ void BuildLogger::finish()
 
 	Log::setMode(LogMode::File);
 
-	for (const std::unique_ptr<SourceFileJob>& job : *m_jobs)
+	for (const auto& unit : *m_units)
 	{
-		if (!job->rebuild)
+		if (!unit->needsRebuild())
 			continue;
-		std::string filePath = job->srcFilePath.string();
-		Log::out << "[Build] [" << (job->failed ? 'E' : 'S') << "] " << filePath;
+		const auto& buildInfo = unit->getBuildInfo();
+		std::string filePath = unit->getSourcePath().string();
+		Log::out << "[Build] [" << (buildInfo.buildFailed ? 'E' : 'S') << "] " << filePath;
 		Log::out << std::endl;
 	}
 
 	Log::setMode(LogMode::Both);
 
-	auto printJobsOutput = [&](){
-		for (const std::unique_ptr<SourceFileJob>& job : *m_jobs)
+	auto printUnitsOutput = [&](){
+		for (const auto& unit : *m_units)
 		{
-			if (!job->output.empty())
+			const auto& buildInfo = unit->getBuildInfo();
+			if (!buildInfo.buildOutput.empty())
 			{
-				Log::out << "\n-------- " << ANSI_bYELLOW << job->srcFilePath.string() << ANSI_RESET << " --------\n";
-				Log::out << job->output << std::flush;
+				Log::out << "\n-------- " << ANSI_bYELLOW << unit->getSourcePath().string() << ANSI_RESET << " --------\n";
+				Log::out << buildInfo.buildOutput << std::flush;
 			}
 		}
 		Log::out << std::endl;
@@ -106,14 +113,15 @@ void BuildLogger::finish()
 	if (m_failureFound)
 	{
 		Log::out << "\nERRORS AND WARNINGS:\n";
-		printJobsOutput();
+		printUnitsOutput();
 	}
 	else
 	{
 		bool foundWarnings = false;
-		for (const std::unique_ptr<SourceFileJob>& job : *m_jobs)
+		for (const auto& unit : *m_units)
 		{
-			if (!job->output.empty())
+			const auto& buildInfo = unit->getBuildInfo();
+			if (!buildInfo.buildOutput.empty())
 			{
 				foundWarnings = true;
 				break;
@@ -122,7 +130,7 @@ void BuildLogger::finish()
 		if (foundWarnings)
 		{
 			Log::out << "\nWARNINGS:\n";
-			printJobsOutput();
+			printUnitsOutput();
 		}
 	}
 

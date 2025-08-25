@@ -4,8 +4,8 @@
 #include <memory>
 #include <unordered_map>
 
-#include "../types.hpp"
-#include "../elf.hpp"
+#include "../utils/types.hpp"
+#include "../formats/elf.hpp"
 #include "types.hpp"
 
 // Use the centralized types from patch::types

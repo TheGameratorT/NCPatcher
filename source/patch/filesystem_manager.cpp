@@ -4,9 +4,9 @@
 #include <sstream>
 #include <cstring>
 
-#include "../main.hpp"
-#include "../log.hpp"
-#include "../except.hpp"
+#include "../app/application.hpp"
+#include "../system/log.hpp"
+#include "../system/except.hpp"
 #include "../config/buildconfig.hpp"
 #include "../ndsbin/overlaybin.hpp"
 
@@ -28,7 +28,7 @@ void FileSystemManager::initialize(
 
 void FileSystemManager::createBuildDirectory()
 {
-    fs::current_path(Main::getWorkPath());
+    fs::current_path(ncp::Application::getWorkPath());
     const fs::path& buildDir = *m_buildDir;
     if (!fs::exists(buildDir))
     {
@@ -43,7 +43,7 @@ void FileSystemManager::createBuildDirectory()
 
 void FileSystemManager::createBackupDirectory()
 {
-    fs::current_path(Main::getWorkPath());
+    fs::current_path(ncp::Application::getWorkPath());
     const fs::path& bakDir = BuildConfig::getBackupDir();
     if (!fs::exists(bakDir))
     {
@@ -88,7 +88,7 @@ void FileSystemManager::loadArmBin()
         autoLoadListHookOff = m_header->arm7AutoLoadListHookOffset;
     }
 
-    fs::current_path(Main::getWorkPath());
+    fs::current_path(ncp::Application::getWorkPath());
 
     fs::path bakBinName = BuildConfig::getBackupDir() / binName;
 
@@ -99,11 +99,11 @@ void FileSystemManager::loadArmBin()
     }
     else //has no backup
     {
-        fs::current_path(Main::getRomPath());
+        fs::current_path(ncp::Application::getRomPath());
         m_arm->load(binName, entryAddress, ramAddress, autoLoadListHookOff, isArm9);
         const std::vector<u8>& bytes = m_arm->data();
 
-        fs::current_path(Main::getWorkPath());
+        fs::current_path(ncp::Application::getWorkPath());
         std::ofstream outputFile(bakBinName, std::ios::binary);
         if (!outputFile.is_open())
             throw ncp::file_error(bakBinName, ncp::file_error::write);
@@ -118,7 +118,7 @@ void FileSystemManager::saveArmBin()
 
     const std::vector<u8>& bytes = m_arm->data();
 
-    fs::current_path(Main::getRomPath());
+    fs::current_path(ncp::Application::getRomPath());
     std::ofstream outputFile(binName, std::ios::binary);
     if (!outputFile.is_open())
         throw ncp::file_error(binName, ncp::file_error::write);
@@ -132,7 +132,7 @@ void FileSystemManager::loadOverlayTableBin()
 
     const char* binName = m_target->getArm9() ? "arm9ovt.bin" : "arm7ovt.bin";
 
-    fs::current_path(Main::getWorkPath());
+    fs::current_path(ncp::Application::getWorkPath());
 
     fs::path bakBinName = BuildConfig::getBackupDir() / binName;
 
@@ -143,7 +143,7 @@ void FileSystemManager::loadOverlayTableBin()
     }
     else //has no backup
     {
-        fs::current_path(Main::getRomPath());
+        fs::current_path(ncp::Application::getRomPath());
         if (!fs::exists(binName))
             throw ncp::file_error(binName, ncp::file_error::find);
         workBinName = binName;
@@ -179,11 +179,11 @@ void FileSystemManager::saveOverlayTableBin()
 
     if (m_bakOvtChanged)
     {
-        fs::current_path(Main::getWorkPath());
+        fs::current_path(ncp::Application::getWorkPath());
         saveOvtEntries(m_bakOvtEntries, BuildConfig::getBackupDir() / binName);
     }
 
-    fs::current_path(Main::getRomPath());
+    fs::current_path(ncp::Application::getRomPath());
     saveOvtEntries(m_ovtEntries, binName);
 }
 
@@ -191,7 +191,7 @@ OverlayBin* FileSystemManager::loadOverlayBin(std::size_t ovID)
 {
     std::string prefix = m_target->getArm9() ? "overlay9" : "overlay7";
 
-    fs::current_path(Main::getWorkPath());
+    fs::current_path(ncp::Application::getWorkPath());
 
     fs::path binName = fs::path(prefix) / (prefix + "_" + std::to_string(ovID) + ".bin");
     fs::path bakBinName = BuildConfig::getBackupDir() / binName;
@@ -206,7 +206,7 @@ OverlayBin* FileSystemManager::loadOverlayBin(std::size_t ovID)
     }
     else //has no backup
     {
-        fs::current_path(Main::getRomPath());
+        fs::current_path(ncp::Application::getRomPath());
         overlay->load(binName, ovte.ramAddress, ovte.flag & OVERLAY_FLAG_COMP, ovID);
         ovte.flag = 0;
         const std::vector<u8>& bytes = overlay->data();
@@ -249,12 +249,12 @@ void FileSystemManager::saveOverlayBins()
             outputFile.close();
         };
 
-        fs::current_path(Main::getRomPath());
+        fs::current_path(ncp::Application::getRomPath());
         saveOvData(ov->data(), binName);
 
         if (!ov->backupData().empty())
         {
-            fs::current_path(Main::getWorkPath());
+            fs::current_path(ncp::Application::getWorkPath());
             saveOvData(ov->backupData(), BuildConfig::getBackupDir() / binName);
         }
     }

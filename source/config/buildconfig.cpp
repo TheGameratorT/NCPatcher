@@ -6,11 +6,11 @@
 #include <filesystem>
 #include <sstream>
 
-#include "../main.hpp"
+#include "../app/application.hpp"
 #include "json.hpp"
-#include "../log.hpp"
-#include "../except.hpp"
-#include "../util.hpp"
+#include "../system/log.hpp"
+#include "../system/except.hpp"
+#include "../utils/util.hpp"
 
 namespace fs = std::filesystem;
 
@@ -116,15 +116,15 @@ static void readBuildCommands(const JsonMember& member, std::vector<std::string>
 
 void load()
 {
-	Main::setErrorContext(s_loadErr);
+	ncp::Application::setErrorContext(s_loadErr);
 
 	Log::info("Loading build configuration...");
 
-	fs::path jsonPath = Main::getWorkPath() / s_jsonFileName;
+	fs::path jsonPath = ncp::Application::getWorkPath() / s_jsonFileName;
 
 	JsonReader json(jsonPath);
 
-	varmap.emplace("root", Main::getWorkPath().string());
+	varmap.emplace("root", ncp::Application::getWorkPath().string());
 
 	std::vector<JsonMember> members = json.getMembers();
 	for (const JsonMember& member : members)
@@ -151,7 +151,7 @@ void load()
 
 	lastWriteTime = Util::toTimeT(fs::last_write_time(jsonPath));
 
-	Main::setErrorContext(nullptr);
+	ncp::Application::setErrorContext(nullptr);
 }
 
 const std::string& getVariable(const std::string& value)

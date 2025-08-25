@@ -5,7 +5,7 @@
 #include <vector>
 #include <filesystem>
 
-#include "types.hpp"
+#include "../utils/types.hpp"
 
 #ifndef LOG_NO_ANSI_MACROS
 

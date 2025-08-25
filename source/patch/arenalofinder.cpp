@@ -4,9 +4,9 @@
 #include <algorithm>
 
 #include "../ndsbin/armbin.hpp"
-#include "../log.hpp"
-#include "../util.hpp"
-#include "../except.hpp"
+#include "../system/log.hpp"
+#include "../system/except.hpp"
+#include "../utils/util.hpp"
 
 namespace ArenaLoFinder {
 

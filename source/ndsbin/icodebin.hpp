@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../types.hpp"
+#include "../utils/types.hpp"
 
 class ICodeBin
 {

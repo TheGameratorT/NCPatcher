@@ -6,9 +6,9 @@
 #include <unordered_map>
 #include <filesystem>
 
-#include "../types.hpp"
+#include "../utils/types.hpp"
 #include "../config/buildtarget.hpp"
-#include "../build/sourcefilejob.hpp"
+#include "../core/compilation_unit_manager.hpp"
 #include "patch_info_analyzer.hpp"
 #include "overwrite_region_manager.hpp"
 
@@ -43,7 +43,7 @@ public:
     void initialize(
         const BuildTarget& target,
         const std::filesystem::path& buildDir,
-        const std::vector<std::unique_ptr<SourceFileJob>>& srcFileJobs,
+        core::CompilationUnitManager& compilationUnitMgr,
         const std::unordered_map<int, u32>& newcodeAddrForDest
     );
 
@@ -52,7 +52,7 @@ public:
         const std::vector<std::unique_ptr<RtReplPatchInfo>>& rtreplPatches,
         const std::vector<std::string>& externSymbols,
         const std::vector<int>& destWithNcpSet,
-        const std::vector<const SourceFileJob*>& jobsWithNcpSet,
+    	const core::CompilationUnitPtrCollection& unitsWithNcpSet,
         const std::vector<std::unique_ptr<OverwriteRegionInfo>>& overwriteRegions
     );
 
@@ -64,7 +64,7 @@ public:
 private:
     const BuildTarget* m_target;
     const std::filesystem::path* m_buildDir;
-    const std::vector<std::unique_ptr<SourceFileJob>>* m_srcFileJobs;
+    core::CompilationUnitManager* m_compilationUnitMgr;
     const std::unordered_map<int, u32>* m_newcodeAddrForDest;
     
     std::filesystem::path m_ldscriptStripPath;
@@ -73,4 +73,5 @@ private:
     std::filesystem::path m_elfPath;
 
     static std::string ldFlagsToGccFlags(std::string flags);
+    //void parseLinkerOutput(const std::string& output);
 };

@@ -5,7 +5,7 @@
 #include <memory>
 #include <unordered_map>
 
-#include "../types.hpp"
+#include "../utils/types.hpp"
 #include "../ndsbin/headerbin.hpp"
 #include "../ndsbin/armbin.hpp"
 #include "../ndsbin/overlaybin.hpp"

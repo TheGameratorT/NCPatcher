@@ -10,8 +10,8 @@
 #include <rapidjson/filereadstream.h>
 #include <rapidjson/error/en.h>
 
-#include "../log.hpp"
-#include "../except.hpp"
+#include "../system/log.hpp"
+#include "../system/except.hpp"
 
 #ifdef _WIN32
 static const char* s_fileReadMode = "rb";

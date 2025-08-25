@@ -5,9 +5,9 @@
 #include <cstring>
 #include <sstream>
 
-#include "../main.hpp"
-#include "../log.hpp"
-#include "../except.hpp"
+#include "../app/application.hpp"
+#include "../system/log.hpp"
+#include "../system/except.hpp"
 
 namespace fs = std::filesystem;
 
@@ -17,7 +17,7 @@ HeaderBin::HeaderBin() = default;
 
 void HeaderBin::load(const fs::path& path)
 {
-	Main::setErrorContext(LoadErr);
+	ncp::Application::setErrorContext(LoadErr);
 
 	Log::info("Loading header file...");
 

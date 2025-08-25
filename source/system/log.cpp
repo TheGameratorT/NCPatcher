@@ -18,7 +18,7 @@
 #include <unistd.h>
 #endif
 
-#include "types.hpp"
+#include "../utils/types.hpp"
 
 const char* log_OERROR = OSQRTBRKTS(ANSI_bWHITE, ANSI_bRED, "Error") " ";
 const char* log_OWARN = OSQRTBRKTS(ANSI_bWHITE, ANSI_bYELLOW, "Warn") " ";

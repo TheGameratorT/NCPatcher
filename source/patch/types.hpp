@@ -6,9 +6,9 @@
 #include <unordered_set>
 #include <unordered_map>
 
-#include "../types.hpp"
-#include "../elf.hpp"
-#include "../build/sourcefilejob.hpp"
+#include "../utils/types.hpp"
+#include "../formats/elf.hpp"
+#include "../core/compilation_unit.hpp"
 
 // Forward declarations for component classes
 class PatchInfoAnalyzer;
@@ -26,7 +26,7 @@ struct SectionInfo
 {
     std::string name;
     std::size_t size;
-    SourceFileJob* job;
+    core::CompilationUnit* unit;
     u32 alignment;
     u32 address = 0;
     const u8* data = nullptr;
@@ -65,7 +65,7 @@ struct SectionUsageInfo
 {
     std::string name;
     std::size_t size;
-    SourceFileJob* job;
+    core::CompilationUnit* unit;
     u32 alignment;
     bool isReferenced = false;
     bool isEntryPoint = false;
@@ -79,7 +79,7 @@ struct SymbolInfo
 {
     std::string name;
     std::string sectionName;
-    SourceFileJob* job;
+    core::CompilationUnit* unit;
     bool isFunction = false;
     bool isGlobal = false;
     bool isWeak = false;
@@ -109,7 +109,7 @@ struct OverwriteRegionInfo
 struct PatchInfo
 {
     std::string symbol;
-    SourceFileJob* job;
+    core::CompilationUnit* unit;
     u32 srcAddress = 0;
     int srcAddressOv = -1;
     u32 destAddress = 0;
@@ -254,7 +254,7 @@ struct PatchDataCollection
     
     // Destinations with special handling
     std::vector<int> destWithNcpSet;
-    std::vector<const SourceFileJob*> jobsWithNcpSet;
+    core::CompilationUnitPtrCollection unitsWithNcpSet;
     
     // Analysis results
     std::unordered_map<std::string, std::unique_ptr<SymbolInfo>> symbolInfo;

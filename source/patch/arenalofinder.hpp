@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../types.hpp"
+#include "../utils/types.hpp"
 #include "../ndsbin/armbin.hpp"
 
 namespace ArenaLoFinder {

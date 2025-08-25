@@ -14,11 +14,11 @@
 
 #include "arenalofinder.hpp"
 
-#include "../main.hpp"
-#include "../log.hpp"
-#include "../except.hpp"
+#include "../app/application.hpp"
+#include "../system/log.hpp"
+#include "../system/except.hpp"
 #include "../config/rebuildconfig.hpp"
-#include "../util.hpp"
+#include "../utils/util.hpp"
 #include "../ndsbin/icodebin.hpp"
 
 /*
@@ -36,7 +36,7 @@ void PatchMaker::makeTarget(
 	const std::filesystem::path& targetWorkDir,
 	const std::filesystem::path& buildDir,
 	const HeaderBin& header,
-	std::vector<std::unique_ptr<SourceFileJob>>& srcFileJobs
+	core::CompilationUnitManager& compilationUnitMgr
 	)
 {
 	// Store core data references
@@ -44,10 +44,11 @@ void PatchMaker::makeTarget(
 	m_targetWorkDir = &targetWorkDir;
 	m_buildDir = &buildDir;
 	m_header = &header;
-	m_srcFileJobs = &srcFileJobs;
+	m_compilationUnitMgr = &compilationUnitMgr;
 
-	if (m_srcFileJobs->empty())
-		throw ncp::exception("There are no source files to link.");
+	// TODO: change this, the user might want to link only a library
+	if (m_compilationUnitMgr->getUnits().empty())
+		throw ncp::exception("There are no compilation units to link.");
 
 	try {
 		initializeComponents();
@@ -65,7 +66,7 @@ void PatchMaker::makeTarget(
 
 void PatchMaker::initializeComponents()
 {
-	Main::setErrorContext(m_target->getArm9() ?
+	ncp::Application::setErrorContext(m_target->getArm9() ?
 		"Failed to initialize components for ARM9 target." :
 		"Failed to initialize components for ARM7 target.");
 
@@ -80,16 +81,16 @@ void PatchMaker::initializeComponents()
 
 	// Initialize all components
 	m_fileSystemManager->initialize(*m_target, *m_buildDir, *m_header);
-	m_patchInfoAnalyzer->initialize(*m_target, *m_targetWorkDir);
-	m_libraryAnalyzer->initialize(*m_target, *m_srcFileJobs, *m_buildDir);
+	m_patchInfoAnalyzer->initialize(*m_target, *m_targetWorkDir, *m_compilationUnitMgr);
+	m_libraryAnalyzer->initialize(*m_target, *m_buildDir, *m_compilationUnitMgr);
 	m_overwriteRegionManager->initialize(*m_target);
-	m_linkerScriptGenerator->initialize(*m_target, *m_buildDir, *m_srcFileJobs, m_newcodeAddrForDest);
+	m_linkerScriptGenerator->initialize(*m_target, *m_buildDir, *m_compilationUnitMgr, m_newcodeAddrForDest);
 	m_elfAnalyzer->initialize(*m_buildDir / (m_target->getArm9() ? "arm9.elf" : "arm7.elf"));
 }
 
 void PatchMaker::setupFileSystem()
 {
-	Main::setErrorContext(m_target->getArm9() ?
+	ncp::Application::setErrorContext(m_target->getArm9() ?
 		"Failed to setup filesystem for ARM9 target." :
 		"Failed to setup filesystem for ARM7 target.");
 
@@ -99,7 +100,7 @@ void PatchMaker::setupFileSystem()
 
 void PatchMaker::prepareBuildEnvironment()
 {
-	Main::setErrorContext(m_target->getArm9() ?
+	ncp::Application::setErrorContext(m_target->getArm9() ?
 		"Failed to prepare build environment for ARM9 target." :
 		"Failed to prepare build environment for ARM7 target.");
 
@@ -120,36 +121,18 @@ void PatchMaker::prepareBuildEnvironment()
 
 void PatchMaker::generateElfFile()
 {
-	Main::setErrorContext(m_target->getArm9() ?
+	ncp::Application::setErrorContext(m_target->getArm9() ?
 		"Failed to generate ELF files for ARM9 target." :
 		"Failed to generate ELF files for ARM7 target.");
 	
 	m_overwriteRegionManager->setupOverwriteRegions();
 	
-	// Generate library jobs and merge them with user jobs
+	// Generate library compilation units and merge them with user units
 	m_libraryAnalyzer->analyzeLibraryDependencies();
-	auto libraryJobs = m_libraryAnalyzer->generateLibraryJobs();
-	
-	// Merge library jobs with user source file jobs
-	std::vector<std::unique_ptr<SourceFileJob>> allJobs;
-	for (auto& userJob : *m_srcFileJobs)
-	{
-		// We need to copy the user jobs (they are owned by another component)
-		auto jobCopy = std::make_unique<SourceFileJob>();
-		jobCopy->srcFilePath = userJob->srcFilePath;
-		jobCopy->objFilePath = userJob->objFilePath;
-		jobCopy->region = userJob->region;
-		allJobs.push_back(std::move(jobCopy));
-	}
-	
-	// Add library jobs
-	for (auto& libraryJob : libraryJobs)
-	{
-		allJobs.push_back(std::move(libraryJob));
-	}
+	m_libraryAnalyzer->generateLibraryUnits();
 
 	// Analyze patches and sections
-	m_patchInfoAnalyzer->gatherInfoFromObjects(allJobs);
+	m_patchInfoAnalyzer->gatherInfoFromObjects();
 	
 	// Now analyze all sections from both user and library objects
 	auto candidateSections = m_patchInfoAnalyzer->takeOverwriteCandidateSections();
@@ -158,9 +141,9 @@ void PatchMaker::generateElfFile()
 	
 	// Initialize and run the section usage analyzer on all jobs
 	m_sectionUsageAnalyzer->initialize(
-		allJobs,
 		m_patchInfoAnalyzer->getPatchInfo(),
-		m_patchInfoAnalyzer->getExternSymbols()
+		m_patchInfoAnalyzer->getExternSymbols(),
+		*m_compilationUnitMgr
 	);
 	
 	// Analyze all object files (user + library) to determine section usage
@@ -180,7 +163,7 @@ void PatchMaker::generateElfFile()
 		m_patchInfoAnalyzer->getRtreplPatches(),
 		m_patchInfoAnalyzer->getExternSymbols(),
 		m_patchInfoAnalyzer->getDestWithNcpSet(),
-		m_patchInfoAnalyzer->getJobsWithNcpSet(),
+		m_patchInfoAnalyzer->getUnitsWithNcpSet(),
 		m_overwriteRegionManager->getOverwriteRegions()
 	);
 	m_linkerScriptGenerator->linkElfFile();
@@ -188,7 +171,7 @@ void PatchMaker::generateElfFile()
 
 void PatchMaker::processPatches()
 {
-	Main::setErrorContext(m_target->getArm9() ?
+	ncp::Application::setErrorContext(m_target->getArm9() ?
 		"Failed to process patches for ARM9 target." :
 		"Failed to process patches for ARM7 target.");
 
@@ -212,7 +195,7 @@ void PatchMaker::processPatches()
 
 void PatchMaker::finalizeBuild()
 {
-	Main::setErrorContext(m_target->getArm9() ?
+	ncp::Application::setErrorContext(m_target->getArm9() ?
 		"Failed to finalize build for ARM9 target." :
 		"Failed to finalize build for ARM7 target.");
 
@@ -233,7 +216,7 @@ void PatchMaker::finalizeBuild()
 	m_fileSystemManager->saveOverlayTableBin();
 	m_fileSystemManager->saveArmBin();
 
-	Main::setErrorContext(nullptr);
+	ncp::Application::setErrorContext(nullptr);
 }
 
 void PatchMaker::fetchNewcodeAddr()
@@ -313,7 +296,7 @@ void PatchMaker::fetchNewcodeAddr()
 
 void PatchMaker::applyPatchesToRom(const PatchOperationContext& context)
 {
-	Main::setErrorContext(m_target->getArm9() ?
+	ncp::Application::setErrorContext(m_target->getArm9() ?
 		"Failed to apply patches for ARM9 target." :
 		"Failed to apply patches for ARM7 target.");
 
@@ -345,7 +328,7 @@ void PatchMaker::applyPatchesToRom(const PatchOperationContext& context)
 	applyOverwriteRegions(context);
 	applyNewcodeToDestinations(context);
 
-	Main::setErrorContext(nullptr);
+	ncp::Application::setErrorContext(nullptr);
 }
 
 void PatchMaker::applyJumpPatch(const std::unique_ptr<GenericPatchInfo>& patch, const PatchOperationContext& context)
@@ -355,8 +338,9 @@ void PatchMaker::applyJumpPatch(const std::unique_ptr<GenericPatchInfo>& patch, 
 	if (!patch->destThumb && !patch->srcThumb) 
 	{
 		// ARM -> ARM
-		bin->write<u32>(patch->destAddress, AsmGenerator::makeJumpOpCode(
-			AsmGenerator::armOpcodeB, patch->destAddress, patch->srcAddress));
+		bin->write<u32>(patch->destAddress, callAsmGeneratorWithContext(patch, [&]() {
+			return AsmGenerator::makeJumpOpCode(AsmGenerator::armOpcodeB, patch->destAddress, patch->srcAddress);
+		}));
 	}
 	else if (!patch->destThumb && patch->srcThumb) 
 	{
@@ -368,8 +352,9 @@ void PatchMaker::applyJumpPatch(const std::unique_ptr<GenericPatchInfo>& patch, 
 		// THUMB -> ARM
 		u16 patchData[4];
 		patchData[0] = AsmGenerator::thumbOpCodePushLR;
-		Util::write<u32>(&patchData[1], AsmGenerator::makeThumbCallOpCode(
-			true, patch->destAddress + 2, patch->srcAddress));
+		Util::write<u32>(&patchData[1], callAsmGeneratorWithContext(patch, [&]() {
+			return AsmGenerator::makeThumbCallOpCode(true, patch->destAddress + 2, patch->srcAddress);
+		}));
 		patchData[3] = AsmGenerator::thumbOpCodePopPC;
 		bin->writeBytes(patch->destAddress, patchData, 8);
 	}
@@ -378,8 +363,9 @@ void PatchMaker::applyJumpPatch(const std::unique_ptr<GenericPatchInfo>& patch, 
 		// THUMB -> THUMB
 		u16 patchData[4];
 		patchData[0] = AsmGenerator::thumbOpCodePushLR;
-		Util::write<u32>(&patchData[1], AsmGenerator::makeThumbCallOpCode(
-			false, patch->destAddress + 2, patch->srcAddress));
+		Util::write<u32>(&patchData[1], callAsmGeneratorWithContext(patch, [&]() {
+			return AsmGenerator::makeThumbCallOpCode(false, patch->destAddress + 2, patch->srcAddress);
+		}));
 		patchData[3] = AsmGenerator::thumbOpCodePopPC;
 		bin->writeBytes(patch->destAddress, patchData, 8);
 	}
@@ -394,26 +380,30 @@ void PatchMaker::applyCallPatch(const std::unique_ptr<GenericPatchInfo>& patch, 
 	if (!patch->destThumb && !patch->srcThumb) 
 	{
 		// ARM -> ARM
-		bin->write<u32>(patch->destAddress, AsmGenerator::makeJumpOpCode(
-			AsmGenerator::armOpcodeBL, patch->destAddress, patch->srcAddress));
+		bin->write<u32>(patch->destAddress, callAsmGeneratorWithContext(patch, [&]() {
+			return AsmGenerator::makeJumpOpCode(AsmGenerator::armOpcodeBL, patch->destAddress, patch->srcAddress);
+		}));
 	}
 	else if (!patch->destThumb && patch->srcThumb) 
 	{
 		// ARM -> THUMB
-		bin->write<u32>(patch->destAddress, AsmGenerator::makeBLXOpCode(
-			patch->destAddress, patch->srcAddress));
+		bin->write<u32>(patch->destAddress, callAsmGeneratorWithContext(patch, [&]() {
+			return AsmGenerator::makeBLXOpCode(patch->destAddress, patch->srcAddress);
+		}));
 	}
 	else if (patch->destThumb && !patch->srcThumb) 
 	{
 		// THUMB -> ARM
-		bin->write<u32>(patch->destAddress, AsmGenerator::makeThumbCallOpCode(
-			true, patch->destAddress, patch->srcAddress));
+		bin->write<u32>(patch->destAddress, callAsmGeneratorWithContext(patch, [&]() {
+			return AsmGenerator::makeThumbCallOpCode(true, patch->destAddress, patch->srcAddress);
+		}));
 	}
 	else 
 	{
 		// THUMB -> THUMB
-		bin->write<u32>(patch->destAddress, AsmGenerator::makeThumbCallOpCode(
-			false, patch->destAddress, patch->srcAddress));
+		bin->write<u32>(patch->destAddress, callAsmGeneratorWithContext(patch, [&]() {
+			return AsmGenerator::makeThumbCallOpCode(false, patch->destAddress, patch->srcAddress);
+		}));
 	}
 }
 
@@ -423,9 +413,8 @@ void PatchMaker::applyHookPatch(const std::unique_ptr<GenericPatchInfo>& patch, 
 	{
 		std::ostringstream oss;
 		oss << "Injecting hook from " << (patch->destThumb ? "THUMB" : "ARM") << " to "
-			<< (patch->srcThumb ? "THUMB" : "ARM") << " is not supported, at "
-			<< OSTRa(patch->symbol) << " (" << OSTR(patch->job->srcFilePath.string()) << ")";
-		throw ncp::exception(oss.str());
+			<< (patch->srcThumb ? "THUMB" : "ARM") << " is not supported, at ";
+		oss << OSTRa(patch->symbol) << " (" << OSTR(patch->unit->getSourcePath().string()) << ")";
 	}
 
 	createHookBridge(patch, context);
@@ -458,19 +447,20 @@ void PatchMaker::createArm2ThumbJumpBridge(const std::unique_ptr<GenericPatchInf
 
 	u32 bridgeAddr = info->curAddress;
 
-	if (Main::getVerbose())
+	if (ncp::Application::isVerbose())
 		Log::out << "ARM->THUMB BRIDGE: " << Util::intToAddr(bridgeAddr, 8) << std::endl;
 
 	ICodeBin* bin = getBinaryForDestination(patch->destAddressOv);
-	bin->write<u32>(patch->destAddress, AsmGenerator::makeJumpOpCode(
-		AsmGenerator::armOpcodeB, patch->destAddress, bridgeAddr));
+	bin->write<u32>(patch->destAddress, callAsmGeneratorWithContext(patch, [&]() {
+		return AsmGenerator::makeJumpOpCode(AsmGenerator::armOpcodeB, patch->destAddress, bridgeAddr);
+	}));
 
 	u8* bridgeDataPtr = bridgeData.data() + offset;
 
 	Util::write<u32>(bridgeDataPtr, 0xE51FF004);            // LDR PC, [PC,#-4]
 	Util::write<u32>(bridgeDataPtr + 4, patch->srcAddress | 1); // int value to jump to
 
-	if (Main::getVerbose())
+	if (ncp::Application::isVerbose())
 		Util::printDataAsHex(bridgeData.data() + offset, SizeOfArm2ThumbJumpBridge, 32);
 
 	info->curAddress += SizeOfArm2ThumbJumpBridge;
@@ -502,25 +492,32 @@ void PatchMaker::createHookBridge(const std::unique_ptr<GenericPatchInfo>& patch
 
 	u32 hookBridgeAddr = info->curAddress;
 
-	if (Main::getVerbose())
+	if (ncp::Application::isVerbose())
 		Log::out << "HOOK BRIDGE: " << Util::intToAddr(hookBridgeAddr, 8) << std::endl;
 
-	bin->write<u32>(patch->destAddress, AsmGenerator::makeJumpOpCode(
-		AsmGenerator::armOpcodeB, patch->destAddress, hookBridgeAddr));
+	bin->write<u32>(patch->destAddress, callAsmGeneratorWithContext(patch, [&]() {
+		return AsmGenerator::makeJumpOpCode(AsmGenerator::armOpcodeB, patch->destAddress, hookBridgeAddr);
+	}));
 
 	u8* hookDataPtr = hookData.data() + offset;
 
-	u32 jmpOpCode = patch->srcThumb ? 
-		AsmGenerator::makeBLXOpCode(hookBridgeAddr + 4, patch->srcAddress) : 
-		AsmGenerator::makeJumpOpCode(AsmGenerator::armOpcodeBL, hookBridgeAddr + 4, patch->srcAddress);
+	u32 jmpOpCode = callAsmGeneratorWithContext(patch, [&]() {
+		return patch->srcThumb ? 
+			AsmGenerator::makeBLXOpCode(hookBridgeAddr + 4, patch->srcAddress) : 
+			AsmGenerator::makeJumpOpCode(AsmGenerator::armOpcodeBL, hookBridgeAddr + 4, patch->srcAddress);
+	});
 
 	Util::write<u32>(hookDataPtr, AsmGenerator::armHookPush);
 	Util::write<u32>(hookDataPtr + 4, jmpOpCode);
 	Util::write<u32>(hookDataPtr + 8, AsmGenerator::armHookPop);
-	Util::write<u32>(hookDataPtr + 12, AsmGenerator::fixupOpCode(ogOpCode, patch->destAddress, hookBridgeAddr + 12));
-	Util::write<u32>(hookDataPtr + 16, AsmGenerator::makeJumpOpCode(AsmGenerator::armOpcodeB, hookBridgeAddr + 16, patch->destAddress + 4));
+	Util::write<u32>(hookDataPtr + 12, callAsmGeneratorWithContext(patch, [&]() {
+		return AsmGenerator::fixupOpCode(ogOpCode, patch->destAddress, hookBridgeAddr + 12, m_target->getArm9());
+	}));
+	Util::write<u32>(hookDataPtr + 16, callAsmGeneratorWithContext(patch, [&]() {
+		return AsmGenerator::makeJumpOpCode(AsmGenerator::armOpcodeB, hookBridgeAddr + 16, patch->destAddress + 4);
+	}));
 
-	if (Main::getVerbose())
+	if (ncp::Application::isVerbose())
 		Util::printDataAsHex(hookData.data() + offset, SizeOfHookBridge, 32);
 
 	info->curAddress += SizeOfHookBridge;
@@ -538,7 +535,7 @@ void PatchMaker::applyOverwriteRegions(const PatchOperationContext& context)
 
 		bin->writeBytes(overwrite->startAddress, sectionData, overwrite->sectionSize);
 		
-		if (Main::getVerbose())
+		if (ncp::Application::isVerbose())
 		{
 			Log::out << OINFO << "Applied overwrite region " << OSTR(overwrite->memName) 
 				<< " at 0x" << std::hex << std::uppercase << overwrite->startAddress
@@ -764,8 +761,8 @@ void PatchMaker::validateThumbInterworking(const std::unique_ptr<GenericPatchInf
 	if (patch->destThumb != patch->srcThumb && !m_target->getArm9())
 	{
 		std::ostringstream oss;
-		oss << "Cannot create thumb-interworking veneer: BLX not supported on armv4. At "
-			<< OSTRa(patch->symbol) << " (" << OSTR(patch->job->srcFilePath.string()) << ")";
+		oss << "Cannot create thumb-interworking veneer: BLX not supported on armv4. At ";
+		oss << OSTRa(patch->symbol) << " (" << OSTR(patch->unit->getSourcePath().string()) << ")";
 		throw ncp::exception(oss.str());
 	}
 }

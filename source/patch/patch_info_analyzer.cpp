@@ -4,11 +4,11 @@
 #include <iomanip>
 #include <sstream>
 
-#include "../main.hpp"
-#include "../log.hpp"
-#include "../except.hpp"
-#include "../util.hpp"
-#include "../archive.hpp"
+#include "../app/application.hpp"
+#include "../system/log.hpp"
+#include "../system/except.hpp"
+#include "../utils/util.hpp"
+#include "../formats/archive.hpp"
 
 namespace fs = std::filesystem;
 
@@ -17,27 +17,29 @@ PatchInfoAnalyzer::~PatchInfoAnalyzer() = default;
 
 void PatchInfoAnalyzer::initialize(
     const BuildTarget& target,
-    const std::filesystem::path& targetWorkDir
+    const std::filesystem::path& targetWorkDir,
+    core::CompilationUnitManager& compilationUnitMgr
 )
 {
     m_target = &target;
     m_targetWorkDir = &targetWorkDir;
+	m_compilationUnitMgr = &compilationUnitMgr;
 }
 
-void PatchInfoAnalyzer::gatherInfoFromObjects(const std::vector<std::unique_ptr<SourceFileJob>>& srcFileJobs)
+void PatchInfoAnalyzer::gatherInfoFromObjects()
 {
     fs::current_path(*m_targetWorkDir);
 
     Log::info("Getting patches from objects...");
 
-    for (auto& srcFileJob : srcFileJobs)
+    for (auto& unit : m_compilationUnitMgr->getUnits())
     {
-        const fs::path& objPath = srcFileJob->objFilePath;
+        const fs::path& objPath = unit->getObjectPath();
 
-        if (Main::getVerbose())
+        if (ncp::Application::isVerbose())
             Log::out << ANSI_bYELLOW << objPath.string() << ANSI_RESET << std::endl;
 
-        const BuildTarget::Region* region = srcFileJob->region;
+        const BuildTarget::Region* region = unit->getTargetRegion();
 
         std::vector<GenericPatchInfo*> patchInfoForThisObj;
 
@@ -52,7 +54,7 @@ void PatchInfoAnalyzer::gatherInfoFromObjects(const std::vector<std::unique_ptr<
             
             if (!loadElfFromArchive(elf, archivePath, memberName))
             {
-                if (Main::getVerbose())
+                if (ncp::Application::isVerbose())
                     Log::out << OWARN << "Failed to load archive member: " << memberName 
                              << " from " << archivePath.string() << std::endl;
                 continue;
@@ -101,10 +103,10 @@ void PatchInfoAnalyzer::gatherInfoFromObjects(const std::vector<std::unique_ptr<
             {
                 if (sectionIdx != -1) // we do not want the labels, those are placeholders
                 {
-                    m_rtreplPatches.emplace_back(new RtReplPatchInfo{
-                        /*.symbol = */std::string(symbolName),
-                        /*.job = */srcFileJob.get()
-                    });
+            		auto rtreplPatch = std::make_unique<RtReplPatchInfo>();
+					rtreplPatch->symbol = std::string(symbolName);
+					rtreplPatch->unit = unit.get();
+                    m_rtreplPatches.push_back(std::move(rtreplPatch));
                 }
                 return;
             }
@@ -170,14 +172,14 @@ void PatchInfoAnalyzer::gatherInfoFromObjects(const std::vector<std::unique_ptr<
             if (targetRegion && targetRegion->mode != BuildTarget::Mode::Append)
             {
                 std::ostringstream oss;
-                oss << OSTRa(symbolName) << " (" << OSTR(srcFileJob->srcFilePath.string())
+                oss << OSTRa(symbolName) << " (" << OSTR(unit->getSourcePath().string())
                     << ") cannot be applied to an overlay that is not in " << OSTRa("append") << " mode.";
                 throw ncp::exception(oss.str());
             }
 
             int srcAddressOv = patchType == patch::PatchType::Over ? destAddressOv : region->destination;
 
-            auto* patchInfoEntry = new GenericPatchInfo;
+            auto patchInfoEntry = std::make_unique<GenericPatchInfo>();
             patchInfoEntry->srcAddress = 0; // we do not yet know it, only after linkage
             patchInfoEntry->srcAddressOv = srcAddressOv;
             patchInfoEntry->destAddress = (destAddress & ~1);
@@ -189,10 +191,10 @@ void PatchInfoAnalyzer::gatherInfoFromObjects(const std::vector<std::unique_ptr<
             patchInfoEntry->srcThumb = bool(symbolAddr & 1);
             patchInfoEntry->destThumb = bool(destAddress & 1);
             patchInfoEntry->symbol = std::string(symbolName);
-            patchInfoEntry->job = srcFileJob.get();
+            patchInfoEntry->unit = unit.get();
 
-            patchInfoForThisObj.emplace_back(patchInfoEntry);
-            m_patchInfo.emplace_back(patchInfoEntry);
+            patchInfoForThisObj.push_back(patchInfoEntry.get());
+            m_patchInfo.push_back(std::move(patchInfoEntry));
         };
 
         // Find patches in sections
@@ -206,7 +208,7 @@ void PatchInfoAnalyzer::gatherInfoFromObjects(const std::vector<std::unique_ptr<
                     int dest = region->destination;
                     if (std::find(m_destWithNcpSet.begin(), m_destWithNcpSet.end(), dest) == m_destWithNcpSet.end())
                         m_destWithNcpSet.emplace_back(dest);
-                    m_jobsWithNcpSet.emplace_back(srcFileJob.get());
+                    m_unitsWithNcpSet.emplace_back(unit.get());
                     return false;
                 }
                 parseSymbol(sectionName, 0, int(sectionIdx), int(section.sh_size));
@@ -327,18 +329,18 @@ void PatchInfoAnalyzer::gatherInfoFromObjects(const std::vector<std::unique_ptr<
 				sectionName.starts_with(".bss") ||
                 ncpSectionSupportsOverrideRegion)
             {
-                auto* sectionInfo = new SectionInfo{
+                auto sectionInfo = std::make_unique<SectionInfo>(SectionInfo{
                     .name = std::string(sectionName),
                     .size = section.sh_size,
-                    .job = srcFileJob.get(),
+                    .unit = unit.get(),
                     .alignment = section.sh_addralign > 0 ? section.sh_addralign : 4
-                };
-                m_overwriteCandidateSections.emplace_back(sectionInfo);
+                });
+                m_overwriteCandidateSections.push_back(std::move(sectionInfo));
             }
             return false;
         });
 
-        if (Main::getVerbose())
+        if (ncp::Application::isVerbose())
         {
             if (patchInfoForThisObj.empty())
             {
@@ -364,7 +366,7 @@ void PatchInfoAnalyzer::gatherInfoFromObjects(const std::vector<std::unique_ptr<
             }
         }
     }
-    if (Main::getVerbose())
+    if (ncp::Application::isVerbose())
     {
         if (m_externSymbols.empty())
         {
@@ -405,7 +407,7 @@ bool PatchInfoAnalyzer::loadElfFromArchive(Elf32& elf, const std::filesystem::pa
     }
     catch (const std::exception& e)
     {
-        if (Main::getVerbose())
+        if (ncp::Application::isVerbose())
         {
             Log::out << OWARN << "Error loading archive member " << memberName 
                      << " from " << archivePath.string() << ": " << e.what() << std::endl;

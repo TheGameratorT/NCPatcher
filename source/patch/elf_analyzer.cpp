@@ -7,10 +7,10 @@
 #include <unordered_set>
 #include <algorithm>
 
-#include "../main.hpp"
-#include "../log.hpp"
-#include "../except.hpp"
-#include "../util.hpp"
+#include "../app/application.hpp"
+#include "../system/log.hpp"
+#include "../system/except.hpp"
+#include "../utils/util.hpp"
 #include "overwrite_region_manager.hpp"
 
 static const char* s_patchTypeNames[] = {
@@ -186,8 +186,8 @@ void ElfAnalyzer::gatherInfoFromElf(
             if (Util::overlaps(a->destAddress, a->destAddress + aSz, b->destAddress, b->destAddress + bSz))
             {
                 Log::out << OERROR
-                    << OSTRa(a->symbol) << "[sz=" << aSz << "] (" << OSTR(a->job->srcFilePath.string()) << ") overlaps with "
-                    << OSTRa(b->symbol) << "[sz=" << bSz << "] (" << OSTR(b->job->srcFilePath.string()) << ")\n";
+                    << OSTRa(a->symbol) << "[sz=" << aSz << "] (" << OSTR(a->unit->getSourcePath().string()) << ") overlaps with "
+                    << OSTRa(b->symbol) << "[sz=" << bSz << "] (" << OSTR(b->unit->getSourcePath().string()) << ")\n";
                 foundOverlapping = true;
             }
         }
@@ -210,7 +210,7 @@ void ElfAnalyzer::gatherInfoFromElf(
                 if (Util::overlaps(patch->destAddress, patchEnd, overwrite->startAddress, overwrite->endAddress))
                 {
                     Log::out << OERROR
-                        << "Patch " << OSTR(patch->symbol) << " (" << OSTR(patch->job->srcFilePath.string()) 
+                        << "Patch " << OSTR(patch->symbol) << " (" << OSTR(patch->unit->getSourcePath().string()) 
                         << ") conflicts with overwrite region 0x" << std::hex << std::uppercase 
                         << overwrite->startAddress << "-0x" << overwrite->endAddress << std::endl;
                     foundPatchInOverwrite = true;
@@ -221,7 +221,7 @@ void ElfAnalyzer::gatherInfoFromElf(
     if (foundPatchInOverwrite)
         throw ncp::exception("Patches targeting overwrite regions were detected.");
     
-    if (Main::getVerbose())
+    if (ncp::Application::isVerbose())
     {
         Log::out << "Patches:\nSRC_ADDR, SRC_ADDR_OV, DST_ADDR, DST_ADDR_OV, PATCH_TYPE, SEC_IDX, SEC_SIZE, NCP_SET, SRC_THUMB, DST_THUMB, SYMBOL" << std::endl;
         for (auto& p : patchInfo)
@@ -269,7 +269,7 @@ void ElfAnalyzer::gatherInfoFromElf(
         return false;
     });
 
-    if (Main::getVerbose())
+    if (ncp::Application::isVerbose())
     {
         Log::out << "New Code Info:\nNAME    CODE_SIZE    BSS_SIZE" << std::endl;
         for (const auto& [dest, newcodeInfo] : m_newcodeDataForDest)
@@ -311,7 +311,7 @@ void ElfAnalyzer::gatherInfoFromElf(
                     throw ncp::exception(oss.str());
                 }
                 
-                if (Main::getVerbose())
+                if (ncp::Application::isVerbose())
                 {
                     Log::out << OINFO << "Found overwrite region " << OSTR(overwrite->memName) 
                         << " at 0x" << std::hex << std::uppercase << overwrite->startAddress

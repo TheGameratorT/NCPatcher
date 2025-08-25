@@ -4,13 +4,16 @@
 #include <vector>
 #include <filesystem>
 #include <unordered_map>
+#include <sstream>
 
-#include "../types.hpp"
-#include "../build/sourcefilejob.hpp"
+#include "../utils/types.hpp"
+#include "../core/compilation_unit_manager.hpp"
 #include "../config/buildtarget.hpp"
 #include "../ndsbin/headerbin.hpp"
 #include "../ndsbin/armbin.hpp"
 #include "../ndsbin/overlaybin.hpp"
+#include "../system/log.hpp"
+#include "../system/except.hpp"
 #include "types.hpp"
 
 // Use the centralized types from patch::types
@@ -40,7 +43,7 @@ public:
 		const std::filesystem::path& targetWorkDir,
 		const std::filesystem::path& buildDir,
 		const HeaderBin& header,
-		std::vector<std::unique_ptr<SourceFileJob>>& srcFileJobs
+		core::CompilationUnitManager& compilationUnitMgr
 	);
 
 private:
@@ -49,7 +52,7 @@ private:
 	const std::filesystem::path* m_targetWorkDir;
 	const std::filesystem::path* m_buildDir;
 	const HeaderBin* m_header;
-	std::vector<std::unique_ptr<SourceFileJob>>* m_srcFileJobs;
+	core::CompilationUnitManager* m_compilationUnitMgr;
 	
 	// Component managers
 	std::unique_ptr<FileSystemManager> m_fileSystemManager;
@@ -107,6 +110,20 @@ private:
 	// Validation and error handling
 	void validateThumbInterworking(const std::unique_ptr<GenericPatchInfo>& patch) const;
 	void validateOverlaySize(int dest, std::size_t totalSize, const BuildTarget::Region& region) const;
+	
+	// Helper method to wrap AsmGenerator calls with patch context
+	template<typename Func>
+	auto callAsmGeneratorWithContext(const std::unique_ptr<GenericPatchInfo>& patch, Func&& func) const -> decltype(func())
+	{
+		try {
+			return func();
+		}
+		catch (const std::exception& e) {
+			std::ostringstream oss;
+			oss << e.what() << " at " << OSTRa(patch->symbol) << " (" << OSTR(patch->unit->getSourcePath().string()) << ")";
+			throw ncp::exception(oss.str());
+		}
+	}
 	
 	// Utility methods
 	static void writeNewcodeData(u8* destination, const std::unique_ptr<NewcodePatch>& newcodeInfo, 

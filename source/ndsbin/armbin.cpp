@@ -6,11 +6,11 @@
 #include <algorithm>
 #include <sstream>
 
-#include "../main.hpp"
-#include "../log.hpp"
-#include "../except.hpp"
-#include "../blz.hpp"
-#include "../util.hpp"
+#include "../app/application.hpp"
+#include "../system/log.hpp"
+#include "../system/except.hpp"
+#include "../formats/blz.hpp"
+#include "../utils/util.hpp"
 
 namespace fs = std::filesystem;
 
@@ -32,7 +32,7 @@ void ArmBin::load(const fs::path& path, u32 entryAddr, u32 ramAddr, u32 autoLoad
 
 	// READ FILE ================================
 
-	Main::setErrorContext(isArm9 ? LoadErr9 : LoadErr7);
+	ncp::Application::setErrorContext(isArm9 ? LoadErr9 : LoadErr7);
 
 	if (!fs::exists(path))
 		throw ncp::file_error(path, ncp::file_error::find);
@@ -92,7 +92,7 @@ void ArmBin::load(const fs::path& path, u32 entryAddr, u32 ramAddr, u32 autoLoad
 
 	refreshAutoloadData();
 
-	Main::setErrorContext(nullptr);
+	ncp::Application::setErrorContext(nullptr);
 }
 
 void ArmBin::readBytes(u32 address, void* out, u32 size) const

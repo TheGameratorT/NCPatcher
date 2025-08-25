@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../types.hpp"
+#include "../utils/types.hpp"
 
 class AsmGenerator
 {
@@ -8,7 +8,7 @@ public:
     static u32 makeJumpOpCode(u32 opCode, u32 fromAddr, u32 toAddr);
     static u32 makeBLXOpCode(u32 fromAddr, u32 toAddr);
     static u32 makeThumbCallOpCode(bool exchange, u32 fromAddr, u32 toAddr);
-    static u32 fixupOpCode(u32 opCode, u32 ogAddr, u32 newAddr);
+    static u32 fixupOpCode(u32 opCode, u32 ogAddr, u32 newAddr, bool isArm9 = true);
 
     // ARM opcodes
     static constexpr u32 armOpcodeB = 0xEA000000; // B

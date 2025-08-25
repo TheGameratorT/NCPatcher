@@ -3,24 +3,24 @@
 #include <algorithm>
 #include <filesystem>
 
-#include "../main.hpp"
-#include "../log.hpp"
-#include "../except.hpp"
-#include "../util.hpp"
-#include "../archive.hpp"
+#include "../app/application.hpp"
+#include "../system/log.hpp"
+#include "../system/except.hpp"
+#include "../utils/util.hpp"
+#include "../formats/archive.hpp"
 
 SectionUsageAnalyzer::SectionUsageAnalyzer() = default;
 SectionUsageAnalyzer::~SectionUsageAnalyzer() = default;
 
 void SectionUsageAnalyzer::initialize(
-    const std::vector<std::unique_ptr<SourceFileJob>>& srcFileJobs,
     const std::vector<std::unique_ptr<GenericPatchInfo>>& patchInfo,
-    const std::vector<std::string>& externSymbols
+    const std::vector<std::string>& externSymbols,
+    core::CompilationUnitManager& compilationUnitMgr
 )
 {
-    m_srcFileJobs = &srcFileJobs;
     m_patchInfo = &patchInfo;
     m_externSymbols = &externSymbols;
+    m_compilationUnitMgr = &compilationUnitMgr;
 }
 
 void SectionUsageAnalyzer::analyzeObjectFiles()
@@ -47,7 +47,7 @@ void SectionUsageAnalyzer::analyzeObjectFiles()
     // Phase 4: Propagate usage through dependencies
     propagateUsage();
 
-    if (Main::getVerbose())
+    if (ncp::Application::isVerbose())
     {
         Log::out << OINFO << "Section usage analysis results:" << std::endl;
         Log::out << "  Total sections found: " << m_sectionUsageInfo.size() << std::endl;
@@ -63,9 +63,9 @@ void SectionUsageAnalyzer::analyzeObjectFiles()
 
 void SectionUsageAnalyzer::collectSymbolsAndSections()
 {
-    for (const auto& srcFileJob : *m_srcFileJobs)
+    for (const auto& unit : m_compilationUnitMgr->getUnits())
     {
-        const std::filesystem::path& objPath = srcFileJob->objFilePath;
+        const std::filesystem::path& objPath = unit->getObjectPath();
 
         // Check if this is an archive path (contains a colon separator)
         Elf32 elf;
@@ -78,7 +78,7 @@ void SectionUsageAnalyzer::collectSymbolsAndSections()
             
             if (!loadElfFromArchive(elf, archivePath, memberName))
             {
-                if (Main::getVerbose())
+                if (ncp::Application::isVerbose())
                     Log::out << OWARN << "Failed to load archive member: " << memberName 
                              << " from " << archivePath.string() << std::endl;
                 continue;
@@ -98,7 +98,7 @@ void SectionUsageAnalyzer::collectSymbolsAndSections()
         auto sh_tbl = elf.getSectionHeaderTable();
         auto str_tbl = elf.getSection<char>(sh_tbl[eh.e_shstrndx]);
 
-        if (Main::getVerbose())
+        if (ncp::Application::isVerbose())
             Log::out << "  Analyzing " << objPath.string() << std::endl;
 
         // Collect sections
@@ -116,7 +116,7 @@ void SectionUsageAnalyzer::collectSymbolsAndSections()
 			auto sectionInfo = std::make_unique<SectionUsageInfo>();
 			sectionInfo->name = std::string(sectionName);
 			sectionInfo->size = section.sh_size;
-			sectionInfo->job = srcFileJob.get();
+			sectionInfo->unit = unit.get();
 			sectionInfo->alignment = section.sh_addralign > 0 ? section.sh_addralign : 4;
 			
 			m_sectionUsageInfo.push_back(std::move(sectionInfo));
@@ -140,7 +140,7 @@ void SectionUsageAnalyzer::collectSymbolsAndSections()
             auto symbolInfo = std::make_unique<SymbolInfo>();
             symbolInfo->name = std::string(symbolName);
             symbolInfo->sectionName = sectionName;
-            symbolInfo->job = srcFileJob.get();
+            symbolInfo->unit = unit.get();
             symbolInfo->isFunction = (ELF32_ST_TYPE(symbol.st_info) == STT_FUNC);
             symbolInfo->isGlobal = (ELF32_ST_BIND(symbol.st_info) == STB_GLOBAL);
             symbolInfo->isWeak = (ELF32_ST_BIND(symbol.st_info) == STB_WEAK);
@@ -155,46 +155,46 @@ void SectionUsageAnalyzer::collectSymbolsAndSections()
                 // If new symbol is strong and existing is weak, replace it
                 if (symbolInfo->isGlobal && existing.isWeak)
                 {
-                    if (Main::getVerbose())
+                    if (ncp::Application::isVerbose())
                     {
                         Log::out << "    Strong symbol " << symbolInfo->name 
                                  << " overriding weak symbol from " 
-                                 << existing.job->objFilePath.filename().string() << std::endl;
+                                 << existing.unit->getObjectPath().string() << std::endl;
                     }
                     m_symbolInfo[symbolInfo->name] = std::move(symbolInfo);
                 }
                 // If new symbol is weak and existing is strong, keep existing
                 else if (symbolInfo->isWeak && existing.isGlobal)
                 {
-                    if (Main::getVerbose())
+                    if (ncp::Application::isVerbose())
                     {
                         Log::out << "    Weak symbol " << symbolInfo->name 
                                  << " not overriding strong symbol from " 
-                                 << existing.job->objFilePath.filename().string() << std::endl;
+                                 << existing.unit->getObjectPath().string() << std::endl;
                     }
                     // Don't replace, keep the strong symbol
                 }
                 // If both are weak, keep the first one (standard linker behavior)
                 else if (symbolInfo->isWeak && existing.isWeak)
                 {
-                    if (Main::getVerbose())
+                    if (ncp::Application::isVerbose())
                     {
                         Log::out << "    Weak symbol " << symbolInfo->name 
                                  << " not overriding first weak symbol from " 
-                                 << existing.job->objFilePath.filename().string() << std::endl;
+                                 << existing.unit->getObjectPath().string() << std::endl;
                     }
                     // Don't replace, keep the first weak symbol
                 }
                 // If both are global, this is a multiple definition error, but we'll keep the first
                 else if (symbolInfo->isGlobal && existing.isGlobal)
                 {
-                    if (Main::getVerbose())
+                    if (ncp::Application::isVerbose())
                     {
                         Log::out << OWARN << "Multiple definition of global symbol " << symbolInfo->name 
                                  << ": keeping definition from " 
-                                 << existing.job->objFilePath.filename().string()
+                                 << existing.unit->getObjectPath().string()
                                  << ", ignoring definition from "
-                                 << symbolInfo->job->objFilePath.filename().string() << std::endl;
+                                 << symbolInfo->unit->getObjectPath().string() << std::endl;
                     }
                     // Don't replace, keep the first global symbol
                 }
@@ -211,9 +211,9 @@ void SectionUsageAnalyzer::collectSymbolsAndSections()
 
 void SectionUsageAnalyzer::analyzeRelocations()
 {
-    for (const auto& srcFileJob : *m_srcFileJobs)
+    for (const auto& unit : m_compilationUnitMgr->getUnits())
     {
-        const std::filesystem::path& objPath = srcFileJob->objFilePath;
+        const std::filesystem::path& objPath = unit->getObjectPath();
         
         // Check if this is an archive path (contains a colon separator)
         Elf32 elf;
@@ -286,7 +286,7 @@ void SectionUsageAnalyzer::analyzeRelocations()
             {
                 // The targetSectionName is the section that CONTAINS the relocation,
                 // not the section being referenced. This section is referencing referencedSymbolName.
-                SectionUsageInfo* sectionInfo = findSection(std::string(targetSectionName), srcFileJob.get());
+                SectionUsageInfo* sectionInfo = findSection(std::string(targetSectionName), unit.get());
                 if (sectionInfo)
                 {
                     // Create ReferencedSymbol with proper type information
@@ -318,11 +318,11 @@ void SectionUsageAnalyzer::markEntryPoints()
         else // Section patch
         {
             // For section patches, mark the section itself as an entry point
-            SectionUsageInfo* sectionInfo = findSection(patchInfo->symbol, patchInfo->job);
+            SectionUsageInfo* sectionInfo = findSection(patchInfo->symbol, patchInfo->unit);
             if (sectionInfo)
             {
                 sectionInfo->isEntryPoint = true;
-                markSectionAsUsed(sectionInfo->name, sectionInfo->job);
+                markSectionAsUsed(sectionInfo->name, sectionInfo->unit);
             }
         }
     }
@@ -357,7 +357,7 @@ void SectionUsageAnalyzer::propagateUsage()
                         for (const auto& targetSectionInfo : m_sectionUsageInfo)
                         {
                             if (targetSectionInfo->name == referencedSymbol.name && 
-                                targetSectionInfo->job == sectionInfo->job &&
+                                targetSectionInfo->unit == sectionInfo->unit &&
                                 m_markedSections.find(targetSectionInfo.get()) == m_markedSections.end())
                             {
                                 m_markedSections.insert(targetSectionInfo.get());
@@ -387,9 +387,9 @@ void SectionUsageAnalyzer::propagateUsage()
             if (it != m_symbolInfo.end())
             {
                 const std::string& sectionName = it->second->sectionName;
-                if (!sectionName.empty() && !isSectionMarkedAsUsed(sectionName, it->second->job))
+                if (!sectionName.empty() && !isSectionMarkedAsUsed(sectionName, it->second->unit))
                 {
-                    markSectionAsUsed(sectionName, it->second->job);
+                    markSectionAsUsed(sectionName, it->second->unit);
                     changed = true;
                 }
             }
@@ -404,16 +404,16 @@ void SectionUsageAnalyzer::markSymbolAsUsed(const std::string& symbolName)
     auto it = m_symbolInfo.find(symbolName);
     if (it != m_symbolInfo.end())
     {
-        markSectionAsUsed(it->second->sectionName, it->second->job);
+        markSectionAsUsed(it->second->sectionName, it->second->unit);
     }
 }
 
-void SectionUsageAnalyzer::markSectionAsUsed(const std::string& sectionName, SourceFileJob* job)
+void SectionUsageAnalyzer::markSectionAsUsed(const std::string& sectionName, const core::CompilationUnit* unit)
 {
-    if (!sectionName.empty() && job != nullptr)
+    if (!sectionName.empty() && unit != nullptr)
     {
-        // Find the specific SectionUsageInfo for this section and job
-        SectionUsageInfo* sectionInfo = findSection(sectionName, job);
+        // Find the specific SectionUsageInfo for this section and unit
+        SectionUsageInfo* sectionInfo = findSection(sectionName, unit);
         if (sectionInfo)
         {
             m_markedSections.insert(sectionInfo);
@@ -421,13 +421,13 @@ void SectionUsageAnalyzer::markSectionAsUsed(const std::string& sectionName, Sou
     }
 }
 
-bool SectionUsageAnalyzer::isSectionMarkedAsUsed(const std::string& sectionName, SourceFileJob* job) const
+bool SectionUsageAnalyzer::isSectionMarkedAsUsed(const std::string& sectionName, const core::CompilationUnit* unit) const
 {
-    if (sectionName.empty() || job == nullptr)
+    if (sectionName.empty() && unit != nullptr)
         return false;
     
-    // Find the specific SectionUsageInfo for this section and job
-    const SectionUsageInfo* sectionInfo = findSection(sectionName, job);
+    // Find the specific SectionUsageInfo for this section and unit
+    const SectionUsageInfo* sectionInfo = findSection(sectionName, unit);
     if (sectionInfo)
     {
         return m_markedSections.find(const_cast<SectionUsageInfo*>(sectionInfo)) != m_markedSections.end();
@@ -453,7 +453,7 @@ void SectionUsageAnalyzer::filterUsedSections(std::vector<std::unique_ptr<Sectio
                 bool isUsed = false;
                 for (const auto& sectionUsageInfo : m_sectionUsageInfo)
                 {
-                    if (sectionUsageInfo->name == section->name && sectionUsageInfo->job == section->job)
+                    if (sectionUsageInfo->name == section->name && sectionUsageInfo->unit == section->unit)
                     {
                         isUsed = (m_markedSections.find(sectionUsageInfo.get()) != m_markedSections.end());
                         break;
@@ -512,7 +512,7 @@ bool SectionUsageAnalyzer::loadElfFromArchive(Elf32& elf, const std::filesystem:
     }
     catch (const std::exception& e)
     {
-        if (Main::getVerbose())
+        if (ncp::Application::isVerbose())
         {
             Log::out << OWARN << "Error loading archive member " << memberName 
                      << " from " << archivePath.string() << ": " << e.what() << std::endl;
@@ -523,6 +523,8 @@ bool SectionUsageAnalyzer::loadElfFromArchive(Elf32& elf, const std::filesystem:
 
 void SectionUsageAnalyzer::printDependencyTree() const
 {
+	return;
+
     Log::out << OINFO << "Dependency Tree from Entry Points:" << std::endl;
     Log::out << std::endl;
     
@@ -628,7 +630,7 @@ void SectionUsageAnalyzer::printTreeNode(const std::string& nodeName, bool isSec
             // If this symbol has a section, find that section's dependencies
             for (const auto& sectionInfo : m_sectionUsageInfo)
             {
-                if (sectionInfo->name == symbolIt->second->sectionName && sectionInfo->job == symbolIt->second->job)
+                if (sectionInfo->name == symbolIt->second->sectionName && sectionInfo->unit == symbolIt->second->unit)
                 {
                     for (const ReferencedSymbol& referencedSymbol : sectionInfo->referencedSymbols)
                     {
@@ -693,15 +695,13 @@ std::string SectionUsageAnalyzer::getSymbolDetails(const std::string& symbolName
         // Always show section info if available, with object file for disambiguation
         if (!info.sectionName.empty())
         {
-            details += ", in " + info.sectionName;
-            if (info.job)
-                details += " from " + info.job->objFilePath.filename().string();
+            details += ", in " + info.sectionName + " from " + info.unit->getObjectPath().filename().string();
         }
-        else if (info.job)
+        else
         {
-            details += ", from " + info.job->objFilePath.filename().string();
+            details += ", from " + info.unit->getObjectPath().filename().string();
         }
-            
+
         details += ")";
         return details;
     }
@@ -720,9 +720,8 @@ std::string SectionUsageAnalyzer::getSectionDetails(const std::string& sectionNa
         {
             std::string details = " (size: " + std::to_string(sectionInfo->size) + " bytes";
             
-            if (sectionInfo->job)
-                details += ", from " + sectionInfo->job->objFilePath.filename().string();
-                
+            details += ", from " + sectionInfo->unit->getObjectPath().filename().string();
+
             if (sectionInfo->isEntryPoint)
                 details += ", entry point";
                 
@@ -733,10 +732,10 @@ std::string SectionUsageAnalyzer::getSectionDetails(const std::string& sectionNa
     return " (unknown section)";
 }
 
-SectionUsageInfo* SectionUsageAnalyzer::findSection(const std::string& sectionName, SourceFileJob* job)
+SectionUsageInfo* SectionUsageAnalyzer::findSection(const std::string& sectionName, const core::CompilationUnit* unit)
 {
-	// Use fast lookup for specific job
-	SectionKey key(sectionName, job->objFilePath.filename().string());
+	// Use fast lookup for specific unit
+	SectionKey key(sectionName, unit->getObjectPath().filename().string());
 	auto it = m_sectionLookup.find(key);
 	if (it != m_sectionLookup.end())
 	{
@@ -745,9 +744,9 @@ SectionUsageInfo* SectionUsageAnalyzer::findSection(const std::string& sectionNa
     return nullptr;
 }
 
-const SectionUsageInfo* SectionUsageAnalyzer::findSection(const std::string& sectionName, SourceFileJob* job) const
+const SectionUsageInfo* SectionUsageAnalyzer::findSection(const std::string& sectionName, const core::CompilationUnit* unit) const
 {
-    return const_cast<SectionUsageAnalyzer*>(this)->findSection(sectionName, job);
+    return const_cast<SectionUsageAnalyzer*>(this)->findSection(sectionName, unit);
 }
 
 void SectionUsageAnalyzer::buildSectionLookupMap()
@@ -755,7 +754,7 @@ void SectionUsageAnalyzer::buildSectionLookupMap()
     m_sectionLookup.clear();
     for (auto& sectionInfo : m_sectionUsageInfo)
     {
-		SectionKey key(sectionInfo->name, sectionInfo->job->objFilePath.filename().string());
+		SectionKey key(sectionInfo->name, sectionInfo->unit->getObjectPath().filename().string());
 		m_sectionLookup[key] = sectionInfo.get();
     }
 }

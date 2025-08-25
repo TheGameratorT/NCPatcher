@@ -4,14 +4,14 @@
 #include <sstream>
 #include <regex>
 
-#include "../main.hpp"
-#include "../log.hpp"
-#include "../except.hpp"
-#include "../util.hpp"
-#include "../elf.hpp"
-#include "../archive.hpp"
+#include "../app/application.hpp"
+#include "../system/log.hpp"
+#include "../system/except.hpp"
+#include "../utils/util.hpp"
+#include "../formats/elf.hpp"
+#include "../formats/archive.hpp"
 #include "../config/buildconfig.hpp"
-#include "../process.hpp"
+#include "../system/process.hpp"
 #include "patch_info_analyzer.hpp"
 
 LibraryAnalyzer::LibraryAnalyzer() = default;
@@ -19,13 +19,13 @@ LibraryAnalyzer::~LibraryAnalyzer() = default;
 
 void LibraryAnalyzer::initialize(
     const BuildTarget& target,
-    const std::vector<std::unique_ptr<SourceFileJob>>& srcFileJobs,
-    const std::filesystem::path& buildDir
+    const std::filesystem::path& buildDir,
+    core::CompilationUnitManager& compilationUnitMgr
 )
 {
     m_target = &target;
-    m_srcFileJobs = &srcFileJobs;
     m_buildDir = &buildDir;
+    m_compilationUnitMgr = &compilationUnitMgr;
 }
 
 void LibraryAnalyzer::analyzeLibraryDependencies()
@@ -48,7 +48,7 @@ void LibraryAnalyzer::analyzeLibraryDependencies()
     // Find actual library files
     findLibraryFiles();
 
-    if (Main::getVerbose())
+    if (ncp::Application::isVerbose())
     {
         Log::out << OINFO << "Library search paths:" << std::endl;
         for (const auto& path : m_librarySearchPaths)
@@ -64,26 +64,21 @@ void LibraryAnalyzer::analyzeLibraryDependencies()
     }
 }
 
-std::vector<std::unique_ptr<SourceFileJob>> LibraryAnalyzer::generateLibraryJobs()
+void LibraryAnalyzer::generateLibraryUnits()
 {
-    Log::info("Generating library jobs...");
+    Log::info("Generating library compilation units...");
 
-    // Clear previous results
-    m_libraryJobs.clear();
-
-    // Create jobs from each library
+    // Create units from each library
     for (const auto& libraryPath : m_libraryPaths)
     {
-        createJobsFromLibrary(libraryPath);
+        createUnitsFromLibrary(libraryPath);
     }
 
-    if (Main::getVerbose())
+    if (ncp::Application::isVerbose())
     {
-        Log::out << OINFO << "Generated " << m_libraryJobs.size() 
-                 << " library jobs" << std::endl;
+        Log::out << OINFO << "Generated " << m_compilationUnitMgr->getLibraryUnits().size() 
+                 << " library compilation units" << std::endl;
     }
-
-    return std::move(m_libraryJobs);
 }
 
 void LibraryAnalyzer::parseLinkerFlags(const std::string& ldFlags)
@@ -178,7 +173,7 @@ void LibraryAnalyzer::findLibraryFiles()
         {
             m_libraryPaths.push_back(foundPath);
         }
-        else if (Main::getVerbose())
+        else if (ncp::Application::isVerbose())
         {
             Log::out << OWARN << "Library not found: -l" << libName << std::endl;
         }
@@ -201,7 +196,7 @@ void LibraryAnalyzer::getToolchainLibraryPaths()
         
         if (exitCode != 0)
         {
-            if (Main::getVerbose())
+            if (ncp::Application::isVerbose())
             {
                 Log::out << OWARN << "Failed to get library paths from gcc (exit code: " 
                          << exitCode << ")" << std::endl;
@@ -241,7 +236,7 @@ void LibraryAnalyzer::getToolchainLibraryPaths()
             }
         }
         
-        if (Main::getVerbose())
+        if (ncp::Application::isVerbose())
         {
             Log::out << OINFO << "Found " << m_librarySearchPaths.size() 
                      << " toolchain library paths" << std::endl;
@@ -249,25 +244,25 @@ void LibraryAnalyzer::getToolchainLibraryPaths()
     }
     catch (const std::exception& e)
     {
-        if (Main::getVerbose())
+        if (ncp::Application::isVerbose())
         {
             Log::out << OWARN << "Error getting library paths from gcc: " << e.what() << std::endl;
         }
     }
 }
 
-void LibraryAnalyzer::createJobsFromLibrary(const std::filesystem::path& libraryPath)
+void LibraryAnalyzer::createUnitsFromLibrary(const std::filesystem::path& libraryPath)
 {
     try
     {
         // Check if it's an archive file (.a)
         if (libraryPath.extension() == ".a")
         {
-            createJobsFromArchive(libraryPath);
+            createUnitsFromArchive(libraryPath);
             return;
         }
 
-        // Create job from ELF (for .so files or individual .o files)
+        // Create unit from ELF (for .so files or individual .o files)
         Elf32 elf;
         if (!elf.load(libraryPath))
         {
@@ -275,8 +270,8 @@ void LibraryAnalyzer::createJobsFromLibrary(const std::filesystem::path& library
             return;
         }
 
-        // Create job from this ELF
-        createJobFromELF(elf, libraryPath);
+        // Create unit from this ELF
+        createUnitFromELF(elf, libraryPath);
     }
     catch (const std::exception& e)
     {
@@ -285,30 +280,38 @@ void LibraryAnalyzer::createJobsFromLibrary(const std::filesystem::path& library
     }
 }
 
-void LibraryAnalyzer::createJobFromELF(const Elf32& elf, const std::filesystem::path& libraryPath, const std::string& objectName)
+void LibraryAnalyzer::createUnitFromELF(const Elf32& elf, const std::filesystem::path& libraryPath, const std::string& objectName)
 {
-    // Create a unique SourceFileJob for this library/object
-    auto libraryJob = std::make_unique<SourceFileJob>();
-    libraryJob->srcFilePath = libraryPath;
-    libraryJob->region = m_target->getMainRegion();
+    // Determine the source path (for archives, include member name)
+    std::filesystem::path objectPath;
     
     if (!objectName.empty())
     {
-        // For archive members, create a path like: /path/to/archive.a:member.o
-        libraryJob->objFilePath = libraryPath.string() + ":" + objectName;
+		// For archive members, create a path like: /path/to/archive.a:member.o
+        objectPath = libraryPath.string() + ":" + objectName;
     }
     else
     {
-        // For direct ELF files, use the same path
-        libraryJob->objFilePath = libraryPath;
+		// For direct ELF files, use the same path
+        objectPath = libraryPath;
     }
     
-    m_libraryJobs.push_back(std::move(libraryJob));
+    // Register the compilation unit
+	core::CompilationUnit* unit = m_compilationUnitMgr->createCompilationUnit(
+		core::CompilationUnitType::LibraryFile,
+		libraryPath,
+		objectPath
+	);
+    
+    // Set up the compilation unit info
+	unit->setTargetRegion(m_target->getMainRegion());
+	
+	// No need to setup BuildInfo
 }
 
-void LibraryAnalyzer::createJobsFromArchive(const std::filesystem::path& archivePath)
+void LibraryAnalyzer::createUnitsFromArchive(const std::filesystem::path& archivePath)
 {
-	if (Main::getVerbose())
+	if (ncp::Application::isVerbose())
 	{
     	Log::out << OINFO << ANSI_bYELLOW << "Analyzing archive: " << archivePath.filename().string() << ANSI_RESET << std::endl;
 	}
@@ -323,7 +326,7 @@ void LibraryAnalyzer::createJobsFromArchive(const std::filesystem::path& archive
         }
 
         const auto& members = archive.getMembers();
-        if (Main::getVerbose())
+        if (ncp::Application::isVerbose())
         {
             Log::out << OINFO << "Archive contains " << members.size() << " total members" << std::endl;
         }
@@ -352,13 +355,13 @@ void LibraryAnalyzer::createJobsFromArchive(const std::filesystem::path& archive
                     continue;
                 }
 
-                // Create job from this member
-                createJobFromELF(elf, archivePath, member.name);
+                // Create unit from this member
+                createUnitFromELF(elf, archivePath, member.name);
                 validCount++;
             }
             catch (const std::exception& e)
             {
-                if (Main::getVerbose())
+                if (ncp::Application::isVerbose())
                 {
                     Log::out << OWARN << "Error processing archive member " << member.name 
                              << ": " << e.what() << std::endl;

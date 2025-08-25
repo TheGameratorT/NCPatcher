@@ -4,7 +4,7 @@
 #include <memory>
 #include <unordered_map>
 
-#include "../types.hpp"
+#include "../utils/types.hpp"
 #include "../config/buildtarget.hpp"
 #include "types.hpp"
 

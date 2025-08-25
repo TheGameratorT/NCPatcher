@@ -6,14 +6,14 @@
 #include <mutex>
 #include <filesystem>
 
-#include "sourcefilejob.hpp"
+#include "../core/compilation_unit.hpp"
 
 class BuildLogger
 {
 public:
 	BuildLogger();
 
-	constexpr void setJobs(const std::vector<std::unique_ptr<SourceFileJob>>& jobs) { m_jobs = &jobs; }
+	constexpr void setUnits(const core::CompilationUnitPtrCollection& units) { m_units = &units; }
 
 	void start(const std::filesystem::path& targetRoot);
 	void update();
@@ -25,5 +25,5 @@ private:
 	int m_currentFrame;
 	bool m_failureFound;
 	std::size_t m_filesToBuild;
-	const std::vector<std::unique_ptr<SourceFileJob>>* m_jobs;
+	const core::CompilationUnitPtrCollection* m_units;
 };

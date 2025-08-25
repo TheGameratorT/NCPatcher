@@ -7,7 +7,7 @@
 
 #include "icodebin.hpp"
 
-#include "../types.hpp"
+#include "../utils/types.hpp"
 
 class ArmBin : public ICodeBin
 {

@@ -4,9 +4,9 @@
 #include <cstring>
 
 #include "buildconfig.hpp"
-#include "../main.hpp"
-#include "../except.hpp"
-#include "../util.hpp"
+#include "../app/application.hpp"
+#include "../system/except.hpp"
+#include "../utils/util.hpp"
 
 namespace fs = std::filesystem;
 
@@ -22,7 +22,7 @@ static std::vector<std::string> defines;
 void load()
 {
 	fs::path curPath = fs::current_path();
-	fs::current_path(Main::getWorkPath());
+	fs::current_path(ncp::Application::getWorkPath());
 	const fs::path& rebFile = BuildConfig::getBackupDir() / "rebuild.bin";
 
 	if (!fs::exists(rebFile))
@@ -98,7 +98,7 @@ void load()
 void save()
 {
 	fs::path curPath = fs::current_path();
-	fs::current_path(Main::getWorkPath());
+	fs::current_path(ncp::Application::getWorkPath());
 	const fs::path& rebFile = BuildConfig::getBackupDir() / "rebuild.bin";
 
 	u32 arm7PatchedOvCount = arm7PatchedOvs.size();
