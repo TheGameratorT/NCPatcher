@@ -13,6 +13,7 @@ using patch::GenericPatchInfo;
 using patch::OverwriteRegionInfo;
 using patch::NewcodePatch;
 using patch::AutogenDataInfo;
+using patch::PatchSourceType;
 
 class ElfAnalyzer
 {

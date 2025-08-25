@@ -19,28 +19,36 @@
 #define __ncp_main_section(opcode, address) __attribute__((section(".ncp_" #opcode "_" #address), used))
 #define __ncp_ovxx_section(opcode, address, overlay) __attribute__((section(".ncp_" #opcode "_" #address "_ov" #overlay), used))
 
-#define __ncp_main_jump(address) __ncp_main_section(jump, address)
-#define __ncp_main_call(address) __ncp_main_section(call, address)
-#define __ncp_main_hook(address) __ncp_main_section(hook, address)
 #define __ncp_main_over(address) __ncp_main_section(over, address)
-#define __ncp_ovxx_jump(address, overlay) __ncp_ovxx_section(jump, address, overlay)
-#define __ncp_ovxx_call(address, overlay) __ncp_ovxx_section(call, address, overlay)
-#define __ncp_ovxx_hook(address, overlay) __ncp_ovxx_section(hook, address, overlay)
 #define __ncp_ovxx_over(address, overlay) __ncp_ovxx_section(over, address, overlay)
+
+// NCP Symver
+
+#define __ncp_main_symver_impl(opcode, address, counter, line, file) __attribute__((__symver__("__ncp_" #opcode "_" #address "_" #counter "_" #line "_" #file "@0"), used))
+#define __ncp_main_symver(opcode, address, counter, line, file) __ncp_main_symver_impl(opcode, address, counter, line, file)
+#define __ncp_ovxx_symver_impl(opcode, address, overlay, counter, line, file) __attribute__((__symver__("__ncp_" #opcode "_" #address "_ov" #overlay "_" #counter "_" #line "_" #file "@0"), used))
+#define __ncp_ovxx_symver(opcode, address, overlay, counter, line, file) __ncp_ovxx_symver_impl(opcode, address, overlay, counter, line, file)
+
+#define __ncp_main_jump(address) __ncp_main_symver(jump, address, __COUNTER__, __LINE__, __ncp_src_base32)
+#define __ncp_main_call(address) __ncp_main_symver(call, address, __COUNTER__, __LINE__, __ncp_src_base32)
+#define __ncp_main_hook(address) __ncp_main_symver(hook, address, __COUNTER__, __LINE__, __ncp_src_base32)
+#define __ncp_ovxx_jump(address, overlay) __ncp_ovxx_symver(jump, address, overlay, __COUNTER__, __LINE__, __ncp_src_base32)
+#define __ncp_ovxx_call(address, overlay) __ncp_ovxx_symver(call, address, overlay, __COUNTER__, __LINE__, __ncp_src_base32)
+#define __ncp_ovxx_hook(address, overlay) __ncp_ovxx_symver(hook, address, overlay, __COUNTER__, __LINE__, __ncp_src_base32)
 
 #define ncp_jump(...) __ncp_get_macro(__VA_ARGS__, , __ncp_ovxx_jump, __ncp_main_jump)(__VA_ARGS__)
 #define ncp_call(...) __ncp_get_macro(__VA_ARGS__, , __ncp_ovxx_call, __ncp_main_call)(__VA_ARGS__)
 #define ncp_hook(...) __ncp_get_macro(__VA_ARGS__, , __ncp_ovxx_hook, __ncp_main_hook)(__VA_ARGS__)
 #define ncp_over(...) __ncp_get_macro(__VA_ARGS__, , __ncp_ovxx_over, __ncp_main_over)(__VA_ARGS__)
 
-// NCP Sections (thumb)
+// NCP Symver (thumb)
 
-#define __ncp_main_tjump(address) __ncp_main_section(tjump, address)
-#define __ncp_main_tcall(address) __ncp_main_section(tcall, address)
-#define __ncp_main_thook(address) __ncp_main_section(thook, address)
-#define __ncp_ovxx_tjump(address, overlay) __ncp_ovxx_section(tjump, address, overlay)
-#define __ncp_ovxx_tcall(address, overlay) __ncp_ovxx_section(tcall, address, overlay)
-#define __ncp_ovxx_thook(address, overlay) __ncp_ovxx_section(thook, address, overlay)
+#define __ncp_main_tjump(address) __ncp_main_symver(tjump, address, __COUNTER__, __LINE__, __ncp_src_base32)
+#define __ncp_main_tcall(address) __ncp_main_symver(tcall, address, __COUNTER__, __LINE__, __ncp_src_base32)
+#define __ncp_main_thook(address) __ncp_main_symver(thook, address, __COUNTER__, __LINE__, __ncp_src_base32)
+#define __ncp_ovxx_tjump(address, overlay) __ncp_ovxx_symver(tjump, address, overlay, __COUNTER__, __LINE__, __ncp_src_base32)
+#define __ncp_ovxx_tcall(address, overlay) __ncp_ovxx_symver(tcall, address, overlay, __COUNTER__, __LINE__, __ncp_src_base32)
+#define __ncp_ovxx_thook(address, overlay) __ncp_ovxx_symver(thook, address, overlay, __COUNTER__, __LINE__, __ncp_src_base32)
 
 #define ncp_tjump(...) __ncp_get_macro(__VA_ARGS__, , __ncp_ovxx_tjump, __ncp_main_tjump)(__VA_ARGS__)
 #define ncp_tcall(...) __ncp_get_macro(__VA_ARGS__, , __ncp_ovxx_tcall, __ncp_main_tcall)(__VA_ARGS__)

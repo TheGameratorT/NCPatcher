@@ -21,22 +21,12 @@ static const char* s_patchTypeNames[] = {
     "settjump", "settcall", "setthook"
 };
 
-struct PatchType {
-    enum {
-        Jump, Call, Hook, Over,
-        SetJump, SetCall, SetHook,
-        RtRepl,
-        TJump, TCall, THook,
-        SetTJump, SetTCall, SetTHook,
-    };
-};
-
 static u32 getPatchOverwriteAmount(const GenericPatchInfo* p)
 {
     std::size_t pt = p->patchType;
-    if (pt == PatchType::Over)
+    if (pt == patch::PatchType::Over)
         return p->sectionSize;
-    if (pt == PatchType::Jump && p->destThumb)
+    if (pt == patch::PatchType::Jump && p->destThumb)
         return 8;
     return 4;
 }
@@ -80,7 +70,7 @@ void ElfAnalyzer::gatherInfoFromElf(
     [&](const Elf32_Sym& symbol, std::string_view symbolName){
         for (auto& p : patchInfo)
         {
-            if (p->sectionIdx != -1) // patch is section
+            if (p->sourceType == PatchSourceType::Section)
             {
                 std::string_view nameAsLabel = std::string_view(p->symbol).substr(1);
                 if (nameAsLabel == symbolName)
@@ -95,7 +85,7 @@ void ElfAnalyzer::gatherInfoFromElf(
                 // This must run before fetching ncp_set section, otherwise ncp_set srcAddr will be overwritten
                 if (p->symbol == symbolName)
                 {
-                    p->srcAddress = symbol.st_value;
+                    p->srcAddress = symbol.st_value & ~1;
                     p->sectionIdx = symbol.st_shndx;
                 }
             }
@@ -124,7 +114,7 @@ void ElfAnalyzer::gatherInfoFromElf(
     [&](std::size_t sectionIdx, const Elf32_Shdr& section, std::string_view sectionName){
         for (auto& p : patchInfo)
         {
-            if (p->patchType == PatchType::Over)
+            if (p->patchType == patch::PatchType::Over)
             {
                 if (p->symbol == sectionName)
                 {
@@ -223,21 +213,41 @@ void ElfAnalyzer::gatherInfoFromElf(
     
     if (ncp::Application::isVerbose())
     {
-        Log::out << "Patches:\nSRC_ADDR, SRC_ADDR_OV, DST_ADDR, DST_ADDR_OV, PATCH_TYPE, SEC_IDX, SEC_SIZE, NCP_SET, SRC_THUMB, DST_THUMB, SYMBOL" << std::endl;
+        Log::out << ANSI_bCYAN "Patches:" ANSI_RESET "\n"
+            << ANSI_bWHITE "SRC_ADDR" ANSI_RESET "  "
+            << ANSI_bWHITE "SRC_ADDR_OV" ANSI_RESET "  "
+            << ANSI_bWHITE "DST_ADDR" ANSI_RESET "  "
+            << ANSI_bWHITE "DST_ADDR_OV" ANSI_RESET "  "
+            << ANSI_bWHITE "PATCH_TYPE" ANSI_RESET "  "
+            << ANSI_bWHITE "SEC_IDX" ANSI_RESET "  "
+            << ANSI_bWHITE "SEC_SIZE" ANSI_RESET "  "
+            << ANSI_bWHITE "NCP_SET" ANSI_RESET "  "
+            << ANSI_bWHITE "SRC_THUMB" ANSI_RESET "  "
+            << ANSI_bWHITE "DST_THUMB" ANSI_RESET "  "
+            << ANSI_bWHITE "SOURCE_TYPE" ANSI_RESET "  "
+            << ANSI_bWHITE "SYMBOL" ANSI_RESET << std::endl;
         for (auto& p : patchInfo)
         {
+			std::string sourceTypeStr;
+			switch (p->sourceType) {
+				case PatchSourceType::Section: sourceTypeStr = "section"; break;
+				case PatchSourceType::Label: sourceTypeStr = "label"; break;
+				case PatchSourceType::Symver: sourceTypeStr = "symver"; break;
+			}
+
             Log::out <<
-                std::setw(8) << std::hex << p->srcAddress << "  " <<
-                std::setw(11) << std::dec << p->srcAddressOv << "  " <<
-                std::setw(8) << std::hex << p->destAddress << "  " <<
-                std::setw(11) << std::dec << p->destAddressOv << "  " <<
-                std::setw(10) << s_patchTypeNames[p->patchType] << "  " <<
-                std::setw(7) << std::dec << p->sectionIdx << "  " <<
-                std::setw(8) << std::dec << p->sectionSize << "  " <<
-                std::setw(7) << std::boolalpha << p->isNcpSet << "  " <<
-                std::setw(9) << std::boolalpha << p->srcThumb << "  " <<
-                std::setw(9) << std::boolalpha << p->destThumb << "  " <<
-                std::setw(6) << p->symbol << std::endl;
+                ANSI_CYAN << std::setw(8) << std::hex << p->srcAddress << ANSI_RESET "  " <<
+                ANSI_YELLOW << std::setw(11) << std::dec << p->srcAddressOv << ANSI_RESET "  " <<
+                ANSI_BLUE << std::setw(8) << std::hex << p->destAddress << ANSI_RESET "  " <<
+                ANSI_YELLOW << std::setw(11) << std::dec << p->destAddressOv << ANSI_RESET "  " <<
+                ANSI_MAGENTA << std::setw(10) << s_patchTypeNames[p->patchType] << ANSI_RESET "  " <<
+                ANSI_WHITE << std::setw(7) << std::dec << p->sectionIdx << ANSI_RESET "  " <<
+                ANSI_WHITE << std::setw(8) << std::dec << p->sectionSize << ANSI_RESET "  " <<
+                ANSI_GREEN << std::setw(7) << std::boolalpha << p->isNcpSet << ANSI_RESET "  " <<
+                ANSI_GREEN << std::setw(9) << std::boolalpha << p->srcThumb << ANSI_RESET "  " <<
+                ANSI_GREEN << std::setw(9) << std::boolalpha << p->destThumb << ANSI_RESET "  " <<
+                ANSI_bYELLOW << std::setw(11) << sourceTypeStr << ANSI_RESET "  " <<
+                ANSI_WHITE << p->symbol << ANSI_RESET << std::endl;
         }
     }
 
@@ -271,13 +281,16 @@ void ElfAnalyzer::gatherInfoFromElf(
 
     if (ncp::Application::isVerbose())
     {
-        Log::out << "New Code Info:\nNAME    CODE_SIZE    BSS_SIZE" << std::endl;
+        Log::out << ANSI_bCYAN "New Code Info:" ANSI_RESET "\n"
+            << ANSI_bWHITE "NAME" ANSI_RESET "    "
+            << ANSI_bWHITE "CODE_SIZE" ANSI_RESET "    "
+            << ANSI_bWHITE "BSS_SIZE" ANSI_RESET << std::endl;
         for (const auto& [dest, newcodeInfo] : m_newcodeDataForDest)
         {
             Log::out <<
-                std::setw(8) << std::left << (dest == -1 ? "ARM" : ("OV" + std::to_string(dest))) << std::right <<
-                std::setw(9) << std::dec << newcodeInfo->binSize << "    " <<
-                std::setw(8) << std::dec << newcodeInfo->bssSize << std::endl;
+                ANSI_YELLOW << std::setw(8) << std::left << (dest == -1 ? "ARM" : ("OV" + std::to_string(dest))) << ANSI_RESET << std::right <<
+                ANSI_CYAN << std::setw(9) << std::dec << newcodeInfo->binSize << ANSI_RESET "    " <<
+                ANSI_CYAN << std::setw(8) << std::dec << newcodeInfo->bssSize << ANSI_RESET << std::endl;
         }
     }
 

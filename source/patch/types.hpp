@@ -120,6 +120,15 @@ struct PatchInfo
 };
 
 /**
+ * Enumeration for patch source types
+ */
+enum class PatchSourceType {
+    Section,    // Section-based patch (sectionIdx >= 0)
+    Label,      // Label-based patch (sectionIdx == -1, traditional)
+    Symver      // Symbol versioned patch (sectionIdx == -1, new type)
+};
+
+/**
  * Generic patch information with section support
  */
 struct GenericPatchInfo : public PatchInfo
@@ -127,6 +136,7 @@ struct GenericPatchInfo : public PatchInfo
     int sectionIdx = -1;
     int sectionSize = 0;
     bool isNcpSet = false;
+    PatchSourceType sourceType = PatchSourceType::Section;
 };
 
 /**

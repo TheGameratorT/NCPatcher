@@ -17,16 +17,6 @@ namespace fs = std::filesystem;
 constexpr std::size_t SizeOfHookBridge = 20;
 constexpr std::size_t SizeOfArm2ThumbJumpBridge = 8;
 
-struct PatchType {
-    enum {
-        Jump, Call, Hook, Over,
-        SetJump, SetCall, SetHook,
-        RtRepl,
-        TJump, TCall, THook,
-        SetTJump, SetTCall, SetTHook,
-    };
-};
-
 LinkerScriptGenerator::LinkerScriptGenerator() = default;
 LinkerScriptGenerator::~LinkerScriptGenerator() = default;
 
@@ -137,7 +127,7 @@ void LinkerScriptGenerator::createLinkerScript(
     // Iterate all patches to setup the linker script
     for (const auto& info : patchInfo)
     {
-        if (info->patchType == PatchType::Over)
+        if (info->patchType == patch::PatchType::Over)
         {
             std::string memName; memName.reserve(32);
             memName += "over_";
@@ -157,7 +147,7 @@ void LinkerScriptGenerator::createLinkerScript(
             {
                 if (ldsRegion->dest == info->unit->getTargetRegion()->destination)
                 {
-                    if (info->sectionIdx != -1)
+                    if (info->sourceType == patch::PatchSourceType::Section)
                     {
                         // Check if this patch's section is assigned to an overwrite region (only for final version)
                         bool patchInOverwrite = false;
@@ -186,11 +176,11 @@ void LinkerScriptGenerator::createLinkerScript(
                             ldsRegion->sectionPatches.emplace_back(info.get());
                     }
 
-                    if (info->patchType == PatchType::Hook)
+                    if (info->patchType == patch::PatchType::Hook)
                     {
                         ldsRegion->autogenDataSize += SizeOfHookBridge;
                     }
-                    else if (info->patchType == PatchType::Jump)
+                    else if (info->patchType == patch::PatchType::Jump)
                     {
                         if (!info->destThumb && info->srcThumb) // ARM -> THUMB
                             ldsRegion->autogenDataSize += SizeOfArm2ThumbJumpBridge;

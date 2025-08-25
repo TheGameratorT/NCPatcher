@@ -10,13 +10,14 @@
 #include <BS_thread_pool.hpp>
 
 #include "../app/application.hpp"
-#include "../utils/util.hpp"
 #include "../config/buildconfig.hpp"
 #include "../config/buildtarget.hpp"
 #include "../system/except.hpp"
 #include "../system/log.hpp"
 #include "../system/process.hpp"
 #include "../core/compilation_unit_manager.hpp"
+#include "../utils/base32.hpp"
+#include "../utils/util.hpp"
 #include "buildlogger.hpp"
 
 #include <functional>
@@ -341,6 +342,14 @@ void ObjMaker::compileSources()
 				ccmd += " -D";
 				ccmd += DefineForSourceFileType[fileType];
 				ccmd += " ";
+				if (fileType != SourceFileType::ASM)
+				{
+					// base32 is symver compatible
+					std::string __ncp_src_base32 = base32::encode_nopad(srcS);
+					ccmd += " -D__ncp_src_base32=";
+					ccmd += __ncp_src_base32;
+					ccmd += " ";
+				}
 				ccmd += m_defineFlags;
 				ccmd += m_includeFlags;
 				ccmd += "-c -fdiagnostics-color -fdata-sections -ffunction-sections ";
