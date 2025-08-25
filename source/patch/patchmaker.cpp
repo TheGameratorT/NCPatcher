@@ -1864,7 +1864,9 @@ u32 PatchMaker::fixupOpCode(u32 opCode, u32 ogAddr, u32 newAddr)
 	if (((opCode >> 25) & 0b111) == 0b101)
 	{
 		u32 opCodeBase = opCode & 0xFF000000;
-		u32 toAddr = (((opCode & 0xFFFFFF) + 2) << 2) + ogAddr;
+		// Extract 24-bit signed offset and properly sign-extend it
+		s32 offset = s32(opCode << 8) >> 8; // Sign-extend by shifting left then right
+		u32 toAddr = u32((offset + 2) * 4 + s32(ogAddr));
 		return makeJumpOpCode(opCodeBase, newAddr, toAddr);
 	}
 	return opCode;
