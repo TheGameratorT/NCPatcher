@@ -13,6 +13,7 @@
 #else
 #include <stdio.h>
 #include <sys/ioctl.h>
+#include <sys/select.h>
 #include <termios.h>
 #include <unistd.h>
 #endif
@@ -30,6 +31,9 @@ namespace Log {
 
 static std::ofstream logFile;
 static LogMode logMode = LogMode::Both;
+#ifndef _WIN32
+static bool xyCapabilityAvailable = true;
+#endif
 
 #ifdef _WIN32
 static int wincolors[] = {
@@ -71,14 +75,19 @@ public:
 	{
 		flushBuffer(str());
 		str("");
-		return std::cout ? 0 : -1;
+		return 0; // Always return success
 	}
 
 	void flushBuffer(const std::string& buf)
 	{
+		if (buf.empty())
+			return;
+
 #ifndef _WIN32
-		if (logMode != LogMode::File)
+		if (logMode != LogMode::File && xyCapabilityAvailable)
+		{
 			std::cout << buf << std::flush;
+		}
 #endif
 
 		auto isEndChar = [](char c){ return (c < '0' || c > '9') && c != ';'; };
@@ -89,8 +98,16 @@ public:
 
 		std::string_view bufView(buf);
 
+		// Process ANSI escape sequences
 		while ((cpos = buf.find('\x1b', cpos)) != std::string::npos)
 		{
+			// Prevent infinite loops with malformed escape sequences
+			if (cpos + 1 >= bufl || buf[cpos + 1] != '[')
+			{
+				cpos++;
+				continue;
+			}
+
 			// Print the section between the previous ANSI code and the newly found one
 			outputBuffer(bufView.substr(lpos, cpos - lpos));
 
@@ -121,16 +138,13 @@ public:
 				{
 					SizeT argLen = cpos - lapos;
 #ifdef _WIN32
-					if (op == 'm')
+					if (op == 'm' && argLen < 10) // Safety check for argument length
 					{
 						int arg = argLen == 0 ? 0 : std::stoi(std::string(bufView.substr(lapos, argLen)));
 						applyCode(arg);
 					}
 #endif
 					lapos = cpos + 1;
-					/*if (argLen != 0) // argLen can only be 0, when the end has been reached so no need to break
-					{
-					}*/
 				}
 				cpos++;
 				if (reachedEnd)
@@ -139,17 +153,24 @@ public:
 			lpos = cpos;
 		}
 
-		outputBuffer(&buf[lpos]); // Print the remaining text
+		outputBuffer(bufView.substr(lpos)); // Print the remaining text
 	}
 
 	static void outputBuffer(const std::string_view& str)
 	{
+		if (str.empty())
+			return;
+			
 #ifdef _WIN32
 		if (logMode != LogMode::File)
 			std::cout << str << std::flush;
 #endif
 		if (logMode != LogMode::Console)
 		{
+#ifndef _WIN32
+			if (!xyCapabilityAvailable)
+				std::cout << str << std::flush;
+#endif
 			if (logFile.is_open())
 				logFile << str << std::flush;
 		}
@@ -217,6 +238,57 @@ OutputStream out;
 void init()
 {
 	std::ios_base::sync_with_stdio(false);
+	
+#ifndef _WIN32
+	// Test XY capability by attempting to query cursor position with timeout
+	struct termios term, restore;
+	tcgetattr(0, &term);
+	tcgetattr(0, &restore);
+	term.c_lflag &= ~(ICANON|ECHO);
+	tcsetattr(0, TCSANOW, &term);
+
+	int ret = write(1, "\033[6n", 4);
+	if (ret == -1)
+	{
+		xyCapabilityAvailable = false;
+		tcsetattr(0, TCSANOW, &restore);
+		return;
+	}
+
+	// Add timeout to prevent indefinite blocking during capability check
+	fd_set read_fds;
+	struct timeval timeout;
+	FD_ZERO(&read_fds);
+	FD_SET(0, &read_fds);
+	timeout.tv_sec = 1;  // 1 second timeout
+	timeout.tv_usec = 0;
+
+	int select_ret = select(1, &read_fds, NULL, NULL, &timeout);
+	if (select_ret <= 0)
+	{
+		xyCapabilityAvailable = false;
+		tcsetattr(0, TCSANOW, &restore);
+		return;
+	}
+
+	// Read and discard the response to complete the capability check
+	char buf[30];
+	char ch = 0;
+	int i = 0;
+	while (ch != 'R' && i < 29)
+	{
+		ret = read(0, &ch, 1);
+		if (!ret)
+		{
+			xyCapabilityAvailable = false;
+			break;
+		}
+		buf[i] = ch;
+		i++;
+	}
+
+	tcsetattr(0, TCSANOW, &restore);
+#endif
 }
 
 void destroy()
@@ -361,6 +433,11 @@ Coords getXY()
 	char ch;
 	Coords coords{0,0};
 
+	if (!xyCapabilityAvailable)
+	{
+		return coords;
+	}
+
 	struct termios term, restore;
 
 	tcgetattr(0, &term);
@@ -371,11 +448,12 @@ Coords getXY()
 	ret = write(1, "\033[6n", 4);
 	if (ret == -1)
 	{
+		tcsetattr(0, TCSANOW, &restore);
 		fprintf(stderr, "Log::getXY() error: query failed!\n");
 		return coords;
 	}
 
-	for(i = 0, ch = 0; ch != 'R'; i++)
+	for(i = 0, ch = 0; ch != 'R' && i < 29; i++)
 	{
 		ret = read(0, &ch, 1);
 		if (!ret)
@@ -409,6 +487,9 @@ Coords getXY()
 
 void gotoXY(int x, int y)
 {
+	if (!xyCapabilityAvailable)
+		return;
+		
 	if (x < 0 || y < 0)
 	{
 		struct winsize ws;
@@ -421,6 +502,9 @@ void gotoXY(int x, int y)
 
 void writeChar(int x, int y, char chr)
 {
+	if (!xyCapabilityAvailable)
+		return;
+		
 	Coords coords = getXY();
 	gotoXY(x, y);
 	std::cout << chr << std::flush;
@@ -429,6 +513,9 @@ void writeChar(int x, int y, char chr)
 
 void writeChar(int x, int y, char chr, int color, bool bold)
 {
+	if (!xyCapabilityAvailable)
+		return;
+		
 	Coords coords = getXY();
 	gotoXY(x, y);
 	std::cout << "\x1b[" << std::to_string(color);
@@ -440,6 +527,9 @@ void writeChar(int x, int y, char chr, int color, bool bold)
 
 std::size_t getRemainingLines()
 {
+	if (!xyCapabilityAvailable)
+		return 0;
+		
 	struct winsize ws;
 	ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws);
 	Coords cursorPos = getXY();
@@ -448,6 +538,9 @@ std::size_t getRemainingLines()
 
 void showCursor(bool flag)
 {
+	if (!xyCapabilityAvailable)
+		return;
+		
 	std::cout << (flag ? "\x1b[?25h" : "\x1b[?25l") << std::flush;
 }
 
