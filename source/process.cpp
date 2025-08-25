@@ -2,6 +2,8 @@
 
 #include <string>
 #include <stdexcept>
+#include <thread>
+#include <vector>
 
 #define BUFSIZE 4096
 
@@ -142,17 +144,35 @@ int Process::start(const char* cmd, std::ostream* out)
 	{
 		close(pipefd[1]); // Close the unused write end
 
-		// Read from the child
-		char buffer[BUFSIZE];
-		for (int len; (len = read(pipefd[0], buffer, sizeof(buffer)));)
-		{
-			if (out)
-				out->write(buffer, len);
-		}
-
+		// Use a separate thread to read from the pipe to prevent deadlock
+		std::vector<char> output_buffer;
+		std::thread reader_thread([&]() {
+			char buffer[BUFSIZE];
+			ssize_t len;
+			while ((len = read(pipefd[0], buffer, sizeof(buffer))) > 0)
+			{
+				if (out)
+					out->write(buffer, len);
+				else
+				{
+					// Even if no output stream is provided, we need to consume the data
+					// to prevent the child process from blocking on writes
+					output_buffer.insert(output_buffer.end(), buffer, buffer + len);
+				}
+			}
+			close(pipefd[0]); // Close the read end
+		});
+		
 		// Wait for the child to complete
 		if (waitpid(pid, &status, 0) != pid)
 			status = -1;
+		else if (WIFEXITED(status))
+			status = WEXITSTATUS(status);
+		else
+			status = -1;
+		
+		// Wait for the reader thread to finish
+		reader_thread.join();
 	}
 
 	return status;
