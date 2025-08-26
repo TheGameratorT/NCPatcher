@@ -10,6 +10,9 @@
 
 #include "../config/buildtarget.hpp"
 
+// Forward declaration
+class Elf32;
+
 namespace core {
 
 /**
@@ -70,6 +73,10 @@ public:
     BuildInfo& getBuildInfo() { return m_buildInfo; }
     const BuildInfo& getBuildInfo() const { return m_buildInfo; }
 
+    // ELF access for performance optimization
+    Elf32* getElf() const { return m_elf; }
+    void setElf(Elf32* elf) { m_elf = elf; }
+
 private:
     CompilationUnitType m_type;
     std::filesystem::path m_sourcePath;
@@ -81,6 +88,9 @@ private:
     // Metadata for tracking
     std::filesystem::file_time_type m_sourceWriteTime;
     bool m_needsRebuild = false;
+    
+    // ELF reference for performance optimization
+    Elf32* m_elf = nullptr;
     
     // Build information integrated directly
     BuildInfo m_buildInfo;

@@ -131,6 +131,14 @@ void PatchMaker::generateElfFile()
 	m_libraryAnalyzer->analyzeLibraryDependencies();
 	m_libraryAnalyzer->generateLibraryUnits();
 
+	// Initialize the user object ELFs
+	for (const auto& unit : m_compilationUnitMgr->getUserUnits())
+	{
+		auto elf = ncp::cache::CacheManager::getInstance().getOrLoadElf(unit->getObjectPath());
+        // Cache the ELF pointer in the unit for future use
+        unit->setElf(elf);
+	}
+
 	// Analyze patches and sections
 	m_patchInfoAnalyzer->gatherInfoFromObjects();
 	

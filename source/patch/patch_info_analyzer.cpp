@@ -47,17 +47,12 @@ void PatchInfoAnalyzer::processObjectFile(core::CompilationUnit* unit)
     if (ncp::Application::isVerbose())
         Log::out << ANSI_bYELLOW << objPath.string() << ANSI_RESET << std::endl;
 
-    Elf32 elf;
-    if (!loadElfFromPath(elf, objPath))
-    {
-        if (ncp::Application::isVerbose())
-            Log::out << OWARN << "Failed to load object file: " << objPath.string() << std::endl;
-        return;
-    }
+    // Try to get ELF directly from the compilation unit first
+    Elf32* elf = unit->getElf();
 
-    const Elf32_Ehdr& eh = elf.getHeader();
-    auto sh_tbl = elf.getSectionHeaderTable();
-    auto str_tbl = elf.getSection<char>(sh_tbl[eh.e_shstrndx]);
+    const Elf32_Ehdr& eh = elf->getHeader();
+    auto sh_tbl = elf->getSectionHeaderTable();
+    auto str_tbl = elf->getSection<char>(sh_tbl[eh.e_shstrndx]);
     
     std::vector<GenericPatchInfo*> patchInfoForThisObj;
     const Elf32_Shdr* ncpSetSection = nullptr;
@@ -67,20 +62,20 @@ void PatchInfoAnalyzer::processObjectFile(core::CompilationUnit* unit)
     std::size_t ncpSetRelSymTblSize = 0;
 
     // Process sections
-    processElfSections(elf, eh, sh_tbl, str_tbl, unit, patchInfoForThisObj,
+    processElfSections(*elf, eh, sh_tbl, str_tbl, unit, patchInfoForThisObj,
                       ncpSetSection, ncpSetRel, ncpSetRelSymTbl, 
                       ncpSetRelCount, ncpSetRelSymTblSize);
 
     // Update thumb information for patches
-    updatePatchThumbInfo(elf, eh, sh_tbl, patchInfoForThisObj);
+    updatePatchThumbInfo(*elf, eh, sh_tbl, patchInfoForThisObj);
 
     // Process symbols
-    processElfSymbols(elf, eh, sh_tbl, unit, patchInfoForThisObj,
+    processElfSymbols(*elf, eh, sh_tbl, unit, patchInfoForThisObj,
                      ncpSetSection, ncpSetRel, ncpSetRelSymTbl,
                      ncpSetRelCount, ncpSetRelSymTblSize);
 
     // Resolve symver patches to their real symbol names
-    resolveSymverPatches(elf, eh, sh_tbl, patchInfoForThisObj);
+    resolveSymverPatches(*elf, eh, sh_tbl, patchInfoForThisObj);
 
     // Find functions that should be external (label and symver marked)
     for (GenericPatchInfo* p : patchInfoForThisObj)
@@ -101,66 +96,9 @@ void PatchInfoAnalyzer::processObjectFile(core::CompilationUnit* unit)
     }
 
     // Collect sections suitable for overwrites
-    collectOverwriteCandidateSections(elf, eh, sh_tbl, str_tbl, unit);
+    collectOverwriteCandidateSections(*elf, eh, sh_tbl, str_tbl, unit);
 
     printPatchInfoForObject(patchInfoForThisObj);
-}
-
-bool PatchInfoAnalyzer::loadElfFromPath(Elf32& elf, const std::filesystem::path& objPath)
-{
-    // Check if this is an archive path (contains a colon separator)
-    if (objPath.string().find(':') != std::string::npos && objPath.extension() == ".o")
-    {
-        // This is an archive member: path/to/archive.a:member.o
-        size_t colonPos = objPath.string().find_last_of(':');
-        fs::path archivePath = objPath.string().substr(0, colonPos);
-        std::string memberName = objPath.string().substr(colonPos + 1);
-        
-        return loadElfFromArchive(elf, archivePath, memberName);
-    }
-    else
-    {
-        // Regular object file
-        if (!std::filesystem::exists(objPath))
-            throw ncp::file_error(objPath, ncp::file_error::find);
-        if (!elf.load(objPath))
-            throw ncp::file_error(objPath, ncp::file_error::read);
-        return true;
-    }
-}
-
-bool PatchInfoAnalyzer::loadElfFromArchive(Elf32& elf, const std::filesystem::path& archivePath, const std::string& memberName)
-{
-    try
-    {
-        Archive archive;
-        if (!archive.load(archivePath))
-        {
-            return false;
-        }
-
-        const auto& members = archive.getMembers();
-        for (const auto& memberPtr : members)
-        {
-            const ArMember& member = *memberPtr;
-            if (member.name == memberName)
-            {
-                // Found the member, load it as ELF
-                return elf.loadFromMemory(member.data.data(), member.data.size());
-            }
-        }
-        
-        return false; // Member not found
-    }
-    catch (const std::exception& e)
-    {
-        if (ncp::Application::isVerbose())
-        {
-            Log::out << OWARN << "Error loading archive member " << memberName 
-                     << " from " << archivePath.string() << ": " << e.what() << std::endl;
-        }
-        return false;
-    }
 }
 
 PatchInfoAnalyzer::ParsedPatchInfo PatchInfoAnalyzer::parsePatchTypeAndAddress(std::string_view labelName)

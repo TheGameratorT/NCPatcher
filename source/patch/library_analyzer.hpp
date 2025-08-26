@@ -48,7 +48,7 @@ private:
     void findLibraryFiles();
     void createUnitsFromLibrary(const std::filesystem::path& libraryPath);
     void createUnitsFromArchive(const std::filesystem::path& archivePath);
-    void createUnitFromELF(const Elf32& elf, const std::filesystem::path& libraryPath, const std::string& objectName = "");
+    void createUnitFromELF(Elf32& elf, const std::filesystem::path& libraryPath, const std::string& objectName = "");
 
     const BuildTarget* m_target;
     const std::filesystem::path* m_buildDir;

@@ -7,6 +7,7 @@
 #include "../system/log.hpp"
 #include "../system/process.hpp"
 #include "../system/except.hpp"
+#include "../system/cache.hpp"
 #include "../utils/types.hpp"
 #include "../config/buildconfig.hpp"
 #include "../config/buildtarget.hpp"
@@ -69,6 +70,9 @@ int Application::initialize(int argc, char* argv[])
         Log::error("Could not open the log file for writing.");
         return 1;
     }
+
+    // Initialize caches
+    ncp::cache::CacheManager::getInstance().clearCaches();
 
     if (!parseCommandLineArgs(argc, argv)) {
         return 1;

@@ -143,11 +143,14 @@ bool Archive::parseMembers()
         member->size = fileSize;
         member->offset = offset;
         
-        // Copy member data
+        // Set direct pointer to data (no copy)
         if (offset + fileSize <= m_data.size())
         {
-            member->data.resize(fileSize);
-            std::memcpy(member->data.data(), m_data.data() + offset, fileSize);
+            member->data = m_data.data() + offset;
+        }
+        else
+        {
+            member->data = nullptr;
         }
         
         m_members.push_back(std::move(member));

@@ -7,7 +7,9 @@
 #include <unordered_map>
 
 #include "../utils/types.hpp"
+#include "../system/cache.hpp"
 #include "../formats/elf.hpp"
+#include "../formats/archive.hpp"
 #include "../core/compilation_unit_manager.hpp"
 #include "types.hpp"
 
@@ -67,17 +69,17 @@ private:
     const std::vector<std::string>* m_externSymbols;
     core::CompilationUnitManager* m_compilationUnitMgr;
 
-    // Composite key for uniquely identifying sections: sectionName + objectFileName
+    // Composite key for uniquely identifying sections: sectionName + unit pointer
     struct SectionKey
     {
         std::string sectionName;
-        std::string objectFileName;
+        const core::CompilationUnit* unit;
         
-        SectionKey(const std::string& section, const std::string& object) 
-            : sectionName(section), objectFileName(object) {}
+        SectionKey(const std::string& section, const core::CompilationUnit* u) 
+            : sectionName(section), unit(u) {}
         
         bool operator==(const SectionKey& other) const {
-            return sectionName == other.sectionName && objectFileName == other.objectFileName;
+            return sectionName == other.sectionName && unit == other.unit;
         }
     };
     
@@ -85,7 +87,7 @@ private:
     {
         std::size_t operator()(const SectionKey& key) const {
             return std::hash<std::string>{}(key.sectionName) ^ 
-                   (std::hash<std::string>{}(key.objectFileName) << 1);
+                   (std::hash<const void*>{}(key.unit) << 1);
         }
     };
 
@@ -98,8 +100,7 @@ private:
     std::unordered_map<SectionKey, SectionUsageInfo*, SectionKeyHash> m_sectionLookup;
 
     // Analysis methods
-    void collectSymbolsAndSections();
-    void analyzeRelocations();
+    void collectSymbolsAndSectionsWithRelocations();
     void markEntryPoints();
     void propagateUsage();
     
@@ -108,12 +109,10 @@ private:
     void markSectionAsUsed(const std::string& sectionName, const core::CompilationUnit* unit);
     bool isSectionMarkedAsUsed(const std::string& sectionName, const core::CompilationUnit* unit) const;
     bool isSymbolInSection(const std::string& symbolName, const std::string& sectionName);
-    bool loadElfFromArchive(Elf32& elf, const std::filesystem::path& archivePath, const std::string& memberName);
     
     // Section lookup helpers
     SectionUsageInfo* findSection(const std::string& sectionName, const core::CompilationUnit* unit);
     const SectionUsageInfo* findSection(const std::string& sectionName, const core::CompilationUnit* unit) const;
-    void buildSectionLookupMap();
     
     // Tree printing helpers
     void printTreeNode(const std::string& nodeName, bool isSection, const std::string& indent, bool isLast, std::unordered_set<std::string>& visited) const;

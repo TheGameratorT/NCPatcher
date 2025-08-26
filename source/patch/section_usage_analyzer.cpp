@@ -33,13 +33,9 @@ void SectionUsageAnalyzer::analyzeObjectFiles()
     m_sectionLookup.clear();
 
     // Phase 1: Collect all symbols and sections from object files
-    collectSymbolsAndSections();
-
-    // Build the lookup map for fast section access
-    buildSectionLookupMap();
-
-    // Phase 2: Analyze relocations to find dependencies
-    analyzeRelocations();
+    // Phase 2: Analyze relocations to find dependencies  
+    // Combined into single pass to avoid loading ELF files twice
+    collectSymbolsAndSectionsWithRelocations();
 
     // Phase 3: Mark entry points (patches and extern symbols) as used
     markEntryPoints();
@@ -57,49 +53,24 @@ void SectionUsageAnalyzer::analyzeObjectFiles()
         Log::out << std::endl;
         
         // Print the dependency tree
-        printDependencyTree();
+        // printDependencyTree();
     }
 }
 
-void SectionUsageAnalyzer::collectSymbolsAndSections()
+// New optimized combined method that loads each ELF file only once
+void SectionUsageAnalyzer::collectSymbolsAndSectionsWithRelocations()
 {
     for (const auto& unit : m_compilationUnitMgr->getUnits())
     {
-        const std::filesystem::path& objPath = unit->getObjectPath();
+        // Try to get ELF directly from the compilation unit first
+        Elf32* elf = unit->getElf();
 
-        // Check if this is an archive path (contains a colon separator)
-        Elf32 elf;
-        if (objPath.string().find(':') != std::string::npos && objPath.extension() == ".o")
-        {
-            // This is an archive member: path/to/archive.a:member.o
-            size_t colonPos = objPath.string().find_last_of(':');
-            std::filesystem::path archivePath = objPath.string().substr(0, colonPos);
-            std::string memberName = objPath.string().substr(colonPos + 1);
-            
-            if (!loadElfFromArchive(elf, archivePath, memberName))
-            {
-                if (ncp::Application::isVerbose())
-                    Log::out << OWARN << "Failed to load archive member: " << memberName 
-                             << " from " << archivePath.string() << std::endl;
-                continue;
-            }
-        }
-        else
-        {
-            // Regular object file
-            if (!std::filesystem::exists(objPath))
-                throw ncp::file_error(objPath, ncp::file_error::find);
-            
-            if (!elf.load(objPath))
-                throw ncp::file_error(objPath, ncp::file_error::read);
-        }
-
-        const Elf32_Ehdr& eh = elf.getHeader();
-        auto sh_tbl = elf.getSectionHeaderTable();
-        auto str_tbl = elf.getSection<char>(sh_tbl[eh.e_shstrndx]);
+        const Elf32_Ehdr& eh = elf->getHeader();
+        auto sh_tbl = elf->getSectionHeaderTable();
+        auto str_tbl = elf->getSection<char>(sh_tbl[eh.e_shstrndx]);
 
         if (ncp::Application::isVerbose())
-            Log::out << "  Analyzing " << objPath.string() << std::endl;
+            Log::out << "  Analyzing " << unit->getObjectPath().string() << std::endl;
 
         // Collect sections
         Elf32::forEachSection(eh, sh_tbl, str_tbl,
@@ -119,13 +90,18 @@ void SectionUsageAnalyzer::collectSymbolsAndSections()
 			sectionInfo->unit = unit.get();
 			sectionInfo->alignment = section.sh_addralign > 0 ? section.sh_addralign : 4;
 			
+			// Add to lookup map immediately for use in relocation analysis
+			SectionKey key(sectionInfo->name, sectionInfo->unit);
+			SectionUsageInfo* sectionPtr = sectionInfo.get();
+			m_sectionLookup[key] = sectionPtr;
+			
 			m_sectionUsageInfo.push_back(std::move(sectionInfo));
             
             return false;
         });
 
         // Collect symbols
-        Elf32::forEachSymbol(elf, eh, sh_tbl,
+        Elf32::forEachSymbol(*elf, eh, sh_tbl,
         [&](const Elf32_Sym& symbol, std::string_view symbolName) -> bool {
             if (symbolName.empty() || symbol.st_shndx == SHN_UNDEF)
                 return false;
@@ -206,40 +182,9 @@ void SectionUsageAnalyzer::collectSymbolsAndSections()
             }
             return false;
         });
-    }
-}
 
-void SectionUsageAnalyzer::analyzeRelocations()
-{
-    for (const auto& unit : m_compilationUnitMgr->getUnits())
-    {
-        const std::filesystem::path& objPath = unit->getObjectPath();
-        
-        // Check if this is an archive path (contains a colon separator)
-        Elf32 elf;
-        if (objPath.string().find(':') != std::string::npos && objPath.extension() == ".o")
-        {
-            // This is an archive member: path/to/archive.a:member.o
-            size_t colonPos = objPath.string().find_last_of(':');
-            std::filesystem::path archivePath = objPath.string().substr(0, colonPos);
-            std::string memberName = objPath.string().substr(colonPos + 1);
-            
-            if (!loadElfFromArchive(elf, archivePath, memberName))
-                continue; // Skip if we can't load
-        }
-        else
-        {
-            // Regular object file
-            if (!elf.load(objPath))
-                continue; // Skip if we can't load (should have been caught earlier)
-        }
-
-        const Elf32_Ehdr& eh = elf.getHeader();
-        auto sh_tbl = elf.getSectionHeaderTable();
-        auto str_tbl = elf.getSection<char>(sh_tbl[eh.e_shstrndx]);
-
-        // Analyze relocations to find symbol dependencies
-        Elf32::forEachRelocation(elf, eh, sh_tbl,
+        // Analyze relocations in the same pass to avoid loading the ELF again
+        Elf32::forEachRelocation(*elf, eh, sh_tbl,
         [&](const Elf32_Rel& relocation, std::string_view relocSectionName, std::string_view targetSectionName) -> bool {
             // Get the symbol table for this relocation section
             const Elf32_Shdr* relocSection = nullptr;
@@ -255,8 +200,8 @@ void SectionUsageAnalyzer::analyzeRelocations()
             if (!relocSection || relocSection->sh_link >= eh.e_shnum)
                 return false;
 
-            auto sym_tbl = elf.getSection<Elf32_Sym>(sh_tbl[relocSection->sh_link]);
-            auto sym_str_tbl = elf.getSection<char>(sh_tbl[sh_tbl[relocSection->sh_link].sh_link]);
+            auto sym_tbl = elf->getSection<Elf32_Sym>(sh_tbl[relocSection->sh_link]);
+            auto sym_str_tbl = elf->getSection<char>(sh_tbl[sh_tbl[relocSection->sh_link].sh_link]);
             
             u32 symIdx = ELF32_R_SYM(relocation.r_info);
             if (symIdx >= sh_tbl[relocSection->sh_link].sh_size / sizeof(Elf32_Sym))
@@ -292,8 +237,8 @@ void SectionUsageAnalyzer::analyzeRelocations()
                     // Create ReferencedSymbol with proper type information
                     ReferencedSymbol refSymbol(referencedSymbolName, isSection);
                     sectionInfo->referencedSymbols.insert(refSymbol);
-                    
-                    // if (Main::getVerbose())
+
+					// if (ncp::Application::isVerbose())
                     // {
                     //     Log::out << "    Section " << targetSectionName << " references " 
                     //              << (isSection ? "section " : "symbol ") << referencedSymbolName << std::endl;
@@ -311,11 +256,7 @@ void SectionUsageAnalyzer::markEntryPoints()
     // Mark symbols referenced by patches as used
     for (const auto& patchInfo : *m_patchInfo)
     {
-        if (patchInfo->sectionIdx == -1) // Label patch
-        {
-            markSymbolAsUsed(patchInfo->symbol);
-        }
-        else // Section patch
+        if (patchInfo->sourceType == patch::PatchSourceType::Section) // Label patch
         {
             // For section patches, mark the section itself as an entry point
             SectionUsageInfo* sectionInfo = findSection(patchInfo->symbol, patchInfo->unit);
@@ -487,44 +428,8 @@ void SectionUsageAnalyzer::filterUsedSections(std::vector<std::unique_ptr<Sectio
     // }
 }
 
-bool SectionUsageAnalyzer::loadElfFromArchive(Elf32& elf, const std::filesystem::path& archivePath, const std::string& memberName)
-{
-    try
-    {
-        Archive archive;
-        if (!archive.load(archivePath))
-        {
-            return false;
-        }
-
-        const auto& members = archive.getMembers();
-        for (const auto& memberPtr : members)
-        {
-            const ArMember& member = *memberPtr;
-            if (member.name == memberName)
-            {
-                // Found the member, load it as ELF
-                return elf.loadFromMemory(member.data.data(), member.data.size());
-            }
-        }
-        
-        return false; // Member not found
-    }
-    catch (const std::exception& e)
-    {
-        if (ncp::Application::isVerbose())
-        {
-            Log::out << OWARN << "Error loading archive member " << memberName 
-                     << " from " << archivePath.string() << ": " << e.what() << std::endl;
-        }
-        return false;
-    }
-}
-
 void SectionUsageAnalyzer::printDependencyTree() const
 {
-	return;
-
     Log::out << OINFO << "Dependency Tree from Entry Points:" << std::endl;
     Log::out << std::endl;
     
@@ -735,7 +640,7 @@ std::string SectionUsageAnalyzer::getSectionDetails(const std::string& sectionNa
 SectionUsageInfo* SectionUsageAnalyzer::findSection(const std::string& sectionName, const core::CompilationUnit* unit)
 {
 	// Use fast lookup for specific unit
-	SectionKey key(sectionName, unit->getObjectPath().filename().string());
+	SectionKey key(sectionName, unit);
 	auto it = m_sectionLookup.find(key);
 	if (it != m_sectionLookup.end())
 	{
@@ -747,14 +652,4 @@ SectionUsageInfo* SectionUsageAnalyzer::findSection(const std::string& sectionNa
 const SectionUsageInfo* SectionUsageAnalyzer::findSection(const std::string& sectionName, const core::CompilationUnit* unit) const
 {
     return const_cast<SectionUsageAnalyzer*>(this)->findSection(sectionName, unit);
-}
-
-void SectionUsageAnalyzer::buildSectionLookupMap()
-{
-    m_sectionLookup.clear();
-    for (auto& sectionInfo : m_sectionUsageInfo)
-    {
-		SectionKey key(sectionInfo->name, sectionInfo->unit->getObjectPath().filename().string());
-		m_sectionLookup[key] = sectionInfo.get();
-    }
 }

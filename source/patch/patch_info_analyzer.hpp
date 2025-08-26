@@ -68,10 +68,6 @@ private:
     std::vector<std::string> m_externSymbols;
     std::vector<std::unique_ptr<SectionInfo>> m_overwriteCandidateSections;
 
-    // ELF loading helpers
-    bool loadElfFromArchive(Elf32& elf, const std::filesystem::path& archivePath, const std::string& memberName);
-    bool loadElfFromPath(Elf32& elf, const std::filesystem::path& objPath);
-
     // Patch parsing helpers
     ParsedPatchInfo parsePatchTypeAndAddress(std::string_view labelName);
     ParsedPatchInfo parseSymverPatchTypeAndAddress(std::string_view labelName);

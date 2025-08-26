@@ -7,6 +7,7 @@
 #include "../app/application.hpp"
 #include "../system/log.hpp"
 #include "../system/except.hpp"
+#include "../system/cache.hpp"
 #include "../utils/util.hpp"
 #include "../formats/elf.hpp"
 #include "../formats/archive.hpp"
@@ -263,15 +264,10 @@ void LibraryAnalyzer::createUnitsFromLibrary(const std::filesystem::path& librar
         }
 
         // Create unit from ELF (for .so files or individual .o files)
-        Elf32 elf;
-        if (!elf.load(libraryPath))
-        {
-            Log::out << OWARN << "Failed to load library as ELF: " << libraryPath.filename().string() << std::endl;
-            return;
-        }
+        Elf32* elf = ncp::cache::CacheManager::getInstance().getOrLoadElf(libraryPath);
 
         // Create unit from this ELF
-        createUnitFromELF(elf, libraryPath);
+        createUnitFromELF(*elf, libraryPath);
     }
     catch (const std::exception& e)
     {
@@ -280,7 +276,7 @@ void LibraryAnalyzer::createUnitsFromLibrary(const std::filesystem::path& librar
     }
 }
 
-void LibraryAnalyzer::createUnitFromELF(const Elf32& elf, const std::filesystem::path& libraryPath, const std::string& objectName)
+void LibraryAnalyzer::createUnitFromELF(Elf32& elf, const std::filesystem::path& libraryPath, const std::string& objectName)
 {
     // Determine the source path (for archives, include member name)
     std::filesystem::path objectPath;
@@ -306,6 +302,9 @@ void LibraryAnalyzer::createUnitFromELF(const Elf32& elf, const std::filesystem:
     // Set up the compilation unit info
 	unit->setTargetRegion(m_target->getMainRegion());
 	
+	// Set the ELF pointer for direct access
+	unit->setElf(&elf);
+	
 	// No need to setup BuildInfo
 }
 
@@ -318,14 +317,8 @@ void LibraryAnalyzer::createUnitsFromArchive(const std::filesystem::path& archiv
 
     try
     {
-        Archive archive;
-        if (!archive.load(archivePath))
-        {
-            Log::out << OWARN << "Failed to load archive: " << archivePath.filename().string() << std::endl;
-            return;
-        }
-
-        const auto& members = archive.getMembers();
+        auto* archive = ncp::cache::CacheManager::getInstance().getOrLoadArchive(archivePath);
+        const auto& members = archive->getMembers();
         if (ncp::Application::isVerbose())
         {
             Log::out << OINFO << "Archive contains " << members.size() << " total members" << std::endl;
@@ -348,15 +341,25 @@ void LibraryAnalyzer::createUnitsFromArchive(const std::filesystem::path& archiv
 
             try
             {
-                // Load ELF directly from memory
-                Elf32 elf;
-                if (!elf.loadFromMemory(member.data.data(), member.data.size()))
+                // Create ELF object directly from archive member data
+                auto elf = std::make_unique<Elf32>();
+                if (!elf->loadFromMemory(member.data, member.size))
                 {
+                    if (ncp::Application::isVerbose())
+                    {
+                        Log::out << OWARN << "Failed to load ELF from archive member " << member.name << std::endl;
+                    }
                     continue;
                 }
 
+                // Create a virtual path for this archive member
+                std::filesystem::path memberPath = archivePath.string() + ":" + member.name;
+                
+                // Store the ELF in the CacheManager
+                Elf32* elfPtr = ncp::cache::CacheManager::getInstance().storeElf(memberPath, std::move(elf));
+
                 // Create unit from this member
-                createUnitFromELF(elf, archivePath, member.name);
+                createUnitFromELF(*elfPtr, archivePath, member.name);
                 validCount++;
             }
             catch (const std::exception& e)

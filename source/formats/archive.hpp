@@ -34,7 +34,7 @@ struct ArMember
     std::string name;        // Object file name
     std::uint64_t size;      // Size of the object file data
     std::uint64_t offset;    // Offset in the archive where the object file data starts
-    std::vector<char> data;  // The actual object file data
+    const char* data;        // Direct pointer to object file data in archive (no copy)
 };
 
 /**
