@@ -3,10 +3,23 @@
 #include <filesystem>
 #include <vector>
 #include <string>
+#include <unordered_set>
 
 class HeaderBin;
 
 namespace ncp {
+
+// Verbose output categories
+enum class VerboseTag {
+    Build,      // Build process and compilation output
+    Section,    // Section usage analysis and details  
+    Elf,        // ELF file analysis and processing
+    Patch,      // Patch information and analysis
+    Library,    // Library dependency analysis
+    Linking,    // Linker script generation and linking process
+    Symbols,    // Symbol resolution and analysis
+    All         // All verbose output (equivalent to old --verbose)
+};
 
 class Application
 {
@@ -24,7 +37,7 @@ public:
     static const std::filesystem::path& getAppPath();
     static const std::filesystem::path& getWorkPath();
     static const std::filesystem::path& getRomPath();
-    static bool isVerbose();
+    static bool isVerbose(VerboseTag tag);
     static const std::vector<std::string>& getDefines();
     
     // Error context management
@@ -38,7 +51,7 @@ private:
     
     // Application configuration
     static std::vector<std::string> s_defines;
-    static bool s_verbose;
+    static std::unordered_set<VerboseTag> s_verboseTags;
     static const char* s_errorContext;
 
     // Core application methods
@@ -52,6 +65,7 @@ private:
     std::filesystem::path fetchAppPath();
     void printHelp();
     bool parseCommandLineArgs(int argc, char* argv[]);
+    VerboseTag parseVerboseTag(const std::string& tagName);
     void initializePaths();
     void initializeLogging();
     void validateToolchain();

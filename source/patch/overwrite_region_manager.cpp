@@ -42,7 +42,7 @@ void OverwriteRegionManager::setupOverwriteRegions()
             };
             m_overwriteRegions.emplace_back(overwriteRegion);
 
-            if (ncp::Application::isVerbose())
+            if (ncp::Application::isVerbose(ncp::VerboseTag::Section))
             {
                 Log::out << OINFO << "Found overwrite region: 0x" << std::hex << std::uppercase 
                     << overwrite.startAddress << "-0x" << overwrite.endAddress 
@@ -125,7 +125,7 @@ void OverwriteRegionManager::assignSectionsToOverwrites(std::vector<std::unique_
                     assigned = true;
 
                     // Store assignment info for table printing
-                    if (ncp::Application::isVerbose())
+                    if (ncp::Application::isVerbose(ncp::VerboseTag::Section))
                     {
                         assignments.push_back({
                             .sectionName = section->name,
@@ -140,7 +140,7 @@ void OverwriteRegionManager::assignSectionsToOverwrites(std::vector<std::unique_
                 }
             }
 
-            if (!assigned && ncp::Application::isVerbose())
+            if (!assigned && ncp::Application::isVerbose(ncp::VerboseTag::Section))
             {
                 assignments.push_back({
                     .sectionName = section->name,
@@ -166,7 +166,7 @@ void OverwriteRegionManager::assignSectionsToOverwrites(std::vector<std::unique_
     }
 
     // Print assignment table if verbose mode is enabled
-    if (ncp::Application::isVerbose() && !assignments.empty())
+    if (ncp::Application::isVerbose(ncp::VerboseTag::Section) && !assignments.empty())
     {
         Log::out << ANSI_bCYAN "Assigned sections:" ANSI_RESET "\n" 
             << ANSI_bWHITE "SECTION_NAME" ANSI_RESET "                     " 

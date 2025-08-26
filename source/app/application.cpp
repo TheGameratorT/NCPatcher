@@ -3,6 +3,7 @@
 #include <iostream>
 #include <sstream>
 #include <cstring>
+#include <unordered_set>
 
 #include "../system/log.hpp"
 #include "../system/process.hpp"
@@ -40,7 +41,7 @@ std::filesystem::path Application::s_appPath;
 std::filesystem::path Application::s_workPath;
 std::filesystem::path Application::s_romPath;
 std::vector<std::string> Application::s_defines;
-bool Application::s_verbose = false;
+std::unordered_set<VerboseTag> Application::s_verboseTags;
 const char* Application::s_errorContext = nullptr;
 
 Application::Application() = default;
@@ -343,7 +344,25 @@ bool Application::parseCommandLineArgs(int argc, char* argv[])
             printHelp();
             return false; // Exit successfully after showing help
         } else if ((strcmp(argv[i], "--verbose") == 0) || (strcmp(argv[i], "-v") == 0)) {
-            s_verbose = true;
+            // Enables all verbose output
+            s_verboseTags.insert(VerboseTag::All);
+        } else if (strcmp(argv[i], "--verbose-tag") == 0) {
+            if (i + 1 < argc) {
+                std::string tagName = argv[i + 1];
+                VerboseTag tag = parseVerboseTag(tagName);
+                if (tag != static_cast<VerboseTag>(-1)) {
+                    s_verboseTags.insert(tag);
+                } else {
+                    std::ostringstream oss;
+                    oss << "Unknown verbose tag: " << tagName;
+                    Log::error(oss.str());
+                    return false;
+                }
+                i++; // Skip the next argument since we consumed it
+            } else {
+                Log::error("--verbose-tag option requires a tag name");
+                return false;
+            }
         } else if (strcmp(argv[i], "--define") == 0) {
             if (i + 1 < argc) {
                 s_defines.push_back(argv[i + 1]);
@@ -364,6 +383,20 @@ bool Application::parseCommandLineArgs(int argc, char* argv[])
     return true;
 }
 
+VerboseTag Application::parseVerboseTag(const std::string& tagName)
+{
+    if (tagName == "build") return VerboseTag::Build;
+    if (tagName == "section") return VerboseTag::Section;
+    if (tagName == "elf") return VerboseTag::Elf;
+    if (tagName == "patch") return VerboseTag::Patch;
+    if (tagName == "library") return VerboseTag::Library;
+    if (tagName == "linking") return VerboseTag::Linking;
+    if (tagName == "symbols") return VerboseTag::Symbols;
+    if (tagName == "all") return VerboseTag::All;
+    
+    return static_cast<VerboseTag>(-1); // Invalid tag
+}
+
 void Application::printHelp()
 {
     Log::out << ANSI_bWHITE " ----- Nitro Code Patcher -----" ANSI_RESET << std::endl;
@@ -372,7 +405,17 @@ void Application::printHelp()
     Log::out << std::endl;
     Log::out << "Options:" << std::endl;
     Log::out << "  -h, --help       Show this help message and exit" << std::endl;
-    Log::out << "  -v, --verbose    Enable verbose logging output" << std::endl;
+    Log::out << "  -v, --verbose    Enable all verbose logging output (legacy)" << std::endl;
+    Log::out << "  --verbose-tag TAG  Enable verbose output for specific category:" << std::endl;
+    Log::out << "                     build     - Build process and compilation" << std::endl;
+    Log::out << "                     section   - Section usage analysis" << std::endl;
+    Log::out << "                     elf       - ELF file processing" << std::endl;
+    Log::out << "                     patch     - Patch information and analysis" << std::endl;
+    Log::out << "                     library   - Library dependency analysis" << std::endl;
+    Log::out << "                     linking   - Linker script generation" << std::endl;
+    Log::out << "                     symbols   - Symbol resolution" << std::endl;
+    Log::out << "                     all       - All verbose output" << std::endl;
+    Log::out << "                     (Multiple --verbose-tag options can be used)" << std::endl;
     Log::out << "  --define VALUE   Define a preprocessor macro for compilation" << std::endl;
     Log::out << std::endl;
     Log::out << "Description:" << std::endl;
@@ -399,9 +442,9 @@ const std::filesystem::path& Application::getRomPath()
     return s_romPath; 
 }
 
-bool Application::isVerbose() 
-{ 
-    return s_verbose; 
+bool Application::isVerbose(VerboseTag tag)
+{
+    return s_verboseTags.count(VerboseTag::All) > 0 || s_verboseTags.count(tag) > 0;
 }
 
 const std::vector<std::string>& Application::getDefines() 

@@ -44,7 +44,7 @@ void PatchInfoAnalyzer::processObjectFile(core::CompilationUnit* unit)
 {
     const fs::path& objPath = unit->getObjectPath();
 
-    if (ncp::Application::isVerbose())
+    if (ncp::Application::isVerbose(ncp::VerboseTag::Patch))
         Log::out << ANSI_bYELLOW << objPath.string() << ANSI_RESET << std::endl;
 
     // Try to get ELF directly from the compilation unit first
@@ -478,14 +478,14 @@ void PatchInfoAnalyzer::parseSymverSymbol(std::string_view symbolName, int secti
 
     if (parsedInfo.patchType == patch::PatchType::RtRepl)
     {
-        if (ncp::Application::isVerbose())
+        if (ncp::Application::isVerbose(ncp::VerboseTag::Patch))
             Log::out << OWARN << "RtRepl patches are not supported for symver patches: " << symbolName << std::endl;
         return;
     }
 
     if (parsedInfo.patchType == patch::PatchType::Over)
     {
-        if (ncp::Application::isVerbose())
+        if (ncp::Application::isVerbose(ncp::VerboseTag::Patch))
             Log::out << OWARN << "\"over\" patch must be a section type patch, not symver: " << symbolName << std::endl;
         return;
     }
@@ -630,7 +630,7 @@ u32 PatchInfoAnalyzer::resolveNcpSetAddress(u32 symbolAddr, const Elf32& elf, co
 
 void PatchInfoAnalyzer::printPatchInfoForObject(const std::vector<GenericPatchInfo*>& patchInfoForThisObj) const
 {
-    if (ncp::Application::isVerbose())
+    if (ncp::Application::isVerbose(ncp::VerboseTag::Patch))
     {
         if (patchInfoForThisObj.empty())
         {
@@ -678,7 +678,7 @@ void PatchInfoAnalyzer::printPatchInfoForObject(const std::vector<GenericPatchIn
 
 void PatchInfoAnalyzer::printExternSymbols() const
 {
-    if (ncp::Application::isVerbose())
+    if (ncp::Application::isVerbose(ncp::VerboseTag::Patch))
     {
         if (m_externSymbols.empty())
         {

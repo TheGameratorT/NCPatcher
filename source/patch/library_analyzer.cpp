@@ -49,7 +49,7 @@ void LibraryAnalyzer::analyzeLibraryDependencies()
     // Find actual library files
     findLibraryFiles();
 
-    if (ncp::Application::isVerbose())
+    if (ncp::Application::isVerbose(ncp::VerboseTag::Library))
     {
         Log::out << OINFO << "Library search paths:" << std::endl;
         for (const auto& path : m_librarySearchPaths)
@@ -75,11 +75,11 @@ void LibraryAnalyzer::generateLibraryUnits()
         createUnitsFromLibrary(libraryPath);
     }
 
-    if (ncp::Application::isVerbose())
+    if (ncp::Application::isVerbose(ncp::VerboseTag::Library))
     {
         Log::out << OINFO << "Generated " << m_compilationUnitMgr->getLibraryUnits().size() 
-                 << " library compilation units" << std::endl;
-    }
+                 << " compilation units from library analysis" << std::endl;
+	}
 }
 
 void LibraryAnalyzer::parseLinkerFlags(const std::string& ldFlags)
@@ -174,7 +174,7 @@ void LibraryAnalyzer::findLibraryFiles()
         {
             m_libraryPaths.push_back(foundPath);
         }
-        else if (ncp::Application::isVerbose())
+        else if (ncp::Application::isVerbose(ncp::VerboseTag::Library))
         {
             Log::out << OWARN << "Library not found: -l" << libName << std::endl;
         }
@@ -197,7 +197,7 @@ void LibraryAnalyzer::getToolchainLibraryPaths()
         
         if (exitCode != 0)
         {
-            if (ncp::Application::isVerbose())
+            if (ncp::Application::isVerbose(ncp::VerboseTag::Library))
             {
                 Log::out << OWARN << "Failed to get library paths from gcc (exit code: " 
                          << exitCode << ")" << std::endl;
@@ -237,7 +237,7 @@ void LibraryAnalyzer::getToolchainLibraryPaths()
             }
         }
         
-        if (ncp::Application::isVerbose())
+        if (ncp::Application::isVerbose(ncp::VerboseTag::Library))
         {
             Log::out << OINFO << "Found " << m_librarySearchPaths.size() 
                      << " toolchain library paths" << std::endl;
@@ -245,7 +245,7 @@ void LibraryAnalyzer::getToolchainLibraryPaths()
     }
     catch (const std::exception& e)
     {
-        if (ncp::Application::isVerbose())
+        if (ncp::Application::isVerbose(ncp::VerboseTag::Library))
         {
             Log::out << OWARN << "Error getting library paths from gcc: " << e.what() << std::endl;
         }
@@ -310,7 +310,7 @@ void LibraryAnalyzer::createUnitFromELF(Elf32& elf, const std::filesystem::path&
 
 void LibraryAnalyzer::createUnitsFromArchive(const std::filesystem::path& archivePath)
 {
-	if (ncp::Application::isVerbose())
+	if (ncp::Application::isVerbose(ncp::VerboseTag::Library))
 	{
     	Log::out << OINFO << ANSI_bYELLOW << "Analyzing archive: " << archivePath.filename().string() << ANSI_RESET << std::endl;
 	}
@@ -319,7 +319,7 @@ void LibraryAnalyzer::createUnitsFromArchive(const std::filesystem::path& archiv
     {
         auto* archive = ncp::cache::CacheManager::getInstance().getOrLoadArchive(archivePath);
         const auto& members = archive->getMembers();
-        if (ncp::Application::isVerbose())
+        if (ncp::Application::isVerbose(ncp::VerboseTag::Library))
         {
             Log::out << OINFO << "Archive contains " << members.size() << " total members" << std::endl;
         }
@@ -345,7 +345,7 @@ void LibraryAnalyzer::createUnitsFromArchive(const std::filesystem::path& archiv
                 auto elf = std::make_unique<Elf32>();
                 if (!elf->loadFromMemory(member.data, member.size))
                 {
-                    if (ncp::Application::isVerbose())
+                    if (ncp::Application::isVerbose(ncp::VerboseTag::Elf))
                     {
                         Log::out << OWARN << "Failed to load ELF from archive member " << member.name << std::endl;
                     }
@@ -364,7 +364,7 @@ void LibraryAnalyzer::createUnitsFromArchive(const std::filesystem::path& archiv
             }
             catch (const std::exception& e)
             {
-                if (ncp::Application::isVerbose())
+                if (ncp::Application::isVerbose(ncp::VerboseTag::Library))
                 {
                     Log::out << OWARN << "Error processing archive member " << member.name 
                              << ": " << e.what() << std::endl;

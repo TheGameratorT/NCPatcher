@@ -211,7 +211,7 @@ void ElfAnalyzer::gatherInfoFromElf(
     if (foundPatchInOverwrite)
         throw ncp::exception("Patches targeting overwrite regions were detected.");
     
-    if (ncp::Application::isVerbose())
+    if (ncp::Application::isVerbose(ncp::VerboseTag::Patch))
     {
         Log::out << ANSI_bCYAN "Patches:" ANSI_RESET "\n"
             << ANSI_bWHITE "SRC_ADDR" ANSI_RESET "  "
@@ -279,7 +279,7 @@ void ElfAnalyzer::gatherInfoFromElf(
         return false;
     });
 
-    if (ncp::Application::isVerbose())
+    if (ncp::Application::isVerbose(ncp::VerboseTag::Elf))
     {
         Log::out << ANSI_bCYAN "New Code Info:" ANSI_RESET "\n"
             << ANSI_bWHITE "NAME" ANSI_RESET "    "
@@ -324,7 +324,7 @@ void ElfAnalyzer::gatherInfoFromElf(
                     throw ncp::exception(oss.str());
                 }
                 
-                if (ncp::Application::isVerbose())
+                if (ncp::Application::isVerbose(ncp::VerboseTag::Patch))
                 {
                     Log::out << OINFO << "Found overwrite region " << OSTR(overwrite->memName) 
                         << " at 0x" << std::hex << std::uppercase << overwrite->startAddress

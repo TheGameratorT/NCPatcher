@@ -43,7 +43,7 @@ void SectionUsageAnalyzer::analyzeObjectFiles()
     // Phase 4: Propagate usage through dependencies
     propagateUsage();
 
-    if (ncp::Application::isVerbose())
+    if (ncp::Application::isVerbose(ncp::VerboseTag::Section))
     {
         Log::out << OINFO << "Section usage analysis results:" << std::endl;
         Log::out << "  Total sections found: " << m_sectionUsageInfo.size() << std::endl;
@@ -69,7 +69,7 @@ void SectionUsageAnalyzer::collectSymbolsAndSectionsWithRelocations()
         auto sh_tbl = elf->getSectionHeaderTable();
         auto str_tbl = elf->getSection<char>(sh_tbl[eh.e_shstrndx]);
 
-        if (ncp::Application::isVerbose())
+        if (ncp::Application::isVerbose(ncp::VerboseTag::Section))
             Log::out << "  Analyzing " << unit->getObjectPath().string() << std::endl;
 
         // Collect sections
@@ -131,7 +131,7 @@ void SectionUsageAnalyzer::collectSymbolsAndSectionsWithRelocations()
                 // If new symbol is strong and existing is weak, replace it
                 if (symbolInfo->isGlobal && existing.isWeak)
                 {
-                    if (ncp::Application::isVerbose())
+                    if (ncp::Application::isVerbose(ncp::VerboseTag::Symbols))
                     {
                         Log::out << "    Strong symbol " << symbolInfo->name 
                                  << " overriding weak symbol from " 
@@ -142,7 +142,7 @@ void SectionUsageAnalyzer::collectSymbolsAndSectionsWithRelocations()
                 // If new symbol is weak and existing is strong, keep existing
                 else if (symbolInfo->isWeak && existing.isGlobal)
                 {
-                    if (ncp::Application::isVerbose())
+                    if (ncp::Application::isVerbose(ncp::VerboseTag::Symbols))
                     {
                         Log::out << "    Weak symbol " << symbolInfo->name 
                                  << " not overriding strong symbol from " 
@@ -153,7 +153,7 @@ void SectionUsageAnalyzer::collectSymbolsAndSectionsWithRelocations()
                 // If both are weak, keep the first one (standard linker behavior)
                 else if (symbolInfo->isWeak && existing.isWeak)
                 {
-                    if (ncp::Application::isVerbose())
+                    if (ncp::Application::isVerbose(ncp::VerboseTag::Symbols))
                     {
                         Log::out << "    Weak symbol " << symbolInfo->name 
                                  << " not overriding first weak symbol from " 
@@ -164,7 +164,7 @@ void SectionUsageAnalyzer::collectSymbolsAndSectionsWithRelocations()
                 // If both are global, this is a multiple definition error, but we'll keep the first
                 else if (symbolInfo->isGlobal && existing.isGlobal)
                 {
-                    if (ncp::Application::isVerbose())
+                    if (ncp::Application::isVerbose(ncp::VerboseTag::Symbols))
                     {
                         Log::out << OWARN << "Multiple definition of global symbol " << symbolInfo->name 
                                  << ": keeping definition from " 

@@ -455,7 +455,7 @@ void PatchMaker::createArm2ThumbJumpBridge(const std::unique_ptr<GenericPatchInf
 
 	u32 bridgeAddr = info->curAddress;
 
-	if (ncp::Application::isVerbose())
+	if (ncp::Application::isVerbose(ncp::VerboseTag::Patch))
 		Log::out << "ARM->THUMB BRIDGE: " << Util::intToAddr(bridgeAddr, 8) << std::endl;
 
 	ICodeBin* bin = getBinaryForDestination(patch->destAddressOv);
@@ -468,7 +468,7 @@ void PatchMaker::createArm2ThumbJumpBridge(const std::unique_ptr<GenericPatchInf
 	Util::write<u32>(bridgeDataPtr, 0xE51FF004);            // LDR PC, [PC,#-4]
 	Util::write<u32>(bridgeDataPtr + 4, patch->srcAddress | 1); // int value to jump to
 
-	if (ncp::Application::isVerbose())
+	if (ncp::Application::isVerbose(ncp::VerboseTag::Patch))
 		Util::printDataAsHex(bridgeData.data() + offset, SizeOfArm2ThumbJumpBridge, 32);
 
 	info->curAddress += SizeOfArm2ThumbJumpBridge;
@@ -500,7 +500,7 @@ void PatchMaker::createHookBridge(const std::unique_ptr<GenericPatchInfo>& patch
 
 	u32 hookBridgeAddr = info->curAddress;
 
-	if (ncp::Application::isVerbose())
+	if (ncp::Application::isVerbose(ncp::VerboseTag::Patch))
 		Log::out << "HOOK BRIDGE: " << Util::intToAddr(hookBridgeAddr, 8) << std::endl;
 
 	bin->write<u32>(patch->destAddress, callAsmGeneratorWithContext(patch, [&]() {
@@ -525,7 +525,7 @@ void PatchMaker::createHookBridge(const std::unique_ptr<GenericPatchInfo>& patch
 		return AsmGenerator::makeJumpOpCode(AsmGenerator::armOpcodeB, hookBridgeAddr + 16, patch->destAddress + 4);
 	}));
 
-	if (ncp::Application::isVerbose())
+	if (ncp::Application::isVerbose(ncp::VerboseTag::Patch))
 		Util::printDataAsHex(hookData.data() + offset, SizeOfHookBridge, 32);
 
 	info->curAddress += SizeOfHookBridge;
@@ -543,7 +543,7 @@ void PatchMaker::applyOverwriteRegions(const PatchOperationContext& context)
 
 		bin->writeBytes(overwrite->startAddress, sectionData, overwrite->sectionSize);
 		
-		if (ncp::Application::isVerbose())
+		if (ncp::Application::isVerbose(ncp::VerboseTag::Patch))
 		{
 			Log::out << OINFO << "Applied overwrite region " << OSTR(overwrite->memName) 
 				<< " at 0x" << std::hex << std::uppercase << overwrite->startAddress
