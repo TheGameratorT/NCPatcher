@@ -7,6 +7,9 @@ namespace patch {
 std::string GenericPatchInfo::formatPatchDescriptor() const
 {
     std::string result = "ncp_";
+
+	if (isNcpSet)
+		result += "set_";
     
     // Add the patch type name
     result += PatchTypeUtils::getName(patchType);

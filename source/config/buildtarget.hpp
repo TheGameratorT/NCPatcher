@@ -55,6 +55,8 @@ public:
 
 	constexpr void setForceRebuild(bool forceRebuild) { m_forceRebuild = forceRebuild; }
 
+	[[nodiscard]] bool hasOverwrites() const;
+
 	// Helper functions for region access
 	[[nodiscard]] const Region* getRegionByDestination(int destination) const;
 	[[nodiscard]] Region* getRegionByDestination(int destination);

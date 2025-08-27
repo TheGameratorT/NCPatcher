@@ -440,10 +440,10 @@ void SectionUsageAnalyzer::printDependencyTree() const
     for (const auto& patchInfo : *m_patchInfo)
     {
         hasAnyEntryPoints = true;
-        std::string patchType = (patchInfo->sectionIdx == -1) ? "Symbol Patch" : "Section Patch";
+        std::string patchType = (patchInfo->sourceType != patch::PatchSourceType::Section) ? "Symbol Patch" : "Section Patch";
         Log::out << "📍 " << patchType << ": " << patchInfo->formatPatchDescriptor() << std::endl;
         
-        if (patchInfo->sectionIdx == -1) // Label patch
+        if (patchInfo->sourceType != patch::PatchSourceType::Section) // Symbol patch
         {
             printTreeNode(patchInfo->symbol, false, "  ", true, visited);
         }
@@ -457,14 +457,14 @@ void SectionUsageAnalyzer::printDependencyTree() const
     }
     
     // Print external symbol entry points
-    for (const std::string& externSymbol : *m_externSymbols)
-    {
-        hasAnyEntryPoints = true;
-        Log::out << "🔗 External Symbol: " << externSymbol << std::endl;
-        printTreeNode(externSymbol, false, "  ", true, visited);
-        Log::out << std::endl;
-        visited.clear(); // Reset visited set for each entry point tree
-    }
+    // for (const std::string& externSymbol : *m_externSymbols)
+    // {
+    //     hasAnyEntryPoints = true;
+    //     Log::out << "🔗 External Symbol: " << externSymbol << std::endl;
+    //     printTreeNode(externSymbol, false, "  ", true, visited);
+    //     Log::out << std::endl;
+    //     visited.clear(); // Reset visited set for each entry point tree
+    // }
     
     if (!hasAnyEntryPoints)
     {

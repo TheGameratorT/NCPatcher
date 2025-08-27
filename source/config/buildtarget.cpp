@@ -83,6 +83,16 @@ void BuildTarget::load(const fs::path& targetFilePath, bool isArm9)
 	fs::current_path(curPath);
 }
 
+bool BuildTarget::hasOverwrites() const
+{
+	for (const auto& region : regions)
+	{
+		if (region.overwrites.size() != 0)
+			return true;
+	}
+	return false;
+}
+
 const BuildTarget::Region* BuildTarget::getRegionByDestination(int destination) const
 {
 	for (const auto& region : regions)

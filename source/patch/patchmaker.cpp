@@ -125,8 +125,6 @@ void PatchMaker::generateElfFile()
 		"Failed to generate ELF files for ARM9 target." :
 		"Failed to generate ELF files for ARM7 target.");
 	
-	m_overwriteRegionManager->setupOverwriteRegions();
-	
 	// Generate library compilation units and merge them with user units
 	m_libraryAnalyzer->analyzeLibraryDependencies();
 	m_libraryAnalyzer->generateLibraryUnits();
@@ -141,27 +139,31 @@ void PatchMaker::generateElfFile()
 
 	// Analyze patches and sections
 	m_patchInfoAnalyzer->gatherInfoFromObjects();
-	
+
 	// Now analyze all sections from both user and library objects
 	auto candidateSections = m_patchInfoAnalyzer->takeOverwriteCandidateSections();
 
-    Log::out << OINFO << "Analyzing unreferenced sections..." << std::endl;
-	
-	// Initialize and run the section usage analyzer on all jobs
-	m_sectionUsageAnalyzer->initialize(
-		m_patchInfoAnalyzer->getPatchInfo(),
-		m_patchInfoAnalyzer->getExternSymbols(),
-		*m_compilationUnitMgr
-	);
-	
-	// Analyze all object files (user + library) to determine section usage
-	m_sectionUsageAnalyzer->analyzeObjectFiles();
-	
-	// Filter candidate sections to only include those that would survive linking
-	m_sectionUsageAnalyzer->filterUsedSections(candidateSections);
-	
-	// Assign only the actually used sections to overwrite regions
-	m_overwriteRegionManager->assignSectionsToOverwrites(candidateSections);
+	if (m_target->hasOverwrites())
+	{
+		Log::out << OINFO << "Analyzing unreferenced sections..." << std::endl;
+		
+		// Initialize and run the section usage analyzer on all jobs
+		m_sectionUsageAnalyzer->initialize(
+			m_patchInfoAnalyzer->getPatchInfo(),
+			m_patchInfoAnalyzer->getExternSymbols(),
+			*m_compilationUnitMgr
+		);
+		
+		// Analyze all object files (user + library) to determine section usage
+		m_sectionUsageAnalyzer->analyzeObjectFiles();
+		
+		// Filter candidate sections to only include those that would survive linking
+		m_sectionUsageAnalyzer->filterUsedSections(candidateSections);
+		
+		// Assign only the actually used sections to overwrite regions
+		m_overwriteRegionManager->setupOverwriteRegions();
+		m_overwriteRegionManager->assignSectionsToOverwrites(candidateSections);
+	}
 
     Log::out << OLINK << "Generating the linker script..." << std::endl;
 	
