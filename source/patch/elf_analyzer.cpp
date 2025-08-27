@@ -200,7 +200,7 @@ void ElfAnalyzer::gatherInfoFromElf(
                 if (Util::overlaps(patch->destAddress, patchEnd, overwrite->startAddress, overwrite->endAddress))
                 {
                     Log::out << OERROR
-                        << "Patch " << OSTR(patch->symbol) << " (" << OSTR(patch->unit->getSourcePath().string()) 
+                        << "Patch " << OSTR(patch->formatPatchDescriptor()) << " (" << OSTR(patch->unit->getSourcePath().string()) 
                         << ") conflicts with overwrite region 0x" << std::hex << std::uppercase 
                         << overwrite->startAddress << "-0x" << overwrite->endAddress << std::endl;
                     foundPatchInOverwrite = true;

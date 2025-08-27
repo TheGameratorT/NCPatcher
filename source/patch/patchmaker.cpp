@@ -422,7 +422,8 @@ void PatchMaker::applyHookPatch(const std::unique_ptr<GenericPatchInfo>& patch, 
 		std::ostringstream oss;
 		oss << "Injecting hook from " << (patch->destThumb ? "THUMB" : "ARM") << " to "
 			<< (patch->srcThumb ? "THUMB" : "ARM") << " is not supported, at ";
-		oss << OSTRa(patch->symbol) << " (" << OSTR(patch->unit->getSourcePath().string()) << ")";
+		oss << OSTRa(patch->formatPatchDescriptor()) << " (" << OSTR(patch->unit->getSourcePath().string()) << ")";
+		throw ncp::exception(oss.str());
 	}
 
 	createHookBridge(patch, context);
@@ -456,7 +457,11 @@ void PatchMaker::createArm2ThumbJumpBridge(const std::unique_ptr<GenericPatchInf
 	u32 bridgeAddr = info->curAddress;
 
 	if (ncp::Application::isVerbose(ncp::VerboseTag::Patch))
-		Log::out << "ARM->THUMB BRIDGE: " << Util::intToAddr(bridgeAddr, 8) << std::endl;
+	{
+		Log::out << "ARM->THUMB BRIDGE: " << Util::intToAddr(bridgeAddr, 8) 
+		         << " for " << patch->formatPatchDescriptor()
+		         << " from " << patch->unit->getObjectPath().filename().string() << std::endl;
+	}
 
 	ICodeBin* bin = getBinaryForDestination(patch->destAddressOv);
 	bin->write<u32>(patch->destAddress, callAsmGeneratorWithContext(patch, [&]() {
@@ -501,7 +506,11 @@ void PatchMaker::createHookBridge(const std::unique_ptr<GenericPatchInfo>& patch
 	u32 hookBridgeAddr = info->curAddress;
 
 	if (ncp::Application::isVerbose(ncp::VerboseTag::Patch))
-		Log::out << "HOOK BRIDGE: " << Util::intToAddr(hookBridgeAddr, 8) << std::endl;
+	{
+		Log::out << "HOOK BRIDGE: " << Util::intToAddr(hookBridgeAddr, 8) 
+		         << " for " << patch->formatPatchDescriptor()
+		         << " from " << patch->unit->getObjectPath().filename().string() << std::endl;
+	}
 
 	bin->write<u32>(patch->destAddress, callAsmGeneratorWithContext(patch, [&]() {
 		return AsmGenerator::makeJumpOpCode(AsmGenerator::armOpcodeB, patch->destAddress, hookBridgeAddr);
@@ -770,7 +779,7 @@ void PatchMaker::validateThumbInterworking(const std::unique_ptr<GenericPatchInf
 	{
 		std::ostringstream oss;
 		oss << "Cannot create thumb-interworking veneer: BLX not supported on armv4. At ";
-		oss << OSTRa(patch->symbol) << " (" << OSTR(patch->unit->getSourcePath().string()) << ")";
+		oss << OSTRa(patch->formatPatchDescriptor()) << " (" << OSTR(patch->unit->getSourcePath().string()) << ")";
 		throw ncp::exception(oss.str());
 	}
 }

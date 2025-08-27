@@ -53,7 +53,7 @@ void SectionUsageAnalyzer::analyzeObjectFiles()
         Log::out << std::endl;
         
         // Print the dependency tree
-        // printDependencyTree();
+        printDependencyTree();
     }
 }
 
@@ -441,7 +441,7 @@ void SectionUsageAnalyzer::printDependencyTree() const
     {
         hasAnyEntryPoints = true;
         std::string patchType = (patchInfo->sectionIdx == -1) ? "Symbol Patch" : "Section Patch";
-        Log::out << "📍 " << patchType << ": " << patchInfo->symbol << std::endl;
+        Log::out << "📍 " << patchType << ": " << patchInfo->formatPatchDescriptor() << std::endl;
         
         if (patchInfo->sectionIdx == -1) // Label patch
         {

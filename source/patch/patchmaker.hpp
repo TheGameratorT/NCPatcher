@@ -120,7 +120,7 @@ private:
 		}
 		catch (const std::exception& e) {
 			std::ostringstream oss;
-			oss << e.what() << " at " << OSTRa(patch->symbol) << " (" << OSTR(patch->unit->getSourcePath().string()) << ")";
+			oss << e.what() << " at " << OSTRa(patch->formatPatchDescriptor()) << " (" << OSTR(patch->unit->getSourcePath().string()) << ")";
 			throw ncp::exception(oss.str());
 		}
 	}

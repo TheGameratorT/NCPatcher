@@ -137,6 +137,12 @@ struct GenericPatchInfo : public PatchInfo
     int sectionSize = 0;
     bool isNcpSet = false;
     PatchSourceType sourceType = PatchSourceType::Section;
+    
+    /**
+     * Formats patch information as "ncp_type(address[, overlay])" format
+     * @return String in the format like "ncp_jump(0x02000000)" or "ncp_hook(0x02000000, ov5)"
+     */
+    std::string formatPatchDescriptor() const;
 };
 
 /**

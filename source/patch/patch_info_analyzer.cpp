@@ -437,7 +437,7 @@ void PatchInfoAnalyzer::resolveSymverPatches(const Elf32& elf, const Elf32_Ehdr&
         if (realSymbolName.empty())
         {
 			std::ostringstream oss;
-			oss << "Could not resolve symver patch " << p->symbol 
+			oss << "Could not resolve symver patch " << p->formatPatchDescriptor()
                 << " to a real symbol at address 0x" << std::hex << symverAddr;
 			throw ncp::exception(oss.str());
         }
@@ -478,15 +478,13 @@ void PatchInfoAnalyzer::parseSymverSymbol(std::string_view symbolName, int secti
 
     if (parsedInfo.patchType == patch::PatchType::RtRepl)
     {
-        if (ncp::Application::isVerbose(ncp::VerboseTag::Patch))
-            Log::out << OWARN << "RtRepl patches are not supported for symver patches: " << symbolName << std::endl;
+        Log::out << OWARN << "RtRepl patches are not supported for symver patches: " << symbolName << std::endl;
         return;
     }
 
     if (parsedInfo.patchType == patch::PatchType::Over)
     {
-        if (ncp::Application::isVerbose(ncp::VerboseTag::Patch))
-            Log::out << OWARN << "\"over\" patch must be a section type patch, not symver: " << symbolName << std::endl;
+        Log::out << OWARN << "\"over\" patch must be a section type patch, not symver: " << symbolName << std::endl;
         return;
     }
 
