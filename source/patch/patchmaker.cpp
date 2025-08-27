@@ -172,8 +172,6 @@ void PatchMaker::generateElfFile()
 		m_patchInfoAnalyzer->getPatchInfo(),
 		m_patchInfoAnalyzer->getRtreplPatches(),
 		m_patchInfoAnalyzer->getExternSymbols(),
-		m_patchInfoAnalyzer->getDestWithNcpSet(),
-		m_patchInfoAnalyzer->getUnitsWithNcpSet(),
 		m_overwriteRegionManager->getOverwriteRegions()
 	);
 	m_linkerScriptGenerator->linkElfFile();

@@ -18,6 +18,7 @@ enum class VerboseTag {
     Library,    // Library dependency analysis
     Linking,    // Linker script generation and linking process
     Symbols,    // Symbol resolution and analysis
+	NoLib,      // Do not print lib patches
     All         // All verbose output (equivalent to old --verbose)
 };
 

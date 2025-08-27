@@ -4,6 +4,17 @@
 
 namespace patch {
 
+const char* s_patchSourceTypeNames[] = {
+	"section",
+	"label",
+	"symver"
+};
+
+const char* toString(PatchSourceType patchSourceType)
+{
+	return s_patchSourceTypeNames[static_cast<size_t>(patchSourceType)];
+}
+
 std::string GenericPatchInfo::formatPatchDescriptor() const
 {
     std::string result = "ncp_";

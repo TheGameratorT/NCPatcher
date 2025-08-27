@@ -32,6 +32,12 @@ void PatchInfoAnalyzer::gatherInfoFromObjects()
     fs::current_path(*m_targetWorkDir);
     Log::info("Getting patches from objects...");
 
+	if (ncp::Application::isVerbose(ncp::VerboseTag::Patch))
+	{
+		Log::out << ANSI_bCYAN "Object patches (pre-ELF analysis):" ANSI_RESET "\n"
+			<< ANSI_bYELLOW "Note: Fields marked with ? will be determined during ELF analysis" ANSI_RESET << std::endl;
+	}
+
     for (auto& unit : m_compilationUnitMgr->getUnits())
     {
         processObjectFile(unit.get());
@@ -44,7 +50,7 @@ void PatchInfoAnalyzer::processObjectFile(core::CompilationUnit* unit)
 {
     const fs::path& objPath = unit->getObjectPath();
 
-    if (ncp::Application::isVerbose(ncp::VerboseTag::Patch))
+    if (canPrintVerboseInfo(unit))
         Log::out << ANSI_bYELLOW << objPath.string() << ANSI_RESET << std::endl;
 
     // Try to get ELF directly from the compilation unit first
@@ -55,24 +61,15 @@ void PatchInfoAnalyzer::processObjectFile(core::CompilationUnit* unit)
     auto str_tbl = elf->getSection<char>(sh_tbl[eh.e_shstrndx]);
     
     std::vector<GenericPatchInfo*> patchInfoForThisObj;
-    const Elf32_Shdr* ncpSetSection = nullptr;
-    const Elf32_Rel* ncpSetRel = nullptr;
-    const Elf32_Sym* ncpSetRelSymTbl = nullptr;
-    std::size_t ncpSetRelCount = 0;
-    std::size_t ncpSetRelSymTblSize = 0;
 
     // Process sections
-    processElfSections(*elf, eh, sh_tbl, str_tbl, unit, patchInfoForThisObj,
-                      ncpSetSection, ncpSetRel, ncpSetRelSymTbl, 
-                      ncpSetRelCount, ncpSetRelSymTblSize);
+    processElfSections(*elf, eh, sh_tbl, str_tbl, unit, patchInfoForThisObj);
 
     // Update thumb information for patches
     updatePatchThumbInfo(*elf, eh, sh_tbl, patchInfoForThisObj);
 
     // Process symbols
-    processElfSymbols(*elf, eh, sh_tbl, unit, patchInfoForThisObj,
-                     ncpSetSection, ncpSetRel, ncpSetRelSymTbl,
-                     ncpSetRelCount, ncpSetRelSymTblSize);
+    processElfSymbols(*elf, eh, sh_tbl, unit, patchInfoForThisObj);
 
     // Resolve symver patches to their real symbol names
     resolveSymverPatches(*elf, eh, sh_tbl, patchInfoForThisObj);
@@ -98,7 +95,7 @@ void PatchInfoAnalyzer::processObjectFile(core::CompilationUnit* unit)
     // Collect sections suitable for overwrites
     collectOverwriteCandidateSections(*elf, eh, sh_tbl, str_tbl, unit);
 
-    printPatchInfoForObject(patchInfoForThisObj);
+    printPatchInfoForObject(patchInfoForThisObj, unit);
 }
 
 PatchInfoAnalyzer::ParsedPatchInfo PatchInfoAnalyzer::parsePatchTypeAndAddress(std::string_view labelName)
@@ -334,47 +331,34 @@ bool PatchInfoAnalyzer::isValidSectionForOverwrites(std::string_view sectionName
 
 void PatchInfoAnalyzer::processElfSections(const Elf32& elf, const Elf32_Ehdr& eh, const Elf32_Shdr* sh_tbl, 
                                          const char* str_tbl, core::CompilationUnit* unit,
-                                         std::vector<GenericPatchInfo*>& patchInfoForThisObj,
-                                         const Elf32_Shdr*& ncpSetSection, const Elf32_Rel*& ncpSetRel,
-                                         const Elf32_Sym*& ncpSetRelSymTbl, std::size_t& ncpSetRelCount, 
-                                         std::size_t& ncpSetRelSymTblSize)
+                                         std::vector<GenericPatchInfo*>& patchInfoForThisObj)
 {
     Elf32::forEachSection(eh, sh_tbl, str_tbl,
     [&](std::size_t sectionIdx, const Elf32_Shdr& section, std::string_view sectionName){
         if (sectionName.starts_with(".ncp_"))
         {
-            if (ncpSetSection == nullptr && sectionName.substr(5).starts_with("set"))
+            if (sectionName.substr(5).starts_with("set"))
             {
-                ncpSetSection = &section;
-                handleNcpSetSection(section, unit);
-                return false;
+                // Handle ncp_set sections directly
+                parseNcpSetSection(sectionName, int(sectionIdx), int(section.sh_size), unit, patchInfoForThisObj);
             }
-            parseSectionSymbol(sectionName, int(sectionIdx), int(section.sh_size), unit, patchInfoForThisObj);
-        }
-        else if (ncpSetRel == nullptr && sectionName == ".rel.ncp_set")
-        {
-            ncpSetRel = elf.getSection<Elf32_Rel>(section);
-            ncpSetRelCount = section.sh_size / sizeof(Elf32_Rel);
-            ncpSetRelSymTbl = elf.getSection<Elf32_Sym>(sh_tbl[section.sh_link]);
-            ncpSetRelSymTblSize = sh_tbl[section.sh_link].sh_size / sizeof(Elf32_Sym);
+            else
+            {
+                parseSectionSymbol(sectionName, int(sectionIdx), int(section.sh_size), unit, patchInfoForThisObj);
+            }
         }
         return false;
     });
 }
 
 void PatchInfoAnalyzer::processElfSymbols(const Elf32& elf, const Elf32_Ehdr& eh, const Elf32_Shdr* sh_tbl,
-                                        core::CompilationUnit* unit, std::vector<GenericPatchInfo*>& patchInfoForThisObj,
-                                        const Elf32_Shdr* ncpSetSection, const Elf32_Rel* ncpSetRel,
-                                        const Elf32_Sym* ncpSetRelSymTbl, std::size_t ncpSetRelCount,
-                                        std::size_t ncpSetRelSymTblSize)
+                                        core::CompilationUnit* unit, std::vector<GenericPatchInfo*>& patchInfoForThisObj)
 {
     Elf32::forEachSymbol(elf, eh, sh_tbl,
     [&](const Elf32_Sym& symbol, std::string_view symbolName){
         if (symbolName.starts_with("ncp_"))
         {
-            parseRegularSymbol(symbolName, symbol.st_shndx, symbol.st_value, unit, patchInfoForThisObj,
-                             ncpSetSection, ncpSetRel, ncpSetRelSymTbl, 
-                             ncpSetRelCount, ncpSetRelSymTblSize, elf, sh_tbl);
+            parseRegularSymbol(symbolName, symbol.st_shndx, symbol.st_value, unit, patchInfoForThisObj);
         }
         else if (symbolName.starts_with("__ncp_"))
         {
@@ -497,23 +481,17 @@ void PatchInfoAnalyzer::parseSymverSymbol(std::string_view symbolName, int secti
 }
 
 void PatchInfoAnalyzer::parseRegularSymbol(std::string_view symbolName, int sectionIdx, u32 symbolAddr, core::CompilationUnit* unit,
-                                          std::vector<GenericPatchInfo*>& patchInfoForThisObj,
-                                          const Elf32_Shdr* ncpSetSection, const Elf32_Rel* ncpSetRel,
-                                          const Elf32_Sym* ncpSetRelSymTbl, std::size_t ncpSetRelCount,
-                                          std::size_t ncpSetRelSymTblSize, const Elf32& elf, const Elf32_Shdr* sh_tbl)
+                                          std::vector<GenericPatchInfo*>& patchInfoForThisObj)
 {
     std::string_view stemless = symbolName.substr(4);
     if (stemless == "dest")
         return;
 
-    u32 addr = symbolAddr;
-    if (stemless.starts_with("set")) // requires special care because of thumb function detection
-    {
-        if (ncpSetSection == nullptr)
-            throw ncp::exception("Found an ncp_set hook, but an \".ncp_set\" section does not exist!");
+    // Skip ncp_set symbols since they are now handled by sections
+    if (stemless.starts_with("set"))
+        return;
 
-        addr = resolveNcpSetAddress(addr, elf, sh_tbl, ncpSetSection, ncpSetRel, ncpSetRelSymTbl, ncpSetRelCount, ncpSetRelSymTblSize);
-    }
+    u32 addr = symbolAddr;
 
     ParsedPatchInfo parsedInfo = parsePatchTypeAndAddress(stemless);
     if (!parsedInfo.isValid)
@@ -566,6 +544,40 @@ void PatchInfoAnalyzer::parseSectionSymbol(std::string_view symbolName, int sect
     m_patchInfo.push_back(std::move(patchInfoEntry));
 }
 
+void PatchInfoAnalyzer::parseNcpSetSection(std::string_view sectionName, int sectionIdx, int sectionSize,
+                                          core::CompilationUnit* unit, std::vector<GenericPatchInfo*>& patchInfoForThisObj)
+{
+    // Validate section size (should be exactly 4 bytes for a pointer)
+    if (sectionSize != 4)
+    {
+        Log::out << OWARN << "ncp_set section " << sectionName << " should be exactly 4 bytes, but is " 
+                 << sectionSize << " bytes." << std::endl;
+        return;
+    }
+
+    // Parse section name: .ncp_set<opcode>_<address>[_ov<overlay>]
+    std::string_view labelName = sectionName.substr(5); // Remove ".ncp_"
+
+    ParsedPatchInfo parsedInfo = parsePatchTypeAndAddress(labelName);
+    if (!parsedInfo.isValid)
+        return;
+
+    // Force this to be an ncp_set patch
+    parsedInfo.isNcpSet = true;
+
+    if (parsedInfo.patchType == patch::PatchType::RtRepl)
+    {
+        Log::out << OWARN << "\"rtrepl\" patch type is not supported for ncp_set sections: " << labelName << std::endl;
+        return;
+    }
+
+    validatePatchForRegion(parsedInfo, sectionName, unit);
+
+    auto patchInfoEntry = createPatchInfo(parsedInfo, sectionName, 0, sectionIdx, sectionSize, unit, PatchSourceType::Section);
+    patchInfoForThisObj.push_back(patchInfoEntry.get());
+    m_patchInfo.push_back(std::move(patchInfoEntry));
+}
+
 void PatchInfoAnalyzer::handleRtReplPatch(std::string_view symbolName, core::CompilationUnit* unit, bool isSection)
 {
     if (isSection) // we do not want the labels, those are placeholders
@@ -577,101 +589,60 @@ void PatchInfoAnalyzer::handleRtReplPatch(std::string_view symbolName, core::Com
     }
 }
 
-void PatchInfoAnalyzer::handleNcpSetSection(const Elf32_Shdr& section, core::CompilationUnit* unit)
+void PatchInfoAnalyzer::printPatchInfoForObject(const std::vector<GenericPatchInfo*>& patchInfoForThisObj, core::CompilationUnit* unit) const
 {
-    const BuildTarget::Region* region = unit->getTargetRegion();
-    int dest = region->destination;
-    if (std::find(m_destWithNcpSet.begin(), m_destWithNcpSet.end(), dest) == m_destWithNcpSet.end())
-        m_destWithNcpSet.emplace_back(dest);
-    m_unitsWithNcpSet.emplace_back(unit);
-}
+    if (!canPrintVerboseInfo(unit))
+		return;
 
-u32 PatchInfoAnalyzer::resolveNcpSetAddress(u32 symbolAddr, const Elf32& elf, const Elf32_Shdr* sh_tbl,
-                                           const Elf32_Shdr* ncpSetSection, const Elf32_Rel* ncpSetRel,
-                                           const Elf32_Sym* ncpSetRelSymTbl, std::size_t ncpSetRelCount,
-                                           std::size_t ncpSetRelSymTblSize)
-{
-    // Here we are just getting the address, so that we can know beforehand
-    // if the function is thumb or not. The final address is obtained after linkage.
-    const Elf32_Sym* symbol = reinterpret_cast<const Elf32_Sym*>(reinterpret_cast<const char*>(sh_tbl) + symbolAddr);
-    auto& section = sh_tbl[symbol->st_shndx];
-    auto sectionData = elf.getSection<char>(section);
-    
-    if (ncpSetRel == nullptr)
-    {
-        return Util::read<u32>(&sectionData[symbolAddr - section.sh_addr]);
-    }
-    else
-    {
-        for (int relIdx = 0; relIdx < ncpSetRelCount; relIdx++)
-        {
-            const Elf32_Rel& rel = ncpSetRel[relIdx];
-            if (rel.r_offset == symbolAddr) // found the corresponding relocation
-            {
-                // layer after layer, we finally reach the symbol :p
-                std::size_t symIdx = ELF32_R_SYM(rel.r_info);
-                if (symIdx >= ncpSetRelSymTblSize)
-                {
-                    std::ostringstream oss;
-                    oss << "Relocation entry with index " << relIdx
-                        << " in " << OSTR(".rel.ncp_set") << " section has an index of " << symIdx
-                        << " as linked symbol table entry but the symbol table only contains "
-                        << ncpSetRelSymTblSize << " entries.";
-                    throw ncp::exception(oss.str());
-                }
-                return ncpSetRelSymTbl[symIdx].st_value;
-            }
-        }
-        return symbolAddr;
-    }
-}
-
-void PatchInfoAnalyzer::printPatchInfoForObject(const std::vector<GenericPatchInfo*>& patchInfoForThisObj) const
-{
-    if (ncp::Application::isVerbose(ncp::VerboseTag::Patch))
-    {
-        if (patchInfoForThisObj.empty())
-        {
-            Log::out << ANSI_WHITE "NO PATCHES" ANSI_RESET << std::endl;
-        }
-        else
-        {
-            Log::out << ANSI_bCYAN "Object patches:" ANSI_RESET "\n"
-                << ANSI_bWHITE "SRC_ADDR_OV" ANSI_RESET "  "
-                << ANSI_bWHITE "DST_ADDR" ANSI_RESET "  "
-                << ANSI_bWHITE "DST_ADDR_OV" ANSI_RESET "  "
-                << ANSI_bWHITE "PATCH_TYPE" ANSI_RESET "  "
-                << ANSI_bWHITE "SEC_IDX" ANSI_RESET "  "
-                << ANSI_bWHITE "SEC_SIZE" ANSI_RESET "  "
-                << ANSI_bWHITE "NCP_SET" ANSI_RESET "  "
-                << ANSI_bWHITE "SRC_THUMB" ANSI_RESET "  "
-                << ANSI_bWHITE "DST_THUMB" ANSI_RESET "  "
-                << ANSI_bWHITE "SRC_TYPE" ANSI_RESET "  "
-                << ANSI_bWHITE "SYMBOL" ANSI_RESET << std::endl;
-            for (auto& p : patchInfoForThisObj)
-            {
-                std::string sourceTypeStr;
-                switch (p->sourceType) {
-                    case PatchSourceType::Section: sourceTypeStr = "section"; break;
-                    case PatchSourceType::Label: sourceTypeStr = "label"; break;
-                    case PatchSourceType::Symver: sourceTypeStr = "symver"; break;
-                }
-                
-                Log::out <<
-                    ANSI_YELLOW << std::setw(11) << std::dec << p->srcAddressOv << ANSI_RESET "  " <<
-                    ANSI_BLUE << std::setw(8) << std::hex << p->destAddress << ANSI_RESET "  " <<
-                    ANSI_YELLOW << std::setw(11) << std::dec << p->destAddressOv << ANSI_RESET "  " <<
-                    ANSI_MAGENTA << std::setw(10) << PatchTypeUtils::getName(p->patchType) << ANSI_RESET "  " <<
-                    ANSI_WHITE << std::setw(7) << std::dec << p->sectionIdx << ANSI_RESET "  " <<
-                    ANSI_WHITE << std::setw(8) << std::dec << p->sectionSize << ANSI_RESET "  " <<
-                    ANSI_GREEN << std::setw(7) << std::boolalpha << p->isNcpSet << ANSI_RESET "  " <<
-                    ANSI_GREEN << std::setw(9) << std::boolalpha << p->srcThumb << ANSI_RESET "  " <<
-                    ANSI_GREEN << std::setw(9) << std::boolalpha << p->destThumb << ANSI_RESET "  " <<
-                    ANSI_bYELLOW << std::setw(8) << sourceTypeStr << ANSI_RESET "  " <<
-                    ANSI_WHITE << p->symbol << ANSI_RESET << std::endl;
-            }
-        }
-    }
+	if (patchInfoForThisObj.empty())
+	{
+		Log::out << ANSI_WHITE "NO PATCHES" ANSI_RESET << std::endl;
+	}
+	else
+	{
+		Log::out
+			<< ANSI_bWHITE "SRC_ADDR_OV" ANSI_RESET "    "
+			<< ANSI_bWHITE "DST_ADDR" ANSI_RESET "  "
+			<< ANSI_bWHITE "DST_ADDR_OV" ANSI_RESET "  "
+			<< ANSI_bWHITE "PATCH_TYPE" ANSI_RESET "  "
+			<< ANSI_bWHITE "SEC_IDX" ANSI_RESET "  "
+			<< ANSI_bWHITE "SEC_SIZE" ANSI_RESET "  "
+			<< ANSI_bWHITE "NCP_SET" ANSI_RESET "  "
+			<< ANSI_bWHITE "SRC_THUMB" ANSI_RESET "  "
+			<< ANSI_bWHITE "DST_THUMB" ANSI_RESET "  "
+			<< ANSI_bWHITE "SRC_TYPE" ANSI_RESET "  "
+			<< ANSI_bWHITE "SYMBOL" ANSI_RESET << std::endl;
+		for (auto& p : patchInfoForThisObj)
+		{
+			// Indicate which fields will be updated during ELF analysis
+			bool srcThumbPending = (p->isNcpSet && p->srcThumb == false); // ncp_set srcThumb determined later
+			bool sectionIdxPending = (p->sectionIdx == -1); // Will be populated during ELF analysis
+			
+			Log::out <<
+				ANSI_YELLOW << std::setw(11) << std::dec << p->srcAddressOv << ANSI_RESET "  " <<
+				ANSI_BLUE << std::setw(8) << Util::intToAddr(p->destAddress, 8) << ANSI_RESET "  " <<
+				ANSI_YELLOW << std::setw(11) << std::dec << p->destAddressOv << ANSI_RESET "  " <<
+				ANSI_MAGENTA << std::setw(10) << PatchTypeUtils::getName(p->patchType) << ANSI_RESET "  " <<
+				ANSI_WHITE << std::setw(7);
+			if (sectionIdxPending)
+				Log::out << "?";
+			else
+				Log::out << std::dec << p->sectionIdx;
+			Log::out << ANSI_RESET "  " <<
+				ANSI_WHITE << std::setw(8) << std::dec << p->sectionSize << ANSI_RESET "  " <<
+				ANSI_GREEN << std::setw(7) << std::boolalpha << p->isNcpSet << ANSI_RESET "  " <<
+				ANSI_GREEN << std::setw(9);
+			if (srcThumbPending)
+				Log::out << "?";
+			else
+				Log::out << std::boolalpha << p->srcThumb;
+			Log::out << ANSI_RESET "  " <<
+				ANSI_GREEN << std::setw(9) << std::boolalpha << p->destThumb << ANSI_RESET "  " <<
+				ANSI_bYELLOW << std::setw(8) << toString(p->sourceType) << ANSI_RESET "  " <<
+				ANSI_WHITE << p->symbol;
+			Log::out << ANSI_RESET << std::endl;
+		}
+	}
 }
 
 void PatchInfoAnalyzer::printExternSymbols() const
@@ -690,4 +661,12 @@ void PatchInfoAnalyzer::printExternSymbols() const
             Log::out << std::flush;
         }
     }
+}
+
+bool PatchInfoAnalyzer::canPrintVerboseInfo(core::CompilationUnit* unit) const
+{
+    if (!ncp::Application::isVerbose(ncp::VerboseTag::Patch) ||
+		(ncp::Application::isVerbose(ncp::VerboseTag::NoLib) && unit->getType() == core::CompilationUnitType::LibraryFile))
+		return false;
+	return true;
 }

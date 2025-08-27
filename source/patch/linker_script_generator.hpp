@@ -51,8 +51,6 @@ public:
         const std::vector<std::unique_ptr<GenericPatchInfo>>& patchInfo,
         const std::vector<std::unique_ptr<RtReplPatchInfo>>& rtreplPatches,
         const std::vector<std::string>& externSymbols,
-        const std::vector<int>& destWithNcpSet,
-    	const core::CompilationUnitPtrCollection& unitsWithNcpSet,
         const std::vector<std::unique_ptr<OverwriteRegionInfo>>& overwriteRegions
     );
 

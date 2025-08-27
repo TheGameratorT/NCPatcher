@@ -35,8 +35,6 @@ public:
     const std::vector<std::unique_ptr<RtReplPatchInfo>>& getRtreplPatches() const { return m_rtreplPatches; }
     const std::vector<std::string>& getExternSymbols() const { return m_externSymbols; }
     const std::vector<std::unique_ptr<SectionInfo>>& getOverwriteCandidateSections() const { return m_overwriteCandidateSections; }
-    const std::vector<int>& getDestWithNcpSet() const { return m_destWithNcpSet; }
-    const core::CompilationUnitPtrCollection& getUnitsWithNcpSet() const { return m_unitsWithNcpSet; }
 
     // Move semantics for transfer to other components
     std::vector<std::unique_ptr<GenericPatchInfo>> takePatchInfo() { return std::move(m_patchInfo); }
@@ -63,8 +61,6 @@ private:
 
     std::vector<std::unique_ptr<GenericPatchInfo>> m_patchInfo;
     std::vector<std::unique_ptr<RtReplPatchInfo>> m_rtreplPatches;
-    std::vector<int> m_destWithNcpSet;
-    core::CompilationUnitPtrCollection m_unitsWithNcpSet;
     std::vector<std::string> m_externSymbols;
     std::vector<std::unique_ptr<SectionInfo>> m_overwriteCandidateSections;
 
@@ -94,15 +90,9 @@ private:
     void processObjectFile(core::CompilationUnit* unit);
     void processElfSections(const Elf32& elf, const Elf32_Ehdr& eh, const Elf32_Shdr* sh_tbl, 
                            const char* str_tbl, core::CompilationUnit* unit,
-                           std::vector<GenericPatchInfo*>& patchInfoForThisObj,
-                           const Elf32_Shdr*& ncpSetSection, const Elf32_Rel*& ncpSetRel,
-                           const Elf32_Sym*& ncpSetRelSymTbl, std::size_t& ncpSetRelCount, 
-                           std::size_t& ncpSetRelSymTblSize);
+                           std::vector<GenericPatchInfo*>& patchInfoForThisObj);
     void processElfSymbols(const Elf32& elf, const Elf32_Ehdr& eh, const Elf32_Shdr* sh_tbl,
-                          core::CompilationUnit* unit, std::vector<GenericPatchInfo*>& patchInfoForThisObj,
-                          const Elf32_Shdr* ncpSetSection, const Elf32_Rel* ncpSetRel,
-                          const Elf32_Sym* ncpSetRelSymTbl, std::size_t ncpSetRelCount,
-                          std::size_t ncpSetRelSymTblSize);
+                          core::CompilationUnit* unit, std::vector<GenericPatchInfo*>& patchInfoForThisObj);
     void updatePatchThumbInfo(const Elf32& elf, const Elf32_Ehdr& eh, const Elf32_Shdr* sh_tbl,
                              std::vector<GenericPatchInfo*>& patchInfoForThisObj);
     void resolveSymverPatches(const Elf32& elf, const Elf32_Ehdr& eh, const Elf32_Shdr* sh_tbl,
@@ -115,22 +105,17 @@ private:
     void parseSymverSymbol(std::string_view symbolName, int sectionIdx, u32 symbolAddr, core::CompilationUnit* unit, 
                           std::vector<GenericPatchInfo*>& patchInfoForThisObj);
     void parseRegularSymbol(std::string_view symbolName, int sectionIdx, u32 symbolAddr, core::CompilationUnit* unit,
-                           std::vector<GenericPatchInfo*>& patchInfoForThisObj,
-                           const Elf32_Shdr* ncpSetSection, const Elf32_Rel* ncpSetRel,
-                           const Elf32_Sym* ncpSetRelSymTbl, std::size_t ncpSetRelCount,
-                           std::size_t ncpSetRelSymTblSize, const Elf32& elf, const Elf32_Shdr* sh_tbl);
+                           std::vector<GenericPatchInfo*>& patchInfoForThisObj);
     void parseSectionSymbol(std::string_view symbolName, int sectionIdx, int sectionSize,
+                           core::CompilationUnit* unit, std::vector<GenericPatchInfo*>& patchInfoForThisObj);
+    void parseNcpSetSection(std::string_view sectionName, int sectionIdx, int sectionSize,
                            core::CompilationUnit* unit, std::vector<GenericPatchInfo*>& patchInfoForThisObj);
 
     // Special handling methods
     void handleRtReplPatch(std::string_view symbolName, core::CompilationUnit* unit, bool isSection);
-    void handleNcpSetSection(const Elf32_Shdr& section, core::CompilationUnit* unit);
-    u32 resolveNcpSetAddress(u32 symbolAddr, const Elf32& elf, const Elf32_Shdr* sh_tbl,
-                            const Elf32_Shdr* ncpSetSection, const Elf32_Rel* ncpSetRel,
-                            const Elf32_Sym* ncpSetRelSymTbl, std::size_t ncpSetRelCount,
-                            std::size_t ncpSetRelSymTblSize);
 
     // Debugging and output helpers
-    void printPatchInfoForObject(const std::vector<GenericPatchInfo*>& patchInfoForThisObj) const;
+    void printPatchInfoForObject(const std::vector<GenericPatchInfo*>& patchInfoForThisObj, core::CompilationUnit* unit) const;
     void printExternSymbols() const;
+	bool canPrintVerboseInfo(core::CompilationUnit* unit) const;
 };

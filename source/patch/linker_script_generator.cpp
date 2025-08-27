@@ -42,8 +42,6 @@ void LinkerScriptGenerator::createLinkerScript(
     const std::vector<std::unique_ptr<GenericPatchInfo>>& patchInfo,
     const std::vector<std::unique_ptr<RtReplPatchInfo>>& rtreplPatches,
     const std::vector<std::string>& externSymbols,
-    const std::vector<int>& destWithNcpSet,
-    const core::CompilationUnitPtrCollection& unitsWithNcpSet,
     const std::vector<std::unique_ptr<OverwriteRegionInfo>>& overwriteRegions
 )
 {
@@ -95,11 +93,6 @@ void LinkerScriptGenerator::createLinkerScript(
         return a->destination > b->destination;
     });
 
-    std::vector<int> orderedDestWithNcpSet = destWithNcpSet;
-    std::sort(orderedDestWithNcpSet.begin(), orderedDestWithNcpSet.end(), [](int a, int b){
-        return a > b;
-    });
-
     for (const BuildTarget::Region* region : orderedRegions)
     {
         LDSMemoryEntry* memEntry;
@@ -147,7 +140,7 @@ void LinkerScriptGenerator::createLinkerScript(
             {
                 if (ldsRegion->dest == info->unit->getTargetRegion()->destination)
                 {
-                    if (info->sourceType == patch::PatchSourceType::Section)
+                    if (info->sourceType == patch::PatchSourceType::Section && !info->isNcpSet)
                     {
                         // Check if this patch's section is assigned to an overwrite region (only for final version)
                         bool patchInOverwrite = false;
@@ -190,7 +183,12 @@ void LinkerScriptGenerator::createLinkerScript(
         }
     }
 
-    if (!orderedDestWithNcpSet.empty())
+    // Check if we have any ncp_set patches
+    bool hasNcpSetPatches = std::any_of(patchInfo.begin(), patchInfo.end(), [](const auto& info) {
+        return info->isNcpSet;
+    });
+    
+    if (hasNcpSetPatches)
         memoryEntries.emplace_back(new LDSMemoryEntry{ "ncp_set", 0, 0x100000 });
 
     std::string o;
@@ -392,30 +390,22 @@ void LinkerScriptGenerator::createLinkerScript(
     if (!overPatches.empty())
         o += '\n';
 
-	for (auto& p : orderedDestWithNcpSet)
+	// Generate linker script entries for ncp_set sections
+	for (const auto& info : patchInfo)
 	{
-		o += "\t.ncp_set";
-		if (p == -1)
+		if (info->isNcpSet)
 		{
-			o += " : { KEEP(* (.ncp_set)) } > ncp_set AT > bin\n\n";
+			// Create individual section entries for each ncp_set patch
+			o += '\t';
+			o += info->symbol; // This is the section name like .ncp_setjump_0x02000000
+			o += " : { KEEP(\"";
+			o += Util::relativeIfSubpath(info->unit->getObjectPath()).string();
+			o += "\" (";
+			o += info->symbol;
+			o += ")) } > ncp_set AT > bin\n";
 		}
-        else
-        {
-            o += "_ov";
-            o += std::to_string(p);
-            o += " : {\n";
-            for (const auto* unit : unitsWithNcpSet)
-            {
-                if (unit->getTargetRegion()->destination == p)
-                {
-                    o += "\t\t KEEP(\"";
-                    o += Util::relativeIfSubpath(unit->getObjectPath()).string();
-                    o += "\" (.ncp_set))\n\t"
-                            "} > ncp_set AT > bin\n\n";
-                }
-            }
-        }
 	}
+	o += '\n';
 
     o += "\t/DISCARD/ : {*(.*)}\n"
          "}\n";

@@ -128,8 +128,21 @@ enum class PatchSourceType {
     Symver      // Symbol versioned patch (sectionIdx == -1, new type)
 };
 
+const char* toString(PatchSourceType patchSourceType);
+
 /**
  * Generic patch information with section support
+ * 
+ * Fields populated during initial analysis (PatchInfoAnalyzer):
+ * - symbol, destAddress, destAddressOv, patchType, srcAddressOv
+ * - srcThumb, destThumb (for most patches)
+ * - isNcpSet, sourceType, sectionSize
+ * 
+ * Fields populated/updated during ELF analysis (ElfAnalyzer):
+ * - srcAddress (always updated from symbol/section data)
+ * - sectionIdx (always updated from ELF symbol/section info)
+ * - srcThumb (for ncp_set patches only - read from function pointer LSB)
+ * - symbol (for section-type patches - dot prefix removed)
  */
 struct GenericPatchInfo : public PatchInfo
 {

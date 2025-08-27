@@ -392,6 +392,7 @@ VerboseTag Application::parseVerboseTag(const std::string& tagName)
     if (tagName == "library") return VerboseTag::Library;
     if (tagName == "linking") return VerboseTag::Linking;
     if (tagName == "symbols") return VerboseTag::Symbols;
+    if (tagName == "nolib") return VerboseTag::NoLib;
     if (tagName == "all") return VerboseTag::All;
     
     return static_cast<VerboseTag>(-1); // Invalid tag

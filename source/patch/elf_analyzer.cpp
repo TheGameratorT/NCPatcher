@@ -72,13 +72,23 @@ void ElfAnalyzer::gatherInfoFromElf(
         {
             if (p->sourceType == PatchSourceType::Section)
             {
-                std::string_view nameAsLabel = std::string_view(p->symbol).substr(1);
-                if (nameAsLabel == symbolName)
-                {
-                    p->srcAddress = symbol.st_value;
-                    p->sectionIdx = symbol.st_shndx;
-                    p->symbol = nameAsLabel;
-                }
+				if (p->isNcpSet)
+				{
+					if (p->symbol == symbolName)
+					{
+						p->sectionIdx = symbol.st_shndx;
+					}
+				}
+				else
+				{
+					std::string_view nameAsLabel = std::string_view(p->symbol).substr(1);
+					if (nameAsLabel == symbolName)
+					{
+						p->srcAddress = symbol.st_value;
+						p->sectionIdx = symbol.st_shndx;
+						p->symbol = nameAsLabel;
+					}
+				}
             }
             else
             {
@@ -125,34 +135,26 @@ void ElfAnalyzer::gatherInfoFromElf(
         }
         if (sectionName.starts_with(".ncp_set"))
         {
-            // found the ncp_set section, get all hook definitions stored there
-
-            int srcAddrOv = -1;
-            if (sectionName.length() != 8 && sectionName.substr(8).starts_with("_ov"))
-            {
-                try {
-                    srcAddrOv = std::stoi(std::string(sectionName.substr(11)));
-                } catch (std::exception& e) {
-                    Log::out << OWARN << "Found invalid overlay reading ncp_set section: " << sectionName << std::endl;
-                    return false;
-                }
-            }
-
+            // Handle ncp_set sections directly - each section corresponds to a specific patch
             const char* sectionData = m_elf->getSection<char>(section);
-
+            
+            // Find the patch that corresponds to this section
             for (auto& p : patchInfo)
             {
-                if (p->isNcpSet && p->srcAddressOv == srcAddrOv)
+                if (p->isNcpSet && p->symbol == sectionName)
                 {
-                    u32 dataOffset = p->srcAddress - section.sh_addr;
-                    if (dataOffset + 4 > section.sh_size)
+                    if (section.sh_size != 4)
                     {
                         std::ostringstream oss;
-                        oss << "Tried to read " << OSTR(sectionName) << " data out of bounds.";
+                        oss << "ncp_set section " << OSTR(sectionName) << " should be exactly 4 bytes, but is " << section.sh_size << " bytes.";
                         throw ncp::exception(oss.str());
                     }
+                    
+                    // Read the function pointer from the section data
                     // ncp_set comes with the THUMB bit, we must clear it!
-                    p->srcAddress = Util::read<u32>(&sectionData[dataOffset]) & ~1;
+                    p->srcAddress = Util::read<u32>(&sectionData[0]) & ~1;
+                    // Also determine if the source function is thumb from the LSB
+                    p->srcThumb = bool(Util::read<u32>(&sectionData[0]) & 1);
                 }
             }
         }
@@ -213,12 +215,14 @@ void ElfAnalyzer::gatherInfoFromElf(
     
     if (ncp::Application::isVerbose(ncp::VerboseTag::Patch))
     {
-        Log::out << ANSI_bCYAN "Patches:" ANSI_RESET "\n"
-            << ANSI_bWHITE "SRC_ADDR" ANSI_RESET "  "
-            << ANSI_bWHITE "SRC_ADDR_OV" ANSI_RESET "  "
+        Log::out << ANSI_bCYAN "Patches (post-ELF analysis):" ANSI_RESET "\n"
+        	<< ANSI_bYELLOW "Note: Fields marked with * are populated/updated during ELF analysis phase" ANSI_RESET << std::endl;
+
+        Log::out << ANSI_bWHITE "  SRC_ADDR" ANSI_RESET "  "
+            << ANSI_bWHITE "SRC_ADDR_OV" ANSI_RESET "    "
             << ANSI_bWHITE "DST_ADDR" ANSI_RESET "  "
             << ANSI_bWHITE "DST_ADDR_OV" ANSI_RESET "  "
-            << ANSI_bWHITE "PATCH_TYPE" ANSI_RESET "  "
+            << ANSI_bWHITE "PATCH_TYPE" ANSI_RESET "   "
             << ANSI_bWHITE "SEC_IDX" ANSI_RESET "  "
             << ANSI_bWHITE "SEC_SIZE" ANSI_RESET "  "
             << ANSI_bWHITE "NCP_SET" ANSI_RESET "  "
@@ -228,26 +232,28 @@ void ElfAnalyzer::gatherInfoFromElf(
             << ANSI_bWHITE "SYMBOL" ANSI_RESET << std::endl;
         for (auto& p : patchInfo)
         {
-			std::string sourceTypeStr;
-			switch (p->sourceType) {
-				case PatchSourceType::Section: sourceTypeStr = "section"; break;
-				case PatchSourceType::Label: sourceTypeStr = "label"; break;
-				case PatchSourceType::Symver: sourceTypeStr = "symver"; break;
-			}
+			if (ncp::Application::isVerbose(ncp::VerboseTag::NoLib) && p->unit->getType() == core::CompilationUnitType::LibraryFile)
+				continue;
 
             Log::out <<
-                ANSI_CYAN << std::setw(8) << std::hex << p->srcAddress << ANSI_RESET "  " <<
+                ANSI_CYAN << std::setw(10) << Util::intToAddr(p->srcAddress, 8) << "*";
+            Log::out << ANSI_RESET " " <<
                 ANSI_YELLOW << std::setw(11) << std::dec << p->srcAddressOv << ANSI_RESET "  " <<
-                ANSI_BLUE << std::setw(8) << std::hex << p->destAddress << ANSI_RESET "  " <<
+                ANSI_BLUE << std::setw(8) << Util::intToAddr(p->destAddress, 8) << ANSI_RESET "  " <<
                 ANSI_YELLOW << std::setw(11) << std::dec << p->destAddressOv << ANSI_RESET "  " <<
                 ANSI_MAGENTA << std::setw(10) << s_patchTypeNames[p->patchType] << ANSI_RESET "  " <<
-                ANSI_WHITE << std::setw(7) << std::dec << p->sectionIdx << ANSI_RESET "  " <<
+                ANSI_WHITE << std::setw(8) << std::dec << p->sectionIdx << "*";
+            Log::out << ANSI_RESET " " <<
                 ANSI_WHITE << std::setw(8) << std::dec << p->sectionSize << ANSI_RESET "  " <<
                 ANSI_GREEN << std::setw(7) << std::boolalpha << p->isNcpSet << ANSI_RESET "  " <<
-                ANSI_GREEN << std::setw(9) << std::boolalpha << p->srcThumb << ANSI_RESET "  " <<
+                ANSI_GREEN << std::setw(9) << std::boolalpha << p->srcThumb;
+            // Mark srcThumb field populated during ELF analysis for ncp_set patches
+            Log::out << (p->isNcpSet ? "*" : " ");
+            Log::out << ANSI_RESET " " <<
                 ANSI_GREEN << std::setw(9) << std::boolalpha << p->destThumb << ANSI_RESET "  " <<
-                ANSI_bYELLOW << std::setw(11) << sourceTypeStr << ANSI_RESET "  " <<
-                ANSI_WHITE << p->symbol << ANSI_RESET << std::endl;
+                ANSI_bYELLOW << std::setw(11) << toString(p->sourceType) << ANSI_RESET "  " <<
+                ANSI_WHITE << p->symbol;
+            Log::out << ANSI_RESET << std::endl;
         }
     }
 
