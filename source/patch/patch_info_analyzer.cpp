@@ -615,20 +615,16 @@ void PatchInfoAnalyzer::printPatchInfoForObject(const std::vector<GenericPatchIn
 		for (auto& p : patchInfoForThisObj)
 		{
 			// Indicate which fields will be updated during ELF analysis
-			bool srcThumbPending = (p->isNcpSet && p->srcThumb == false); // ncp_set srcThumb determined later
-			bool sectionIdxPending = (p->sectionIdx == -1); // Will be populated during ELF analysis
-			
+			bool srcThumbPending = p->isNcpSet; // ncp_set srcThumb determined later
+			bool symbolPending = p->sourceType == patch::PatchSourceType::Section && patch::PatchTypeUtils::isSetPatch(p->patchType);
+
 			Log::out <<
 				ANSI_YELLOW << std::setw(11) << std::dec << p->srcAddressOv << ANSI_RESET "  " <<
 				ANSI_BLUE << std::setw(8) << Util::intToAddr(p->destAddress, 8) << ANSI_RESET "  " <<
 				ANSI_YELLOW << std::setw(11) << std::dec << p->destAddressOv << ANSI_RESET "  " <<
 				ANSI_MAGENTA << std::setw(10) << PatchTypeUtils::getName(p->patchType) << ANSI_RESET "  " <<
-				ANSI_WHITE << std::setw(7);
-			if (sectionIdxPending)
-				Log::out << "?";
-			else
-				Log::out << std::dec << p->sectionIdx;
-			Log::out << ANSI_RESET "  " <<
+				ANSI_WHITE << std::setw(7) << std::dec << p->sectionIdx << "?";
+			Log::out << ANSI_RESET " " <<
 				ANSI_WHITE << std::setw(8) << std::dec << p->sectionSize << ANSI_RESET "  " <<
 				ANSI_GREEN << std::setw(7) << std::boolalpha << p->isNcpSet << ANSI_RESET "  " <<
 				ANSI_GREEN << std::setw(9);
@@ -640,6 +636,8 @@ void PatchInfoAnalyzer::printPatchInfoForObject(const std::vector<GenericPatchIn
 				ANSI_GREEN << std::setw(9) << std::boolalpha << p->destThumb << ANSI_RESET "  " <<
 				ANSI_bYELLOW << std::setw(8) << toString(p->sourceType) << ANSI_RESET "  " <<
 				ANSI_WHITE << p->symbol;
+			if (symbolPending)
+				Log::out << "?";
 			Log::out << ANSI_RESET << std::endl;
 		}
 	}

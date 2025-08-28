@@ -235,6 +235,8 @@ void ElfAnalyzer::gatherInfoFromElf(
 			if (ncp::Application::isVerbose(ncp::VerboseTag::NoLib) && p->unit->getType() == core::CompilationUnitType::LibraryFile)
 				continue;
 
+			bool symbolUpdated = p->sourceType == patch::PatchSourceType::Section && patch::PatchTypeUtils::isSetPatch(p->patchType);
+
             Log::out <<
                 ANSI_CYAN << std::setw(10) << Util::intToAddr(p->srcAddress, 8) << "*";
             Log::out << ANSI_RESET " " <<
@@ -247,12 +249,12 @@ void ElfAnalyzer::gatherInfoFromElf(
                 ANSI_WHITE << std::setw(8) << std::dec << p->sectionSize << ANSI_RESET "  " <<
                 ANSI_GREEN << std::setw(7) << std::boolalpha << p->isNcpSet << ANSI_RESET "  " <<
                 ANSI_GREEN << std::setw(9) << std::boolalpha << p->srcThumb;
-            // Mark srcThumb field populated during ELF analysis for ncp_set patches
             Log::out << (p->isNcpSet ? "*" : " ");
             Log::out << ANSI_RESET " " <<
                 ANSI_GREEN << std::setw(9) << std::boolalpha << p->destThumb << ANSI_RESET "  " <<
                 ANSI_bYELLOW << std::setw(11) << toString(p->sourceType) << ANSI_RESET "  " <<
                 ANSI_WHITE << p->symbol;
+            Log::out << (symbolUpdated ? "*" : " ");
             Log::out << ANSI_RESET << std::endl;
         }
     }
