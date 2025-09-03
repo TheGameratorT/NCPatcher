@@ -17,10 +17,12 @@ const std::string& getToolchain();
 bool getBuildArm7();
 const std::filesystem::path& getArm7Target();
 const std::filesystem::path& getArm7BuildDir();
+const std::filesystem::path& getArm7WorkDir();
 
 bool getBuildArm9();
 const std::filesystem::path& getArm9Target();
 const std::filesystem::path& getArm9BuildDir();
+const std::filesystem::path& getArm9WorkDir();
 
 const std::vector<std::string>& getPreBuildCmds();
 const std::vector<std::string>& getPostBuildCmds();

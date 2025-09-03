@@ -64,7 +64,7 @@ public:
 	[[nodiscard]] Region* getMainRegion();
 
 	BuildTarget();
-	void load(const std::filesystem::path& targetFilePath, bool isArm9);
+	void load(const std::filesystem::path& targetFilePath, const std::filesystem::path& targetWorkDir, bool isArm9);
 
 private:
 	const std::string& getVariable(const std::string& value);

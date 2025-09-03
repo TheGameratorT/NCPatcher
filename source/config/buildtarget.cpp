@@ -19,18 +19,16 @@ static const char* s_regionModeStrs[] = { "append", "replace", "create" };
 
 BuildTarget::BuildTarget() = default;
 
-void BuildTarget::load(const fs::path& targetFilePath, bool isArm9)
+void BuildTarget::load(const fs::path& targetFilePath, const fs::path& targetWorkDir, bool isArm9)
 {
 	m_isArm9 = isArm9;
 
 	fs::path curPath = fs::current_path();
 
 	fs::current_path(ncp::Application::getWorkPath());
-	fs::current_path(targetFilePath.parent_path());
+	fs::current_path(targetWorkDir);
 
-	fs::path targetFileName = targetFilePath.filename();
-
-	JsonReader json(targetFileName);
+	JsonReader json(targetFilePath);
 
 	varmap.emplace("root", ncp::Application::getWorkPath().string());
 
@@ -78,7 +76,7 @@ void BuildTarget::load(const fs::path& targetFilePath, bool isArm9)
 		regions.push_back(region);
 	}
 
-	m_lastWriteTime = Util::toTimeT(fs::last_write_time(targetFileName));
+	m_lastWriteTime = Util::toTimeT(fs::last_write_time(targetFilePath));
 
 	fs::current_path(curPath);
 }

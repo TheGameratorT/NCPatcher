@@ -145,12 +145,20 @@ void Application::processTarget(HeaderBin& header, bool isArm9)
         BuildConfig::getArm9Target() : 
         BuildConfig::getArm7Target());
 
+    const fs::path& targetWorkDirCfg = isArm9 ?
+		BuildConfig::getArm9WorkDir() :
+		BuildConfig::getArm7WorkDir();
+
+    fs::path targetWorkDir = targetWorkDirCfg.empty() ?
+		targetPath.parent_path() :
+		fs::absolute(ncp::Application::getWorkPath() / targetWorkDirCfg);
+
     setErrorContext(isArm9 ?
         "Could not load the ARM9 target configuration." :
         "Could not load the ARM7 target configuration.");
     
     BuildTarget buildTarget;
-    buildTarget.load(targetPath, isArm9);
+    buildTarget.load(targetPath, targetWorkDir, isArm9);
     setErrorContext(nullptr);
 
     std::time_t lastTargetWriteTimeNew = buildTarget.getLastWriteTime();
@@ -165,7 +173,6 @@ void Application::processTarget(HeaderBin& header, bool isArm9)
         "Could not compile the ARM9 target." :
         "Could not compile the ARM7 target.");
 
-    fs::path targetDir = targetPath.parent_path();
     fs::path buildPath = fs::absolute(isArm9 ? 
         BuildConfig::getArm9BuildDir() : 
         BuildConfig::getArm7BuildDir());
@@ -173,10 +180,10 @@ void Application::processTarget(HeaderBin& header, bool isArm9)
     core::CompilationUnitManager compilationUnitsMgr;
 
     ObjMaker objMaker;
-    objMaker.makeTarget(buildTarget, targetDir, buildPath, compilationUnitsMgr);
+    objMaker.makeTarget(buildTarget, targetWorkDir, buildPath, compilationUnitsMgr);
 
     PatchMaker patchMaker;
-    patchMaker.makeTarget(buildTarget, targetDir, buildPath, header, compilationUnitsMgr);
+    patchMaker.makeTarget(buildTarget, targetWorkDir, buildPath, header, compilationUnitsMgr);
 
     // Update rebuild config
     if (isArm9) {

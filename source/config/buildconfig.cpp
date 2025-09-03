@@ -26,6 +26,7 @@ struct TargetConfig
 	bool doBuild = false;
 	fs::path target;
 	fs::path build;
+	fs::path workdir;
 };
 
 static varmap_t varmap;
@@ -102,6 +103,9 @@ static void readTargetFromJson(JsonReader& json, bool arm9, TargetConfig& out)
 		{
 			out.target = getString(jsonNode["target"]);
 			out.build = getString(jsonNode["build"]);
+			// Optional workdir - if present, resolve relative to application work path when used
+			if (jsonNode.hasMember("workdir") && !jsonNode["workdir"].isNull())
+				out.workdir = getString(jsonNode["workdir"]);
 			out.doBuild = true;
 		}
 	}
@@ -172,10 +176,12 @@ const std::string& getToolchain() { return toolchain; }
 bool getBuildArm7() { return arm7Config.doBuild; }
 const fs::path& getArm7Target() { return arm7Config.target; }
 const fs::path& getArm7BuildDir() { return arm7Config.build; }
+const fs::path& getArm7WorkDir() { return arm7Config.workdir; }
 
 bool getBuildArm9() { return arm9Config.doBuild; }
 const fs::path& getArm9Target() { return arm9Config.target; }
 const fs::path& getArm9BuildDir() { return arm9Config.build; }
+const fs::path& getArm9WorkDir() { return arm9Config.workdir; }
 
 const std::vector<std::string>& getPreBuildCmds() { return preBuildCmds; }
 const std::vector<std::string>& getPostBuildCmds() { return postBuildCmds; }
