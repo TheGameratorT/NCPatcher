@@ -70,8 +70,7 @@ private:
 	const std::string& getVariable(const std::string& value);
 	void expandTemplates(std::string& val);
 	std::string getString(const JsonMember& member);
-	static void addPathRecursively(const std::filesystem::path& path, std::vector<std::filesystem::path>& out);
-	void getDirectoryArray(const JsonMember& member, std::vector<std::filesystem::path>& out);
+	void getDirectoryArray(const JsonMember& member, std::vector<std::filesystem::path>& out, bool directoriesOnly = false);
 	static void readDestination(BuildTarget::Region& region, const JsonMember& member);
 	static void readRegionMode(BuildTarget::Region& region, const JsonMember& member);
 	void readOverwrites(BuildTarget::Region& region, const JsonMember& member);

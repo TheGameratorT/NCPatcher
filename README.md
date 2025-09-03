@@ -99,20 +99,24 @@ The target configuration file, which is specified in the ncpatcher.json looks so
   "cpp_flags": "${cpp_flags}",
   "asm_flags": "${asm_flags}",
   "ld_flags": "${ld_flags}",
-  
+
   "includes": [
-    ["include", false],
-    ["source", false]
+    "include",
+    "source"
   ],
   "regions": [{
     "dest": "main",
     "compress": false,
-    "sources": [["source/main", true]]
+    "sources": [
+      "source/*"
+    ]
   }, {
     "dest": "ov9",
     "mode": "append",
     "compress": false,
-    "sources": [["source/ov9", true]],
+    "sources": [
+      "source/ov9/**"
+    ],
     "c_flags": "${c_flags} -DOVERLAY_ID=9",
     "cpp_flags": "${cpp_flags} -DOVERLAY_ID=9",
     "asm_flags": "${asm_flags} -DOVERLAY_ID=9"
@@ -128,7 +132,7 @@ Structure:
  - cpp_flags - The flags used when building C++ source files. (Can be overwritten per region)
  - asm_flags - The flags used when building Assembly files. (Can be overwritten per region)
  - ld_flags - The flags used when linking.
- - includes - Array of paths containing the include files. (`[string path, bool searchRecursive]`)
+ - includes - Array of paths or glob patterns that resolve to directories containing headers/includes.
  - regions - An array of sections to build separately.
    - dest - "main" if the code should go in the main binary, "ovX" if the code should go in overlay X.
    - mode - The mode that specifies how code should be inserted.
@@ -138,7 +142,7 @@ Structure:
    - address - The address in memory for this overlay. (Optional, except for "create" mode. In "replace" mode it can be used to set a new address for the overlay)
    - length - The max length that this overlay can have. (Optional)
    - compress - If the binary should be Backwards LZ compressed.
-   - sources - Array of paths containing the source files. (`[string path, bool searchRecursive]`)
+   - sources - Array of paths or glob patterns that resolve to source files.
    - c_flags, cpp_flags, asm_flags - Region overwriteable flags. (Optional)
  - arenaLo - The address of the value holding the address end of the main binary code in memory. (Usually the value being loaded in the first LDR of OS_GetInitArenaLo)
  - symbols - A file containing symbol definitions to include when linking. (Optional)

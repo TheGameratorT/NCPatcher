@@ -104,77 +104,69 @@ void ObjMaker::getSourceFiles()
 {
 	for (const BuildTarget::Region& region : m_target->regions)
 	{
-		for (auto& dir : region.sources)
+		for (auto& srcPath : region.sources)
 		{
-			for (auto& entry : fs::directory_iterator(dir))
+			std::size_t fileType = Util::indexOf(srcPath.extension(), ExtensionForSourceFileType, 3);
+			if (fileType == -1)
+				continue;
+
+			// Create a safe build path that works for sources both inside and outside the project
+			fs::path safeBuildPath;
+			if (srcPath.is_absolute())
 			{
-				if (entry.is_regular_file())
-				{
-					const fs::path& srcPath = entry.path();
-
-					std::size_t fileType = Util::indexOf(srcPath.extension(), ExtensionForSourceFileType, 3);
-					if (fileType == -1)
-						continue;
-
-					// Create a safe build path that works for sources both inside and outside the project
-					fs::path safeBuildPath;
-					if (srcPath.is_absolute())
-					{
-						// For absolute paths, create a relative path structure under build directory
-						// Convert absolute path to a safe relative structure by replacing path separators
-						std::string pathStr = srcPath.string();
-						
-						// Replace drive letter colon and path separators with underscores for safety
-						std::replace(pathStr.begin(), pathStr.end(), ':', '_');
-						std::replace(pathStr.begin(), pathStr.end(), '\\', '_');
-						std::replace(pathStr.begin(), pathStr.end(), '/', '_');
-						
-						// Remove any leading path separator replacements
-						if (pathStr.front() == '_')
-							pathStr = pathStr.substr(1);
-							
-						safeBuildPath = *m_buildDir / "external" / pathStr;
-					}
-					else
-					{
-						// For relative paths, use the original behavior
-						safeBuildPath = *m_buildDir / srcPath;
-					}
+				// For absolute paths, create a relative path structure under build directory
+				// Convert absolute path to a safe relative structure by replacing path separators
+				std::string pathStr = srcPath.string();
+				
+				// Replace drive letter colon and path separators with underscores for safety
+				std::replace(pathStr.begin(), pathStr.end(), ':', '_');
+				std::replace(pathStr.begin(), pathStr.end(), '\\', '_');
+				std::replace(pathStr.begin(), pathStr.end(), '/', '_');
+				
+				// Remove any leading path separator replacements
+				if (pathStr.front() == '_')
+					pathStr = pathStr.substr(1);
 					
-					std::string buildPath = safeBuildPath.string();
-					fs::path objPath = buildPath + ".o";
-					fs::path depPath = buildPath + ".d";
-					fs::path asmPath = buildPath + ".s";
-
-					bool buildSrc;
-					fs::file_time_type objTime;
-					if (fs::exists(objPath) && !m_target->getForceRebuild())
-					{
-						objTime = fs::last_write_time(objPath);
-						buildSrc = false;
-					}
-					else
-					{
-						buildSrc = true;
-					}
-
-					core::CompilationUnit* unit = m_compilationUnitMgr->createCompilationUnit(
-						core::CompilationUnitType::UserSourceFile,
-						srcPath,
-						objPath
-					);
-					
-					unit->setTargetRegion(&region);
-					unit->setNeedsRebuild(buildSrc);
-					
-					// Set up build info
-					core::BuildInfo& buildInfo = unit->getBuildInfo();
-					buildInfo.dependencyPath = depPath;
-					buildInfo.assemblyPath = asmPath;
-					buildInfo.objectWriteTime = objTime;
-					buildInfo.fileType = fileType;
-				}
+				safeBuildPath = *m_buildDir / "external" / pathStr;
 			}
+			else
+			{
+				// For relative paths, use the original behavior
+				safeBuildPath = *m_buildDir / srcPath;
+			}
+			
+			std::string buildPath = safeBuildPath.string();
+			fs::path objPath = buildPath + ".o";
+			fs::path depPath = buildPath + ".d";
+			fs::path asmPath = buildPath + ".s";
+
+			bool buildSrc;
+			fs::file_time_type objTime;
+			if (fs::exists(objPath) && !m_target->getForceRebuild())
+			{
+				objTime = fs::last_write_time(objPath);
+				buildSrc = false;
+			}
+			else
+			{
+				buildSrc = true;
+			}
+
+			core::CompilationUnit* unit = m_compilationUnitMgr->createCompilationUnit(
+				core::CompilationUnitType::UserSourceFile,
+				srcPath,
+				objPath
+			);
+			
+			unit->setTargetRegion(&region);
+			unit->setNeedsRebuild(buildSrc);
+			
+			// Set up build info
+			core::BuildInfo& buildInfo = unit->getBuildInfo();
+			buildInfo.dependencyPath = depPath;
+			buildInfo.assemblyPath = asmPath;
+			buildInfo.objectWriteTime = objTime;
+			buildInfo.fileType = fileType;
 		}
 	}
 }

@@ -50,7 +50,7 @@ void BuildTarget::load(const fs::path& targetFilePath, bool isArm9)
 		symbols.make_preferred();
 	}
 
-	getDirectoryArray(json["includes"], includes);
+	getDirectoryArray(json["includes"], includes, true);
 
 	cFlags = getString(json["c_flags"]);
 	cppFlags = getString(json["cpp_flags"]);
@@ -61,7 +61,7 @@ void BuildTarget::load(const fs::path& targetFilePath, bool isArm9)
 	for (JsonMember& regionObj : regionObjs)
 	{
 		Region region;
-		getDirectoryArray(regionObj["sources"], region.sources);
+		getDirectoryArray(regionObj["sources"], region.sources, false);
 		readDestination(region, regionObj["dest"]);
 		region.compress = regionObj["compress"].getBool();
 		region.cFlags = regionObj.hasMember("c_flags") ? getString(regionObj["c_flags"]) : cFlags;
@@ -192,39 +192,100 @@ std::string BuildTarget::getString(const JsonMember& member)
 	return out;
 }
 
-void BuildTarget::addPathRecursively(const fs::path& path, std::vector<fs::path>& out)
+void BuildTarget::getDirectoryArray(const JsonMember& member, std::vector<fs::path>& out, bool directoriesOnly)
 {
-	for (const auto& subdir : fs::directory_iterator(path))
-	{
-		if (subdir.is_directory())
-		{
-			fs::path newPath = subdir.path();
-			newPath.make_preferred();
-			out.push_back(newPath);
-			addPathRecursively(newPath, out);
-		}
-	}
-}
+    size_t size = member.size();
+    for (size_t i = 0; i < size; i++)
+    {
+        std::string pattern = getString(member[i]);
+        fs::path patternPath = pattern;
+        patternPath.make_preferred();
 
-void BuildTarget::getDirectoryArray(const JsonMember& member, std::vector<fs::path>& out)
-{
-	size_t size = member.size();
-	for (size_t i = 0; i < size; i++)
-	{
-		JsonMember info = member[i];
-		fs::path path = getString(info[size_t(0)]);
-		path.make_preferred();
-		if (!fs::exists(path))
-		{
-			Log::out << OWARN << "Ignored non-existent directory: " << OSTR(path.string()) << std::endl;
-			continue;
-		}
+        // Only support * and ** for globbing
+        auto hasGlob = [](const std::string& s) {
+            return s.find('*') != std::string::npos;
+        };
 
-		bool recursive = info[1].getBool();
-		out.push_back(path);
-		if (recursive)
-			addPathRecursively(path, out);
-	}
+        if (!hasGlob(pattern))
+        {
+            // No glob: treat as literal path
+            if (!fs::exists(patternPath))
+            {
+                Log::out << OWARN << "Ignored non-existent path: " << OSTR(patternPath.string()) << std::endl;
+                continue;
+            }
+            if (directoriesOnly)
+            {
+                if (fs::is_directory(patternPath))
+                    out.push_back(patternPath);
+                else
+                    Log::out << OWARN << "Ignored non-directory path for includes: " << OSTR(patternPath.string()) << std::endl;
+            }
+            else
+            {
+                if (fs::is_regular_file(patternPath))
+                    out.push_back(patternPath);
+                else if (fs::is_directory(patternPath))
+                {
+                    for (const auto& entry : fs::directory_iterator(patternPath))
+                    {
+                        if (entry.is_regular_file())
+                            out.push_back(entry.path());
+                    }
+                }
+            }
+            continue;
+        }
+
+        // Find base directory (up to first *)
+        size_t firstStar = pattern.find('*');
+        size_t baseSlash = pattern.rfind('/', firstStar);
+        fs::path baseDir = (baseSlash == std::string::npos) ? fs::current_path() : fs::path(pattern.substr(0, baseSlash));
+        std::string matchPattern = (baseSlash == std::string::npos) ? pattern : pattern.substr(baseSlash + 1);
+
+        if (!fs::exists(baseDir))
+        {
+            Log::out << OWARN << "Ignored non-existent path: " << OSTR(baseDir.string()) << std::endl;
+            continue;
+        }
+
+        bool recursive = matchPattern.find("**") != std::string::npos;
+
+        auto match = [](const std::string& pat, const std::string& name) {
+            // Only supports '*' wildcard
+            if (pat == "*") return true;
+            size_t star = pat.find('*');
+            if (star == std::string::npos) return pat == name;
+			std::string before = pat.substr(0, star);
+			std::string after = pat.substr(star + 1);
+			if (!before.empty() && !name.starts_with(before)) return false;
+			if (!after.empty() && !name.ends_with(after)) return false;
+			return name.size() >= before.size() + after.size();
+        };
+
+        if (recursive)
+        {
+            for (const auto& entry : fs::recursive_directory_iterator(baseDir))
+            {
+                if (directoriesOnly && !entry.is_directory()) continue;
+                if (!directoriesOnly && !entry.is_regular_file()) continue;
+                std::string fname = entry.path().filename().string();
+                if (match(matchPattern, fname))
+                    out.push_back(entry.path());
+            }
+        }
+        else
+        {
+            for (const auto& entry : fs::directory_iterator(baseDir))
+            {
+                if (directoriesOnly && !entry.is_directory()) continue;
+                if (!directoriesOnly && !entry.is_regular_file()) continue;
+                std::string fname = entry.path().filename().string();
+                if (match(matchPattern, fname))
+                    out.push_back(entry.path());
+            }
+        }
+    }
 }
 
 void BuildTarget::readDestination(BuildTarget::Region& region, const JsonMember& member)
