@@ -340,7 +340,7 @@ void PatchInfoAnalyzer::processElfSections(const Elf32& elf, const Elf32_Ehdr& e
             if (sectionName.substr(5).starts_with("set"))
             {
                 // Handle ncp_set sections directly
-                parseNcpSetSection(sectionName, int(sectionIdx), int(section.sh_size), unit, patchInfoForThisObj);
+                parseNcpSetSection(elf, eh, sh_tbl, str_tbl, sectionName, int(sectionIdx), int(section.sh_size), unit, patchInfoForThisObj);
             }
             else
             {
@@ -544,7 +544,8 @@ void PatchInfoAnalyzer::parseSectionSymbol(std::string_view symbolName, int sect
     m_patchInfo.push_back(std::move(patchInfoEntry));
 }
 
-void PatchInfoAnalyzer::parseNcpSetSection(std::string_view sectionName, int sectionIdx, int sectionSize,
+void PatchInfoAnalyzer::parseNcpSetSection(const Elf32& elf, const Elf32_Ehdr& eh, const Elf32_Shdr* sh_tbl,
+                                          const char* str_tbl, std::string_view sectionName, int sectionIdx, int sectionSize,
                                           core::CompilationUnit* unit, std::vector<GenericPatchInfo*>& patchInfoForThisObj)
 {
     // Validate section size (should be exactly 4 bytes for a pointer)
@@ -573,7 +574,21 @@ void PatchInfoAnalyzer::parseNcpSetSection(std::string_view sectionName, int sec
 
     validatePatchForRegion(parsedInfo, sectionName, unit);
 
+    // Find relocation information for this section to properly extract srcThumb
+    RelocationInfo relocInfo = findRelocationInfo(elf, eh, sh_tbl, str_tbl, sectionName);
+    
+    // Extract thumb information using relocation data
+    bool srcThumb = false;
+    const Elf32_Shdr& section = sh_tbl[sectionIdx];
+    
+    if (!extractSrcThumbFromRelocation(elf, section, 0, relocInfo, srcThumb))
+    {
+        Log::out << OWARN << "Failed to extract srcThumb information for ncp_set section: " << sectionName << std::endl;
+    }
+
     auto patchInfoEntry = createPatchInfo(parsedInfo, sectionName, 0, sectionIdx, sectionSize, unit, PatchSourceType::Section);
+    // Set the srcThumb value we determined from relocation or section data
+    patchInfoEntry->srcThumb = srcThumb;
     patchInfoForThisObj.push_back(patchInfoEntry.get());
     m_patchInfo.push_back(std::move(patchInfoEntry));
 }
@@ -615,7 +630,6 @@ void PatchInfoAnalyzer::printPatchInfoForObject(const std::vector<GenericPatchIn
 		for (auto& p : patchInfoForThisObj)
 		{
 			// Indicate which fields will be updated during ELF analysis
-			bool srcThumbPending = p->isNcpSet; // ncp_set srcThumb determined later
 			bool symbolPending = p->sourceType == patch::PatchSourceType::Section && patch::PatchTypeUtils::isSetPatch(p->patchType);
 
 			Log::out <<
@@ -627,11 +641,7 @@ void PatchInfoAnalyzer::printPatchInfoForObject(const std::vector<GenericPatchIn
 			Log::out << ANSI_RESET " " <<
 				ANSI_WHITE << std::setw(8) << std::dec << p->sectionSize << ANSI_RESET "  " <<
 				ANSI_GREEN << std::setw(7) << std::boolalpha << p->isNcpSet << ANSI_RESET "  " <<
-				ANSI_GREEN << std::setw(9);
-			if (srcThumbPending)
-				Log::out << "?";
-			else
-				Log::out << std::boolalpha << p->srcThumb;
+				ANSI_GREEN << std::setw(9) << std::boolalpha << p->srcThumb;
 			Log::out << ANSI_RESET "  " <<
 				ANSI_GREEN << std::setw(9) << std::boolalpha << p->destThumb << ANSI_RESET "  " <<
 				ANSI_bYELLOW << std::setw(8) << toString(p->sourceType) << ANSI_RESET "  " <<
@@ -667,4 +677,80 @@ bool PatchInfoAnalyzer::canPrintVerboseInfo(core::CompilationUnit* unit) const
 		(ncp::Application::isVerbose(ncp::VerboseTag::NoLib) && unit->getType() == core::CompilationUnitType::LibraryFile))
 		return false;
 	return true;
+}
+
+PatchInfoAnalyzer::RelocationInfo PatchInfoAnalyzer::findRelocationInfo(const Elf32& elf, const Elf32_Ehdr& eh, const Elf32_Shdr* sh_tbl,
+                                                                        const char* str_tbl, std::string_view targetSectionName)
+{
+    RelocationInfo relocInfo;
+    
+    // Look for relocation section corresponding to the target section
+    std::string relocSectionName = std::string(".rel") + std::string(targetSectionName);
+    
+    Elf32::forEachSection(eh, sh_tbl, str_tbl,
+    [&](std::size_t sectionIdx, const Elf32_Shdr& section, std::string_view sectionName){
+        if (sectionName == relocSectionName)
+        {
+            relocInfo.relocations = elf.getSection<Elf32_Rel>(section);
+            relocInfo.relocationCount = section.sh_size / sizeof(Elf32_Rel);
+            
+            // Get the symbol table referenced by this relocation section
+            if (section.sh_link < eh.e_shnum)
+            {
+                const Elf32_Shdr& symTabSection = sh_tbl[section.sh_link];
+                relocInfo.symbolTable = elf.getSection<Elf32_Sym>(symTabSection);
+                relocInfo.symbolTableSize = symTabSection.sh_size / sizeof(Elf32_Sym);
+            }
+            
+            return true; // Found it, stop searching
+        }
+        return false;
+    });
+    
+    return relocInfo;
+}
+
+bool PatchInfoAnalyzer::extractSrcThumbFromRelocation(const Elf32& elf, const Elf32_Shdr& section, u32 sectionOffset,
+                                                     const RelocationInfo& relocInfo, bool& srcThumb)
+{
+    if (relocInfo.relocations == nullptr || relocInfo.symbolTable == nullptr)
+    {
+        // No relocation information available, try to read directly from section data
+        const char* sectionData = elf.getSection<char>(section);
+        u32 functionPtr = Util::read<u32>(&sectionData[sectionOffset]);
+        srcThumb = bool(functionPtr & 1);
+        return true;
+    }
+    
+    // Find the relocation entry that corresponds to our offset
+    for (std::size_t relIdx = 0; relIdx < relocInfo.relocationCount; relIdx++)
+    {
+        const Elf32_Rel& rel = relocInfo.relocations[relIdx];
+        if (rel.r_offset == sectionOffset)
+        {
+            // Found the corresponding relocation
+            std::size_t symIdx = ELF32_R_SYM(rel.r_info);
+            if (symIdx >= relocInfo.symbolTableSize)
+            {
+                std::ostringstream oss;
+                oss << "Relocation entry with index " << relIdx
+                    << " has a symbol index of " << symIdx
+                    << " but the symbol table only contains "
+                    << relocInfo.symbolTableSize << " entries.";
+                throw ncp::exception(oss.str());
+            }
+            
+            // Extract thumb information from the symbol value
+            u32 symbolValue = relocInfo.symbolTable[symIdx].st_value;
+            srcThumb = bool(symbolValue & 1);
+            return true;
+        }
+    }
+    
+    // If we reach here, no relocation was found for this offset
+    // Fall back to reading directly from section data
+    const char* sectionData = elf.getSection<char>(section);
+    u32 functionPtr = Util::read<u32>(&sectionData[sectionOffset]);
+    srcThumb = bool(functionPtr & 1);
+    return true;
 }

@@ -153,8 +153,8 @@ void ElfAnalyzer::gatherInfoFromElf(
                     // Read the function pointer from the section data
                     // ncp_set comes with the THUMB bit, we must clear it!
                     p->srcAddress = Util::read<u32>(&sectionData[0]) & ~1;
-                    // Also determine if the source function is thumb from the LSB
-                    p->srcThumb = bool(Util::read<u32>(&sectionData[0]) & 1);
+                    // The srcThumb information was already determined during object processing
+                    // in PatchInfoAnalyzer::parseNcpSetSection, so we don't update it here
                 }
             }
         }
@@ -249,8 +249,7 @@ void ElfAnalyzer::gatherInfoFromElf(
                 ANSI_WHITE << std::setw(8) << std::dec << p->sectionSize << ANSI_RESET "  " <<
                 ANSI_GREEN << std::setw(7) << std::boolalpha << p->isNcpSet << ANSI_RESET "  " <<
                 ANSI_GREEN << std::setw(9) << std::boolalpha << p->srcThumb;
-            Log::out << (p->isNcpSet ? "*" : " ");
-            Log::out << ANSI_RESET " " <<
+            Log::out << ANSI_RESET "  " <<
                 ANSI_GREEN << std::setw(9) << std::boolalpha << p->destThumb << ANSI_RESET "  " <<
                 ANSI_bYELLOW << std::setw(11) << toString(p->sourceType) << ANSI_RESET "  " <<
                 ANSI_WHITE << p->symbol;

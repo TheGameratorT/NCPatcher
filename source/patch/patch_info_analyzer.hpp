@@ -55,6 +55,16 @@ private:
                            isNcpSet(false), forceThumb(false), isValid(false) {}
     };
 
+    struct RelocationInfo {
+        const Elf32_Rel* relocations;
+        std::size_t relocationCount;
+        const Elf32_Sym* symbolTable;
+        std::size_t symbolTableSize;
+        
+        RelocationInfo() : relocations(nullptr), relocationCount(0), 
+                          symbolTable(nullptr), symbolTableSize(0) {}
+    };
+
     const BuildTarget* m_target;
     const std::filesystem::path* m_targetWorkDir;
     core::CompilationUnitManager* m_compilationUnitMgr;
@@ -100,6 +110,12 @@ private:
     void collectOverwriteCandidateSections(const Elf32& elf, const Elf32_Ehdr& eh, 
                                          const Elf32_Shdr* sh_tbl, const char* str_tbl,
                                          core::CompilationUnit* unit);
+    
+    // Relocation processing
+    RelocationInfo findRelocationInfo(const Elf32& elf, const Elf32_Ehdr& eh, const Elf32_Shdr* sh_tbl,
+                                     const char* str_tbl, std::string_view targetSectionName);
+    bool extractSrcThumbFromRelocation(const Elf32& elf, const Elf32_Shdr& section, u32 sectionOffset,
+                                      const RelocationInfo& relocInfo, bool& srcThumb);
 
     // Symbol parsing methods
     void parseSymverSymbol(std::string_view symbolName, int sectionIdx, u32 symbolAddr, core::CompilationUnit* unit, 
@@ -108,7 +124,8 @@ private:
                            std::vector<GenericPatchInfo*>& patchInfoForThisObj);
     void parseSectionSymbol(std::string_view symbolName, int sectionIdx, int sectionSize,
                            core::CompilationUnit* unit, std::vector<GenericPatchInfo*>& patchInfoForThisObj);
-    void parseNcpSetSection(std::string_view sectionName, int sectionIdx, int sectionSize,
+    void parseNcpSetSection(const Elf32& elf, const Elf32_Ehdr& eh, const Elf32_Shdr* sh_tbl,
+                           const char* str_tbl, std::string_view sectionName, int sectionIdx, int sectionSize,
                            core::CompilationUnit* unit, std::vector<GenericPatchInfo*>& patchInfoForThisObj);
 
     // Special handling methods
