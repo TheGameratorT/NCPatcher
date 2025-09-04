@@ -12,6 +12,8 @@
 
 namespace fs = std::filesystem;
 
+namespace ncp::patch {
+
 FileSystemManager::FileSystemManager() = default;
 FileSystemManager::~FileSystemManager() = default;
 
@@ -259,3 +261,5 @@ void FileSystemManager::saveOverlayBins()
         }
     }
 }
+
+} // namespace ncp::patch

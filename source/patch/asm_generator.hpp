@@ -2,6 +2,8 @@
 
 #include "../utils/types.hpp"
 
+namespace ncp::patch {
+
 class AsmGenerator
 {
 public:
@@ -27,3 +29,5 @@ public:
 private:
     AsmGenerator() = delete;
 };
+
+} // namespace ncp::patch

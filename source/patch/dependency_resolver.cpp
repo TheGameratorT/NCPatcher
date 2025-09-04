@@ -1,4 +1,4 @@
-#include "section_usage_analyzer.hpp"
+#include "dependency_resolver.hpp"
 
 #include <algorithm>
 #include <filesystem>
@@ -9,56 +9,54 @@
 #include "../utils/util.hpp"
 #include "../formats/archive.hpp"
 
-SectionUsageAnalyzer::SectionUsageAnalyzer() = default;
-SectionUsageAnalyzer::~SectionUsageAnalyzer() = default;
+namespace ncp::patch {
 
-void SectionUsageAnalyzer::initialize(
-    const std::vector<std::unique_ptr<GenericPatchInfo>>& patchInfo,
-    const std::vector<std::string>& externSymbols,
-    core::CompilationUnitManager& compilationUnitMgr
+DependencyResolver::DependencyResolver() = default;
+DependencyResolver::~DependencyResolver() = default;
+
+void DependencyResolver::initialize(
+	const core::CompilationUnitManager& compilationUnitMgr
 )
 {
-    m_patchInfo = &patchInfo;
-    m_externSymbols = &externSymbols;
-    m_compilationUnitMgr = &compilationUnitMgr;
+	m_compilationUnitMgr = &compilationUnitMgr;
 }
 
-void SectionUsageAnalyzer::analyzeObjectFiles()
+void DependencyResolver::analyzeObjectFiles()
 {
     // Clear previous analysis
-    m_sectionUsageInfo.clear();
+    m_sectionInfo.clear();
     m_symbolInfo.clear();
-    m_referencedSymbols.clear();
-    m_markedSections.clear();
     m_sectionLookup.clear();
 
-    // Phase 1: Collect all symbols and sections from object files
-    // Phase 2: Analyze relocations to find dependencies  
-    // Combined into single pass to avoid loading ELF files twice
     collectSymbolsAndSectionsWithRelocations();
-
-    // Phase 3: Mark entry points (patches and extern symbols) as used
-    markEntryPoints();
-
-    // Phase 4: Propagate usage through dependencies
-    propagateUsage();
 
     if (ncp::Application::isVerbose(ncp::VerboseTag::Section))
     {
         Log::out << OINFO << "Section usage analysis results:" << std::endl;
-        Log::out << "  Total sections found: " << m_sectionUsageInfo.size() << std::endl;
-        Log::out << "  Sections marked as used: " << m_markedSections.size() << std::endl;
+        Log::out << "  Total sections found: " << m_sectionInfo.size() << std::endl;
         Log::out << "  Total symbols found: " << m_symbolInfo.size() << std::endl;
-        Log::out << "  Symbols marked as referenced: " << m_referencedSymbols.size() << std::endl;
         Log::out << std::endl;
-        
-        // Print the dependency tree
-        printDependencyTree();
     }
 }
 
-// New optimized combined method that loads each ELF file only once
-void SectionUsageAnalyzer::collectSymbolsAndSectionsWithRelocations()
+void DependencyResolver::propagateUsage(const std::vector<std::unique_ptr<UnitEntryPoints>>& entryPoints)
+{
+	m_entryPoints = &entryPoints;
+
+    m_markedSections.clear();
+    m_referencedSymbols.clear();
+
+	markEntryPoints();
+	propagateUsage();
+        
+    if (ncp::Application::isVerbose(ncp::VerboseTag::Section))
+    {
+		// Print the dependency tree
+		printDependencyTree();
+    }
+}
+
+void DependencyResolver::collectSymbolsAndSectionsWithRelocations()
 {
     for (const auto& unit : m_compilationUnitMgr->getUnits())
     {
@@ -84,7 +82,7 @@ void SectionUsageAnalyzer::collectSymbolsAndSectionsWithRelocations()
                 return false;
             }
 
-			auto sectionInfo = std::make_unique<SectionUsageInfo>();
+			auto sectionInfo = std::make_unique<Section>();
 			sectionInfo->name = std::string(sectionName);
 			sectionInfo->size = section.sh_size;
 			sectionInfo->unit = unit.get();
@@ -92,10 +90,10 @@ void SectionUsageAnalyzer::collectSymbolsAndSectionsWithRelocations()
 			
 			// Add to lookup map immediately for use in relocation analysis
 			SectionKey key(sectionInfo->name, sectionInfo->unit);
-			SectionUsageInfo* sectionPtr = sectionInfo.get();
+			Section* sectionPtr = sectionInfo.get();
 			m_sectionLookup[key] = sectionPtr;
 			
-			m_sectionUsageInfo.push_back(std::move(sectionInfo));
+			m_sectionInfo.push_back(std::move(sectionInfo));
             
             return false;
         });
@@ -113,7 +111,7 @@ void SectionUsageAnalyzer::collectSymbolsAndSectionsWithRelocations()
                 sectionName = std::string(&str_tbl[sh_tbl[symbol.st_shndx].sh_name]);
             }
 
-            auto symbolInfo = std::make_unique<SymbolInfo>();
+            auto symbolInfo = std::make_unique<Symbol>();
             symbolInfo->name = std::string(symbolName);
             symbolInfo->sectionName = sectionName;
             symbolInfo->unit = unit.get();
@@ -126,7 +124,7 @@ void SectionUsageAnalyzer::collectSymbolsAndSectionsWithRelocations()
             auto existingIt = m_symbolInfo.find(symbolInfo->name);
             if (existingIt != m_symbolInfo.end())
             {
-                const SymbolInfo& existing = *existingIt->second;
+                const Symbol& existing = *existingIt->second;
                 
                 // If new symbol is strong and existing is weak, replace it
                 if (symbolInfo->isGlobal && existing.isWeak)
@@ -231,7 +229,7 @@ void SectionUsageAnalyzer::collectSymbolsAndSectionsWithRelocations()
             {
                 // The targetSectionName is the section that CONTAINS the relocation,
                 // not the section being referenced. This section is referencing referencedSymbolName.
-                SectionUsageInfo* sectionInfo = findSection(std::string(targetSectionName), unit.get());
+                Section* sectionInfo = findSection(std::string(targetSectionName), unit.get());
                 if (sectionInfo)
                 {
                     // Create ReferencedSymbol with proper type information
@@ -251,31 +249,30 @@ void SectionUsageAnalyzer::collectSymbolsAndSectionsWithRelocations()
     }
 }
 
-void SectionUsageAnalyzer::markEntryPoints()
+void DependencyResolver::markEntryPoints()
 {
-    // Mark symbols referenced by patches as used
-    for (const auto& patchInfo : *m_patchInfo)
-    {
-        if (patchInfo->sourceType == patch::PatchSourceType::Section) // Label patch
-        {
-            // For section patches, mark the section itself as an entry point
-            SectionUsageInfo* sectionInfo = findSection(patchInfo->symbol, patchInfo->unit);
+	for (const auto& entryPoint : *m_entryPoints)
+	{
+		core::CompilationUnit* unit = entryPoint->unit;
+
+		for (const std::string& sectionName : entryPoint->sections)
+		{
+            Section* sectionInfo = findSection(sectionName, unit);
             if (sectionInfo)
             {
                 sectionInfo->isEntryPoint = true;
                 markSectionAsUsed(sectionInfo->name, sectionInfo->unit);
             }
-        }
-    }
+		}
 
-    // Mark external symbols as used
-    for (const std::string& externSymbol : *m_externSymbols)
-    {
-        markSymbolAsUsed(externSymbol);
-    }
+		for (const std::string& symbolName : entryPoint->symbols)
+		{
+        	markSymbolAsUsed(symbolName);
+		}
+	}
 }
 
-void SectionUsageAnalyzer::propagateUsage()
+void DependencyResolver::propagateUsage()
 {
     bool changed = true;
     
@@ -284,7 +281,7 @@ void SectionUsageAnalyzer::propagateUsage()
         changed = false;
         
         // For each used section, mark all symbols it references as used
-        for (const auto& sectionInfo : m_sectionUsageInfo)
+        for (const auto& sectionInfo : m_sectionInfo)
         {
             if (m_markedSections.find(sectionInfo.get()) != m_markedSections.end())
             {
@@ -295,7 +292,7 @@ void SectionUsageAnalyzer::propagateUsage()
                         // This is a reference to another section within the same object file.
                         // Section relocations are always internal to the object file - they can
                         // never reference sections from different object files.
-                        for (const auto& targetSectionInfo : m_sectionUsageInfo)
+                        for (const auto& targetSectionInfo : m_sectionInfo)
                         {
                             if (targetSectionInfo->name == referencedSymbol.name && 
                                 targetSectionInfo->unit == sectionInfo->unit &&
@@ -338,7 +335,7 @@ void SectionUsageAnalyzer::propagateUsage()
     }
 }
 
-void SectionUsageAnalyzer::markSymbolAsUsed(const std::string& symbolName)
+void DependencyResolver::markSymbolAsUsed(const std::string& symbolName)
 {
     m_referencedSymbols.insert(symbolName);
     
@@ -349,12 +346,12 @@ void SectionUsageAnalyzer::markSymbolAsUsed(const std::string& symbolName)
     }
 }
 
-void SectionUsageAnalyzer::markSectionAsUsed(const std::string& sectionName, const core::CompilationUnit* unit)
+void DependencyResolver::markSectionAsUsed(const std::string& sectionName, const core::CompilationUnit* unit)
 {
     if (!sectionName.empty() && unit != nullptr)
     {
-        // Find the specific SectionUsageInfo for this section and unit
-        SectionUsageInfo* sectionInfo = findSection(sectionName, unit);
+        // Find the specific Section for this section and unit
+        Section* sectionInfo = findSection(sectionName, unit);
         if (sectionInfo)
         {
             m_markedSections.insert(sectionInfo);
@@ -362,73 +359,27 @@ void SectionUsageAnalyzer::markSectionAsUsed(const std::string& sectionName, con
     }
 }
 
-bool SectionUsageAnalyzer::isSectionMarkedAsUsed(const std::string& sectionName, const core::CompilationUnit* unit) const
+bool DependencyResolver::isSectionMarkedAsUsed(const std::string& sectionName, const core::CompilationUnit* unit) const
 {
     if (sectionName.empty() && unit != nullptr)
         return false;
     
-    // Find the specific SectionUsageInfo for this section and unit
-    const SectionUsageInfo* sectionInfo = findSection(sectionName, unit);
+    // Find the specific Section for this section and unit
+    const Section* sectionInfo = findSection(sectionName, unit);
     if (sectionInfo)
     {
-        return m_markedSections.find(const_cast<SectionUsageInfo*>(sectionInfo)) != m_markedSections.end();
+        return m_markedSections.find(const_cast<Section*>(sectionInfo)) != m_markedSections.end();
     }
     return false;
 }
 
-bool SectionUsageAnalyzer::isSymbolInSection(const std::string& symbolName, const std::string& sectionName)
+bool DependencyResolver::isSymbolInSection(const std::string& symbolName, const std::string& sectionName) const
 {
     auto it = m_symbolInfo.find(symbolName);
     return (it != m_symbolInfo.end() && it->second->sectionName == sectionName);
 }
 
-void SectionUsageAnalyzer::filterUsedSections(std::vector<std::unique_ptr<SectionInfo>>& candidateSections)
-{
-    auto originalCount = candidateSections.size();
-    
-    // Remove sections that are not marked as used
-    candidateSections.erase(
-        std::remove_if(candidateSections.begin(), candidateSections.end(),
-            [&](const std::unique_ptr<SectionInfo>& section) -> bool {
-                // Find the corresponding SectionUsageInfo for this SectionInfo
-                bool isUsed = false;
-                for (const auto& sectionUsageInfo : m_sectionUsageInfo)
-                {
-                    if (sectionUsageInfo->name == section->name && sectionUsageInfo->unit == section->unit)
-                    {
-                        isUsed = (m_markedSections.find(sectionUsageInfo.get()) != m_markedSections.end());
-                        break;
-                    }
-                }
-                
-                // if (!isUsed && Main::getVerbose())
-                // {
-                //     Log::out << OWARN << "Section filtered as unused: " << section->name 
-                //              << " from " << section->job->srcFilePath.string() << std::endl;
-                // }
-                
-                return !isUsed;
-            }),
-        candidateSections.end()
-    );
-
-    auto finalCount = candidateSections.size();
-    Log::out << OINFO << "Object-level usage analysis complete: " 
-             << std::dec << originalCount << " candidate sections -> " 
-             << finalCount << " used sections" << std::endl;
-
-    // if (Main::getVerbose() && finalCount > 0)
-    // {
-    //     Log::out << "Sections available for overwrite assignment:" << std::endl;
-    //     for (const auto& section : candidateSections)
-    //     {
-    //         Log::out << "  " << section->name << " (size: " << section->size 
-    //                  << ", align: " << section->alignment << ")" << std::endl;
-    //     }
-    // }
-}
-
-void SectionUsageAnalyzer::printDependencyTree() const
+void DependencyResolver::printDependencyTree() const
 {
     Log::out << OINFO << "Dependency Tree from Entry Points:" << std::endl;
     Log::out << std::endl;
@@ -437,34 +388,25 @@ void SectionUsageAnalyzer::printDependencyTree() const
     bool hasAnyEntryPoints = false;
     
     // Print patch entry points
-    for (const auto& patchInfo : *m_patchInfo)
+    for (const auto& entryPoint : *m_entryPoints)
     {
         hasAnyEntryPoints = true;
-        std::string patchType = (patchInfo->sourceType != patch::PatchSourceType::Section) ? "Symbol Patch" : "Section Patch";
-        Log::out << "📍 " << patchType << ": " << patchInfo->formatPatchDescriptor() << std::endl;
-        
-        if (patchInfo->sourceType != patch::PatchSourceType::Section) // Symbol patch
-        {
-            printTreeNode(patchInfo->symbol, false, "  ", true, visited);
-        }
-        else // Section patch
-        {
-            printTreeNode(patchInfo->symbol, true, "  ", true, visited);
-        }
+
+		for (const std::string& sectionName : entryPoint->sections)
+		{
+			Log::out << "📍 " << "Section: " << sectionName << std::endl;
+            printTreeNode(sectionName, true, "  ", true, visited);
+		}
+
+		for (const std::string& symbolName : entryPoint->symbols)
+		{
+			Log::out << "📍 " << "Symbol: " << symbolName << std::endl;
+            printTreeNode(symbolName, false, "  ", true, visited);
+		}
         
         Log::out << std::endl;
         visited.clear(); // Reset visited set for each entry point tree
     }
-    
-    // Print external symbol entry points
-    // for (const std::string& externSymbol : *m_externSymbols)
-    // {
-    //     hasAnyEntryPoints = true;
-    //     Log::out << "🔗 External Symbol: " << externSymbol << std::endl;
-    //     printTreeNode(externSymbol, false, "  ", true, visited);
-    //     Log::out << std::endl;
-    //     visited.clear(); // Reset visited set for each entry point tree
-    // }
     
     if (!hasAnyEntryPoints)
     {
@@ -472,7 +414,7 @@ void SectionUsageAnalyzer::printDependencyTree() const
     }
 }
 
-void SectionUsageAnalyzer::printTreeNode(const std::string& nodeName, bool isSection, const std::string& indent, bool isLast, std::unordered_set<std::string>& visited) const
+void DependencyResolver::printTreeNode(const std::string& nodeName, bool isSection, const std::string& indent, bool isLast, std::unordered_set<std::string>& visited) const
 {
     // Avoid infinite loops with circular dependencies
     std::string nodeKey = (isSection ? "sect:" : "sym:") + nodeName;
@@ -496,7 +438,7 @@ void SectionUsageAnalyzer::printTreeNode(const std::string& nodeName, bool isSec
     if (isSection)
     {
         // Find the section and its dependencies
-        for (const auto& sectionInfo : m_sectionUsageInfo)
+        for (const auto& sectionInfo : m_sectionInfo)
         {
             if (sectionInfo->name == nodeName)
             {
@@ -506,7 +448,7 @@ void SectionUsageAnalyzer::printTreeNode(const std::string& nodeName, bool isSec
                     if (referencedSymbol.isSection)
                     {
                         // Check if any section with this name is used
-                        for (const auto& candidateSectionInfo : m_sectionUsageInfo)
+                        for (const auto& candidateSectionInfo : m_sectionInfo)
                         {
                             if (candidateSectionInfo->name == referencedSymbol.name && 
                                 m_markedSections.find(candidateSectionInfo.get()) != m_markedSections.end())
@@ -533,7 +475,7 @@ void SectionUsageAnalyzer::printTreeNode(const std::string& nodeName, bool isSec
         if (symbolIt != m_symbolInfo.end() && !symbolIt->second->sectionName.empty())
         {
             // If this symbol has a section, find that section's dependencies
-            for (const auto& sectionInfo : m_sectionUsageInfo)
+            for (const auto& sectionInfo : m_sectionInfo)
             {
                 if (sectionInfo->name == symbolIt->second->sectionName && sectionInfo->unit == symbolIt->second->unit)
                 {
@@ -543,7 +485,7 @@ void SectionUsageAnalyzer::printTreeNode(const std::string& nodeName, bool isSec
                         if (referencedSymbol.isSection)
                         {
                             // Check if any section with this name is used
-                            for (const auto& candidateSectionInfo : m_sectionUsageInfo)
+                            for (const auto& candidateSectionInfo : m_sectionInfo)
                             {
                                 if (candidateSectionInfo->name == referencedSymbol.name && 
                                     m_markedSections.find(candidateSectionInfo.get()) != m_markedSections.end())
@@ -576,15 +518,33 @@ void SectionUsageAnalyzer::printTreeNode(const std::string& nodeName, bool isSec
         printTreeNode(dependencies[i].first, dependencies[i].second, nextIndent, isLastDep, visited);
     }
     
-    visited.erase(nodeKey);
+	visited.erase(nodeKey);
 }
 
-std::string SectionUsageAnalyzer::getSymbolDetails(const std::string& symbolName) const
+void DependencyResolver::excludeUnusedSections(std::vector<std::unique_ptr<SectionInfo>>& candidateSections)
+{
+	// Remove sections that are not marked as used during dependency analysis
+	candidateSections.erase(
+		std::remove_if(candidateSections.begin(), candidateSections.end(),
+			[this](const std::unique_ptr<SectionInfo>& sectionInfo) {
+				return !isSectionMarkedAsUsed(sectionInfo->name, sectionInfo->unit);
+			}),
+		candidateSections.end()
+	);
+	
+	if (ncp::Application::isVerbose(ncp::VerboseTag::Section))
+	{
+		Log::out << OINFO << "Filtered to " << candidateSections.size() 
+		         << " used sections for overwrite regions." << std::endl;
+	}
+}
+
+std::string DependencyResolver::getSymbolDetails(const std::string& symbolName) const
 {
     auto it = m_symbolInfo.find(symbolName);
     if (it != m_symbolInfo.end())
     {
-        const SymbolInfo& info = *it->second;
+        const Symbol& info = *it->second;
         std::string details = " (";
         
         if (info.isFunction)
@@ -617,9 +577,9 @@ std::string SectionUsageAnalyzer::getSymbolDetails(const std::string& symbolName
     }
 }
 
-std::string SectionUsageAnalyzer::getSectionDetails(const std::string& sectionName) const
+std::string DependencyResolver::getSectionDetails(const std::string& sectionName) const
 {
-    for (const auto& sectionInfo : m_sectionUsageInfo)
+    for (const auto& sectionInfo : m_sectionInfo)
     {
         if (sectionInfo->name == sectionName)
         {
@@ -637,7 +597,7 @@ std::string SectionUsageAnalyzer::getSectionDetails(const std::string& sectionNa
     return " (unknown section)";
 }
 
-SectionUsageInfo* SectionUsageAnalyzer::findSection(const std::string& sectionName, const core::CompilationUnit* unit)
+DependencyResolver::Section* DependencyResolver::findSection(const std::string& sectionName, const core::CompilationUnit* unit)
 {
 	// Use fast lookup for specific unit
 	SectionKey key(sectionName, unit);
@@ -649,7 +609,24 @@ SectionUsageInfo* SectionUsageAnalyzer::findSection(const std::string& sectionNa
     return nullptr;
 }
 
-const SectionUsageInfo* SectionUsageAnalyzer::findSection(const std::string& sectionName, const core::CompilationUnit* unit) const
+const DependencyResolver::Section* DependencyResolver::findSection(const std::string& sectionName, const core::CompilationUnit* unit) const
 {
-    return const_cast<SectionUsageAnalyzer*>(this)->findSection(sectionName, unit);
+    return const_cast<DependencyResolver*>(this)->findSection(sectionName, unit);
 }
+
+DependencyResolver::Symbol* DependencyResolver::findSymbol(const std::string& symbolName)
+{
+    auto it = m_symbolInfo.find(symbolName);
+    if (it != m_symbolInfo.end())
+    {
+        return it->second.get();
+    }
+    return nullptr;
+}
+
+const DependencyResolver::Symbol* DependencyResolver::findSymbol(const std::string& symbolName) const
+{
+    return const_cast<DependencyResolver*>(this)->findSymbol(symbolName);
+}
+
+} // namespace ncp::patch

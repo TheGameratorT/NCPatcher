@@ -1,18 +1,16 @@
-#include "patchmaker.hpp"
+#include "patch_maker.hpp"
 
 #include <sstream>
 #include <cstring>
 
 #include "filesystem_manager.hpp"
-#include "patch_info_analyzer.hpp"
-#include "library_analyzer.hpp"
+#include "patch_tracker.hpp"
+#include "library_manager.hpp"
 #include "overwrite_region_manager.hpp"
-#include "linker_script_generator.hpp"
-#include "elf_analyzer.hpp"
-#include "section_usage_analyzer.hpp"
+#include "linker.hpp"
+#include "dependency_resolver.hpp"
 #include "asm_generator.hpp"
-
-#include "arenalofinder.hpp"
+#include "arenalo_finder.hpp"
 
 #include "../app/application.hpp"
 #include "../system/log.hpp"
@@ -20,6 +18,8 @@
 #include "../config/rebuildconfig.hpp"
 #include "../utils/util.hpp"
 #include "../ndsbin/icodebin.hpp"
+
+namespace ncp::patch {
 
 /*
  * TODO: Endianness checks
@@ -72,20 +72,19 @@ void PatchMaker::initializeComponents()
 
 	// Create component managers
 	m_fileSystemManager = std::make_unique<FileSystemManager>();
-	m_patchInfoAnalyzer = std::make_unique<PatchInfoAnalyzer>();
-	m_libraryAnalyzer = std::make_unique<LibraryAnalyzer>();
+	m_patchTracker = std::make_unique<PatchTracker>();
+	m_libraryManager = std::make_unique<LibraryManager>();
 	m_overwriteRegionManager = std::make_unique<OverwriteRegionManager>();
-	m_linkerScriptGenerator = std::make_unique<LinkerScriptGenerator>();
-	m_elfAnalyzer = std::make_unique<ElfAnalyzer>();
-	m_sectionUsageAnalyzer = std::make_unique<SectionUsageAnalyzer>();
+	m_linker = std::make_unique<Linker>();
+	m_dependencyResolver = std::make_unique<DependencyResolver>();
 
 	// Initialize all components
 	m_fileSystemManager->initialize(*m_target, *m_buildDir, *m_header);
-	m_patchInfoAnalyzer->initialize(*m_target, *m_targetWorkDir, *m_compilationUnitMgr);
-	m_libraryAnalyzer->initialize(*m_target, *m_buildDir, *m_compilationUnitMgr);
-	m_overwriteRegionManager->initialize(*m_target);
-	m_linkerScriptGenerator->initialize(*m_target, *m_buildDir, *m_compilationUnitMgr, m_newcodeAddrForDest);
-	m_elfAnalyzer->initialize(*m_buildDir / (m_target->getArm9() ? "arm9.elf" : "arm7.elf"));
+	m_dependencyResolver->initialize(*m_compilationUnitMgr);
+	m_patchTracker->initialize(*m_target, *m_targetWorkDir, *m_compilationUnitMgr, *m_dependencyResolver);
+	m_libraryManager->initialize(*m_target, *m_buildDir, *m_compilationUnitMgr);
+	m_overwriteRegionManager->initialize(*m_target, *m_dependencyResolver);
+	m_linker->initialize(*m_target, *m_buildDir, *m_compilationUnitMgr, m_newcodeAddrForDest);
 }
 
 void PatchMaker::setupFileSystem()
@@ -124,57 +123,112 @@ void PatchMaker::generateElfFile()
 	ncp::Application::setErrorContext(m_target->getArm9() ?
 		"Failed to generate ELF files for ARM9 target." :
 		"Failed to generate ELF files for ARM7 target.");
-	
-	// Generate library compilation units and merge them with user units
-	m_libraryAnalyzer->analyzeLibraryDependencies();
-	m_libraryAnalyzer->generateLibraryUnits();
 
-	// Initialize the user object ELFs
-	for (const auto& unit : m_compilationUnitMgr->getUserUnits())
+	// Load the user object ELFs
+	for (auto* unit : m_compilationUnitMgr->getUserUnits())
 	{
 		auto elf = ncp::cache::CacheManager::getInstance().getOrLoadElf(unit->getObjectPath());
         // Cache the ELF pointer in the unit for future use
         unit->setElf(elf);
 	}
+	
+	// Generate library compilation units and merge them with user units
+	m_libraryManager->analyzeLibraryDependencies();
+	m_libraryManager->generateLibraryUnits();
 
-	// Analyze patches and sections
-	m_patchInfoAnalyzer->gatherInfoFromObjects();
+	// Analyze all dependencies first (this collects symbols and sections)
+	m_dependencyResolver->analyzeObjectFiles();
 
-	// Now analyze all sections from both user and library objects
-	auto candidateSections = m_patchInfoAnalyzer->takeOverwriteCandidateSections();
+	// Analyze patches and sections to determine entry points
+	m_patchTracker->collectPatchesFromUnits();
+	m_patchTracker->checkForOverlappingPatches();
 
 	if (m_target->hasOverwrites())
 	{
-		Log::out << OINFO << "Analyzing unreferenced sections..." << std::endl;
-		
-		// Initialize and run the section usage analyzer on all jobs
-		m_sectionUsageAnalyzer->initialize(
-			m_patchInfoAnalyzer->getPatchInfo(),
-			m_patchInfoAnalyzer->getExternSymbols(),
-			*m_compilationUnitMgr
-		);
-		
-		// Analyze all object files (user + library) to determine section usage
-		m_sectionUsageAnalyzer->analyzeObjectFiles();
-		
+		m_overwriteRegionManager->setupOverwriteRegions();
+		m_overwriteRegionManager->checkForConflictsWithPatches(m_patchTracker->getPatchInfo());
+	}
+
+	// Create entry points from patches and external symbols
+	std::vector<std::unique_ptr<DependencyResolver::UnitEntryPoints>> entryPoints = createEntryPointsFromPatches();
+
+	// Propagate usage through the dependency graph
+	m_dependencyResolver->propagateUsage(entryPoints);
+
+	// Get candidate sections for overwrites and filter them by usage
+	auto& candidateSections = m_patchTracker->getOverwriteCandidateSections();
+
+	if (m_target->hasOverwrites())
+	{
 		// Filter candidate sections to only include those that would survive linking
-		m_sectionUsageAnalyzer->filterUsedSections(candidateSections);
+		m_dependencyResolver->excludeUnusedSections(candidateSections);
 		
 		// Assign only the actually used sections to overwrite regions
-		m_overwriteRegionManager->setupOverwriteRegions();
 		m_overwriteRegionManager->assignSectionsToOverwrites(candidateSections);
 	}
 
     Log::out << OLINK << "Generating the linker script..." << std::endl;
 	
-	// Generate the final ELF with properly filtered sections (no strip ELF needed)
-	m_linkerScriptGenerator->createLinkerScript(
-		m_patchInfoAnalyzer->getPatchInfo(),
-		m_patchInfoAnalyzer->getRtreplPatches(),
-		m_patchInfoAnalyzer->getExternSymbols(),
+	// Generate the final ELF with properly filtered sections
+	m_linker->createLinkerScript(
+		m_patchTracker->getPatchInfo(),
+		m_patchTracker->getRtreplPatches(),
+		m_patchTracker->getExternSymbols(),
 		m_overwriteRegionManager->getOverwriteRegions()
 	);
-	m_linkerScriptGenerator->linkElfFile();
+	m_linker->linkElfFile();
+}
+
+std::vector<std::unique_ptr<DependencyResolver::UnitEntryPoints>> PatchMaker::createEntryPointsFromPatches()
+{
+	std::vector<std::unique_ptr<DependencyResolver::UnitEntryPoints>> entryPoints;
+	
+	// Group patches by unit to create entry points
+	std::unordered_map<core::CompilationUnit*, std::unique_ptr<DependencyResolver::UnitEntryPoints>> unitEntryMap;
+	
+	// Process patches to find entry points (functions/sections that are directly patched)
+	for (const auto& patch : m_patchTracker->getPatchInfo())
+	{
+		auto& entryPoint = unitEntryMap[patch->unit];
+		if (!entryPoint)
+		{
+			entryPoint = std::make_unique<DependencyResolver::UnitEntryPoints>();
+			entryPoint->unit = patch->unit;
+		}
+
+		if (patch->origin == PatchOrigin::Section)
+		{
+			// Add the section that's being patched as an entry point
+			entryPoint->sections.push_back(patch->symbol);
+		}
+		else
+		{
+			// Add the symbol that's being patched as an entry point
+			entryPoint->symbols.push_back(patch->symbol);
+		}
+	}
+	
+	// Convert map to vector
+	for (auto& [unit, entryPoint] : unitEntryMap)
+	{
+		if (entryPoint)
+		{
+			entryPoints.push_back(std::move(entryPoint));
+		}
+	}
+	
+	if (ncp::Application::isVerbose(ncp::VerboseTag::Section))
+	{
+		Log::out << OINFO << "Created " << entryPoints.size() << " entry points from patches and sections." << std::endl;
+		for (const auto& ep : entryPoints)
+		{
+			Log::out << "  Unit: " << ep->unit->getObjectPath().filename().string() 
+					 << " - Symbols: " << ep->symbols.size() 
+					 << ", Sections: " << ep->sections.size() << std::endl;
+		}
+	}
+	
+	return entryPoints;
 }
 
 void PatchMaker::processPatches()
@@ -184,21 +238,26 @@ void PatchMaker::processPatches()
 		"Failed to process patches for ARM7 target.");
 
 	// Analyze the ELF and apply patches
-	m_elfAnalyzer->loadElfFile();
+	m_linker->loadElfFile();
+
+	const Elf32& elf = *m_linker->getElf();
 	
-	auto patchInfo = m_patchInfoAnalyzer->takePatchInfo();
-	auto rtreplPatches = m_patchInfoAnalyzer->takeRtreplPatches();
-	m_elfAnalyzer->gatherInfoFromElf(patchInfo, m_overwriteRegionManager->getOverwriteRegions());
-	
-	auto newcodeDataForDest = m_elfAnalyzer->takeNewcodeDataForDest();
-	auto autogenDataInfoForDest = m_elfAnalyzer->takeAutogenDataInfoForDest();
+	m_patchTracker->finalizePatchesWithElfData(elf);
+	m_overwriteRegionManager->finalizeOverwritesWithElfData(elf);
 	
 	// Create operation context for improved parameter passing
-	patch::PatchOperationContext context(patchInfo, rtreplPatches, newcodeDataForDest, autogenDataInfoForDest,
-		m_newcodeAddrForDest, m_elfAnalyzer->getElf()->getSectionHeaderTable());
+	PatchOperationContext context(
+		elf,
+		m_patchTracker->getPatchInfo(),
+		m_patchTracker->getRtreplPatches(),
+		m_patchTracker->getNewcodeInfoForDest(),
+		m_patchTracker->getAutogenDataInfoForDest(),
+		m_newcodeAddrForDest,
+		elf.getSectionHeaderTable()
+	);
 	
 	applyPatchesToRom(context);
-	m_elfAnalyzer->unloadElfFile();
+	m_linker->unloadElfFile();
 }
 
 void PatchMaker::finalizeBuild()
@@ -313,22 +372,22 @@ void PatchMaker::applyPatchesToRom(const PatchOperationContext& context)
 	// Process individual patches by type
 	for (const auto& patch : *context.patchInfo)
 	{
-		switch (patch->patchType)
+		switch (patch->type)
 		{
-		case patch::PatchType::Jump:
+		case PatchType::Jump:
 			applyJumpPatch(patch, context);
 			break;
-		case patch::PatchType::Call:
+		case PatchType::Call:
 			applyCallPatch(patch, context);
 			break;
-		case patch::PatchType::Hook:
+		case PatchType::Hook:
 			applyHookPatch(patch, context);
 			break;
-		case patch::PatchType::Over:
+		case PatchType::Over:
 			applyOverPatch(patch, context);
 			break;
 		default:
-			throw ncp::exception("Unsupported patch type: " + std::to_string(patch->patchType));
+			throw ncp::exception("Unsupported patch type for symbol: " + patch->symbol);
 		}
 	}
 
@@ -339,7 +398,7 @@ void PatchMaker::applyPatchesToRom(const PatchOperationContext& context)
 	ncp::Application::setErrorContext(nullptr);
 }
 
-void PatchMaker::applyJumpPatch(const std::unique_ptr<GenericPatchInfo>& patch, const PatchOperationContext& context)
+void PatchMaker::applyJumpPatch(const std::unique_ptr<PatchInfo>& patch, const PatchOperationContext& context)
 {
 	ICodeBin* bin = getBinaryForDestination(patch->destAddressOv);
 
@@ -379,7 +438,7 @@ void PatchMaker::applyJumpPatch(const std::unique_ptr<GenericPatchInfo>& patch, 
 	}
 }
 
-void PatchMaker::applyCallPatch(const std::unique_ptr<GenericPatchInfo>& patch, const PatchOperationContext& context)
+void PatchMaker::applyCallPatch(const std::unique_ptr<PatchInfo>& patch, const PatchOperationContext& context)
 {
 	validateThumbInterworking(patch);
 	
@@ -415,28 +474,28 @@ void PatchMaker::applyCallPatch(const std::unique_ptr<GenericPatchInfo>& patch, 
 	}
 }
 
-void PatchMaker::applyHookPatch(const std::unique_ptr<GenericPatchInfo>& patch, const PatchOperationContext& context)
+void PatchMaker::applyHookPatch(const std::unique_ptr<PatchInfo>& patch, const PatchOperationContext& context)
 {
 	if (patch->destThumb)
 	{
 		std::ostringstream oss;
 		oss << "Injecting hook from " << (patch->destThumb ? "THUMB" : "ARM") << " to "
 			<< (patch->srcThumb ? "THUMB" : "ARM") << " is not supported, at ";
-		oss << OSTRa(patch->formatPatchDescriptor()) << " (" << OSTR(patch->unit->getSourcePath().string()) << ")";
+		oss << OSTRa(patch->getPrettyName()) << " (" << OSTR(patch->unit->getSourcePath().string()) << ")";
 		throw ncp::exception(oss.str());
 	}
 
 	createHookBridge(patch, context);
 }
 
-void PatchMaker::applyOverPatch(const std::unique_ptr<GenericPatchInfo>& patch, const PatchOperationContext& context)
+void PatchMaker::applyOverPatch(const std::unique_ptr<PatchInfo>& patch, const PatchOperationContext& context)
 {
 	ICodeBin* bin = getBinaryForDestination(patch->destAddressOv);
-	const char* sectionData = m_elfAnalyzer->getElf()->getSection<char>(static_cast<const Elf32_Shdr*>(context.sectionHeaderTable)[patch->sectionIdx]);
+	const char* sectionData = context.elf->getSection<char>(static_cast<const Elf32_Shdr*>(context.sectionHeaderTable)[patch->sectionIdx]);
 	bin->writeBytes(patch->destAddress, sectionData, patch->sectionSize);
 }
 
-void PatchMaker::createArm2ThumbJumpBridge(const std::unique_ptr<GenericPatchInfo>& patch, const PatchOperationContext& context)
+void PatchMaker::createArm2ThumbJumpBridge(const std::unique_ptr<PatchInfo>& patch, const PatchOperationContext& context)
 {
 	/*
 	 * ARM to THUMB jump bridge:
@@ -459,7 +518,7 @@ void PatchMaker::createArm2ThumbJumpBridge(const std::unique_ptr<GenericPatchInf
 	if (ncp::Application::isVerbose(ncp::VerboseTag::Patch))
 	{
 		Log::out << "ARM->THUMB BRIDGE: " << Util::intToAddr(bridgeAddr, 8) 
-		         << " for " << patch->formatPatchDescriptor()
+		         << " for " << patch->getPrettyName()
 		         << " from " << patch->unit->getObjectPath().filename().string() << std::endl;
 	}
 
@@ -479,7 +538,7 @@ void PatchMaker::createArm2ThumbJumpBridge(const std::unique_ptr<GenericPatchInf
 	info->curAddress += SizeOfArm2ThumbJumpBridge;
 }
 
-void PatchMaker::createHookBridge(const std::unique_ptr<GenericPatchInfo>& patch, const PatchOperationContext& context)
+void PatchMaker::createHookBridge(const std::unique_ptr<PatchInfo>& patch, const PatchOperationContext& context)
 {
 	/*
 	 * Hook bridge:
@@ -508,7 +567,7 @@ void PatchMaker::createHookBridge(const std::unique_ptr<GenericPatchInfo>& patch
 	if (ncp::Application::isVerbose(ncp::VerboseTag::Patch))
 	{
 		Log::out << "HOOK BRIDGE: " << Util::intToAddr(hookBridgeAddr, 8) 
-		         << " for " << patch->formatPatchDescriptor()
+		         << " for " << patch->getPrettyName()
 		         << " from " << patch->unit->getObjectPath().filename().string() << std::endl;
 	}
 
@@ -548,18 +607,18 @@ void PatchMaker::applyOverwriteRegions(const PatchOperationContext& context)
 			continue;
 
 		ICodeBin* bin = getBinaryForDestination(overwrite->destination);
-		const char* sectionData = m_elfAnalyzer->getElf()->getSection<char>(static_cast<const Elf32_Shdr*>(context.sectionHeaderTable)[overwrite->sectionIdx]);
+		const char* sectionData = context.elf->getSection<char>(static_cast<const Elf32_Shdr*>(context.sectionHeaderTable)[overwrite->sectionIdx]);
 
 		bin->writeBytes(overwrite->startAddress, sectionData, overwrite->sectionSize);
 		
 		if (ncp::Application::isVerbose(ncp::VerboseTag::Patch))
 		{
-			Log::out << OINFO << "Applied overwrite region " << OSTR(overwrite->memName) 
+			Log::out << OINFO << "Applied overwrite region " << OSTR(overwrite->name) 
 				<< " at 0x" << std::hex << std::uppercase << overwrite->startAddress
 				<< " (size: " << std::dec << overwrite->sectionSize << " bytes)" << std::endl;
 		}
 		
-		// Mark overlay as dirty if it's an overlay
+		// Mark as dirty if it's an overlay
 		if (overwrite->destination != -1)
 		{
 			static_cast<OverlayBin*>(bin)->setDirty(true);
@@ -569,7 +628,7 @@ void PatchMaker::applyOverwriteRegions(const PatchOperationContext& context)
 
 void PatchMaker::applyNewcodeToDestinations(const PatchOperationContext& context)
 {
-	for (const auto& [dest, newcodeInfo] : *context.newcodeDataForDest)
+	for (const auto& [dest, newcodeInfo] : *context.newcodeInfoForDest)
 	{
 		if (dest == -1)
 		{
@@ -582,7 +641,7 @@ void PatchMaker::applyNewcodeToDestinations(const PatchOperationContext& context
 	}
 }
 
-void PatchMaker::applyNewcodeToMainArm(int dest, const std::unique_ptr<NewcodePatch>& newcodeInfo, const PatchOperationContext& context)
+void PatchMaker::applyNewcodeToMainArm(int dest, const std::unique_ptr<NewcodeInfo>& newcodeInfo, const PatchOperationContext& context)
 {
 	u32 newcodeAddr = m_newcodeAddrForDest[dest];
 
@@ -648,7 +707,7 @@ void PatchMaker::applyNewcodeToMainArm(int dest, const std::unique_ptr<NewcodePa
 	}
 }
 
-void PatchMaker::applyNewcodeToOverlay(int dest, const std::unique_ptr<NewcodePatch>& newcodeInfo, const PatchOperationContext& context)
+void PatchMaker::applyNewcodeToOverlay(int dest, const std::unique_ptr<NewcodeInfo>& newcodeInfo, const PatchOperationContext& context)
 {
 	const BuildTarget::Region* region = m_target->getRegionByDestination(dest);
 	if (region == nullptr)
@@ -668,7 +727,7 @@ void PatchMaker::applyNewcodeToOverlay(int dest, const std::unique_ptr<NewcodePa
 	}
 }
 
-void PatchMaker::handleAppendModeOverlay(int dest, const std::unique_ptr<NewcodePatch>& newcodeInfo)
+void PatchMaker::handleAppendModeOverlay(int dest, const std::unique_ptr<NewcodeInfo>& newcodeInfo)
 {
 	OverlayBin* bin = getOverlay(dest);
 	auto& ovtEntries = m_fileSystemManager->getOvtEntries();
@@ -709,7 +768,7 @@ void PatchMaker::handleAppendModeOverlay(int dest, const std::unique_ptr<Newcode
 	bin->setDirty(true);
 }
 
-void PatchMaker::handleReplaceModeOverlay(int dest, const std::unique_ptr<NewcodePatch>& newcodeInfo)
+void PatchMaker::handleReplaceModeOverlay(int dest, const std::unique_ptr<NewcodeInfo>& newcodeInfo)
 {
 	OverlayBin* bin = getOverlay(dest);
 	auto& ovtEntries = m_fileSystemManager->getOvtEntries();
@@ -749,7 +808,7 @@ void PatchMaker::handleReplaceModeOverlay(int dest, const std::unique_ptr<Newcod
 	bin->setDirty(true);
 }
 
-void PatchMaker::handleCreateModeOverlay(int dest, const std::unique_ptr<NewcodePatch>& newcodeInfo)
+void PatchMaker::handleCreateModeOverlay(int dest, const std::unique_ptr<NewcodeInfo>& newcodeInfo)
 {
 	// TO BE DESIGNED.
 	throw ncp::exception("Creating new overlays is not yet supported.");
@@ -773,13 +832,13 @@ ICodeBin* PatchMaker::getBinaryForDestination(int destination) const
 		static_cast<ICodeBin*>(getOverlay(destination));
 }
 
-void PatchMaker::validateThumbInterworking(const std::unique_ptr<GenericPatchInfo>& patch) const
+void PatchMaker::validateThumbInterworking(const std::unique_ptr<PatchInfo>& patch) const
 {
 	if (patch->destThumb != patch->srcThumb && !m_target->getArm9())
 	{
 		std::ostringstream oss;
 		oss << "Cannot create thumb-interworking veneer: BLX not supported on armv4. At ";
-		oss << OSTRa(patch->formatPatchDescriptor()) << " (" << OSTR(patch->unit->getSourcePath().string()) << ")";
+		oss << OSTRa(patch->getPrettyName()) << " (" << OSTR(patch->unit->getSourcePath().string()) << ")";
 		throw ncp::exception(oss.str());
 	}
 }
@@ -793,7 +852,7 @@ void PatchMaker::validateOverlaySize(int dest, std::size_t totalSize, const Buil
 	}
 }
 
-void PatchMaker::writeNewcodeData(u8* destination, const std::unique_ptr<NewcodePatch>& newcodeInfo, 
+void PatchMaker::writeNewcodeData(u8* destination, const std::unique_ptr<NewcodeInfo>& newcodeInfo, 
                                   const std::unique_ptr<AutogenDataInfo>* autogenInfo)
 {
 	std::size_t autogenDataSize = 0;
@@ -809,4 +868,6 @@ void PatchMaker::writeNewcodeData(u8* destination, const std::unique_ptr<Newcode
 		std::memcpy(&destination[newcodeInfo->binSize - autogenDataSize], 
 			(*autogenInfo)->data.data(), autogenDataSize);
 	}
+}
+
 }

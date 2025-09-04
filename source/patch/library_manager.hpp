@@ -13,21 +13,20 @@
 #include "../formats/archive.hpp"
 #include "types.hpp"
 
-// Use the centralized types from patch::types
-using patch::SectionInfo;
+namespace ncp::patch {
 
 /**
- * LibraryAnalyzer - Generates CompilationUnits for library object files
+ * LibraryManager - Generates CompilationUnits for library object files
  * 
  * This class analyzes the linker flags to find library dependencies (-lc, -lgcc, -L etc.)
  * and creates CompilationUnits for object files within those libraries,
  * allowing them to be processed just like user object files.
  */
-class LibraryAnalyzer
+class LibraryManager
 {
 public:
-    LibraryAnalyzer();
-    ~LibraryAnalyzer();
+    LibraryManager();
+    ~LibraryManager();
 
     void initialize(
         const BuildTarget& target,
@@ -58,3 +57,5 @@ private:
     std::vector<std::string> m_libraryNames;
     std::vector<std::filesystem::path> m_libraryPaths;
 };
+
+} // namespace ncp::patch

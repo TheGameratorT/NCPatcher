@@ -11,6 +11,8 @@
 #include "../ndsbin/overlaybin.hpp"
 #include "../config/buildtarget.hpp"
 
+namespace ncp::patch {
+
 class FileSystemManager
 {
 public:
@@ -52,3 +54,5 @@ private:
     std::vector<OvtEntry> m_bakOvtEntries;
     bool m_bakOvtChanged = false;
 };
+
+} // namespace ncp::patch

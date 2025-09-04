@@ -15,7 +15,7 @@
 #include "../config/rebuildconfig.hpp"
 #include "../ndsbin/headerbin.hpp"
 #include "../build/objmaker.hpp"
-#include "../patch/patchmaker.hpp"
+#include "../patch/patch_maker.hpp"
 #include "../core/compilation_unit_manager.hpp"
 
 #ifdef _WIN32
@@ -182,7 +182,7 @@ void Application::processTarget(HeaderBin& header, bool isArm9)
     ObjMaker objMaker;
     objMaker.makeTarget(buildTarget, targetWorkDir, buildPath, compilationUnitsMgr);
 
-    PatchMaker patchMaker;
+    ncp::patch::PatchMaker patchMaker;
     patchMaker.makeTarget(buildTarget, targetWorkDir, buildPath, header, compilationUnitsMgr);
 
     // Update rebuild config

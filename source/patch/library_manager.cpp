@@ -1,4 +1,4 @@
-#include "library_analyzer.hpp"
+#include "library_manager.hpp"
 
 #include <algorithm>
 #include <sstream>
@@ -13,12 +13,13 @@
 #include "../formats/archive.hpp"
 #include "../config/buildconfig.hpp"
 #include "../system/process.hpp"
-#include "patch_info_analyzer.hpp"
 
-LibraryAnalyzer::LibraryAnalyzer() = default;
-LibraryAnalyzer::~LibraryAnalyzer() = default;
+namespace ncp::patch {
 
-void LibraryAnalyzer::initialize(
+LibraryManager::LibraryManager() = default;
+LibraryManager::~LibraryManager() = default;
+
+void LibraryManager::initialize(
     const BuildTarget& target,
     const std::filesystem::path& buildDir,
     core::CompilationUnitManager& compilationUnitMgr
@@ -29,7 +30,7 @@ void LibraryAnalyzer::initialize(
     m_compilationUnitMgr = &compilationUnitMgr;
 }
 
-void LibraryAnalyzer::analyzeLibraryDependencies()
+void LibraryManager::analyzeLibraryDependencies()
 {
     Log::info("Analyzing library dependencies...");
 
@@ -65,7 +66,7 @@ void LibraryAnalyzer::analyzeLibraryDependencies()
     }
 }
 
-void LibraryAnalyzer::generateLibraryUnits()
+void LibraryManager::generateLibraryUnits()
 {
     Log::info("Generating library compilation units...");
 
@@ -82,7 +83,7 @@ void LibraryAnalyzer::generateLibraryUnits()
 	}
 }
 
-void LibraryAnalyzer::parseLinkerFlags(const std::string& ldFlags)
+void LibraryManager::parseLinkerFlags(const std::string& ldFlags)
 {
     if (ldFlags.empty())
         return;
@@ -137,7 +138,7 @@ void LibraryAnalyzer::parseLinkerFlags(const std::string& ldFlags)
     }
 }
 
-void LibraryAnalyzer::findLibraryFiles()
+void LibraryManager::findLibraryFiles()
 {
     m_libraryPaths.clear();
     
@@ -181,7 +182,7 @@ void LibraryAnalyzer::findLibraryFiles()
     }
 }
 
-void LibraryAnalyzer::getToolchainLibraryPaths()
+void LibraryManager::getToolchainLibraryPaths()
 {
     // Clear any existing paths
     m_librarySearchPaths.clear();
@@ -252,7 +253,7 @@ void LibraryAnalyzer::getToolchainLibraryPaths()
     }
 }
 
-void LibraryAnalyzer::createUnitsFromLibrary(const std::filesystem::path& libraryPath)
+void LibraryManager::createUnitsFromLibrary(const std::filesystem::path& libraryPath)
 {
     try
     {
@@ -276,7 +277,7 @@ void LibraryAnalyzer::createUnitsFromLibrary(const std::filesystem::path& librar
     }
 }
 
-void LibraryAnalyzer::createUnitFromELF(Elf32& elf, const std::filesystem::path& libraryPath, const std::string& objectName)
+void LibraryManager::createUnitFromELF(Elf32& elf, const std::filesystem::path& libraryPath, const std::string& objectName)
 {
     // Determine the source path (for archives, include member name)
     std::filesystem::path objectPath;
@@ -308,7 +309,7 @@ void LibraryAnalyzer::createUnitFromELF(Elf32& elf, const std::filesystem::path&
 	// No need to setup BuildInfo
 }
 
-void LibraryAnalyzer::createUnitsFromArchive(const std::filesystem::path& archivePath)
+void LibraryManager::createUnitsFromArchive(const std::filesystem::path& archivePath)
 {
 	if (ncp::Application::isVerbose(ncp::VerboseTag::Library))
 	{
@@ -381,3 +382,5 @@ void LibraryAnalyzer::createUnitsFromArchive(const std::filesystem::path& archiv
                  << ": " << e.what() << std::endl;
     }
 }
+
+} // namespace ncp::patch

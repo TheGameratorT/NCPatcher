@@ -5,6 +5,8 @@
 #include "../system/except.hpp"
 #include "../utils/util.hpp"
 
+namespace ncp::patch {
+
 u32 AsmGenerator::makeJumpOpCode(u32 opCode, u32 fromAddr, u32 toAddr)
 {
     s32 offset = (s32(toAddr) - s32(fromAddr)) >> 2;
@@ -371,3 +373,5 @@ u32 AsmGenerator::fixupOpCode(u32 opCode, u32 ogAddr, u32 newAddr, bool isArm9)
     // If no PC-relative addressing detected, return the instruction unchanged
     return opCode;
 }
+
+} // namespace ncp::patch

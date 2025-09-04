@@ -1,4 +1,4 @@
-#include "linker_script_generator.hpp"
+#include "linker.hpp"
 
 #include <fstream>
 #include <sstream>
@@ -12,15 +12,15 @@
 #include "../system/process.hpp"
 #include "../config/buildconfig.hpp"
 
-namespace fs = std::filesystem;
+namespace ncp::patch {
 
 constexpr std::size_t SizeOfHookBridge = 20;
 constexpr std::size_t SizeOfArm2ThumbJumpBridge = 8;
 
-LinkerScriptGenerator::LinkerScriptGenerator() = default;
-LinkerScriptGenerator::~LinkerScriptGenerator() = default;
+Linker::Linker() = default;
+Linker::~Linker() = default;
 
-void LinkerScriptGenerator::initialize(
+void Linker::initialize(
     const BuildTarget& target,
     const std::filesystem::path& buildDir,
     core::CompilationUnitManager& compilationUnitMgr,
@@ -38,9 +38,9 @@ void LinkerScriptGenerator::initialize(
     m_elfPath = *m_buildDir / ("arm" + armType + ".elf");
 }
 
-void LinkerScriptGenerator::createLinkerScript(
-    const std::vector<std::unique_ptr<GenericPatchInfo>>& patchInfo,
-    const std::vector<std::unique_ptr<RtReplPatchInfo>>& rtreplPatches,
+void Linker::createLinkerScript(
+    const std::vector<std::unique_ptr<PatchInfo>>& patchInfo,
+    const std::vector<std::unique_ptr<PatchInfo>>& rtreplPatches,
     const std::vector<std::string>& externSymbols,
     const std::vector<std::unique_ptr<OverwriteRegionInfo>>& overwriteRegions
 )
@@ -53,7 +53,7 @@ void LinkerScriptGenerator::createLinkerScript(
         o += ")\n";
     };
 
-    auto addSectionPatchInclude = [](std::string& o, GenericPatchInfo*& p) {
+    auto addSectionPatchInclude = [](std::string& o, PatchInfo*& p) {
         // Convert the section patches into label patches,
         // except for over and set types
         o += "\t\t. = ALIGN(4);\n\t\t";
@@ -63,11 +63,11 @@ void LinkerScriptGenerator::createLinkerScript(
         o += "))\n";
     };
 
-    fs::current_path(ncp::Application::getWorkPath());
+    std::filesystem::current_path(ncp::Application::getWorkPath());
 
-    fs::path symbolsFile;
+    std::filesystem::path symbolsFile;
     if (!m_target->symbols.empty())
-        symbolsFile = fs::absolute(m_target->symbols);
+        symbolsFile = std::filesystem::absolute(m_target->symbols);
 
     std::vector<std::unique_ptr<LDSMemoryEntry>> memoryEntries;
     memoryEntries.emplace_back(new LDSMemoryEntry{ "bin", 0, 0x100000 });
@@ -79,7 +79,7 @@ void LinkerScriptGenerator::createLinkerScript(
 			continue;
 			
 		u32 regionSize = overwrite->endAddress - overwrite->startAddress;
-		auto* memEntry = new LDSMemoryEntry{ overwrite->memName, overwrite->startAddress, static_cast<int>(regionSize) };
+		auto* memEntry = new LDSMemoryEntry{ overwrite->name, overwrite->startAddress, static_cast<int>(regionSize) };
 		memoryEntries.emplace_back(memEntry);
 	}
 
@@ -120,7 +120,7 @@ void LinkerScriptGenerator::createLinkerScript(
     // Iterate all patches to setup the linker script
     for (const auto& info : patchInfo)
     {
-        if (info->patchType == patch::PatchType::Over)
+        if (info->type == PatchType::Over)
         {
             std::string memName; memName.reserve(32);
             memName += "over_";
@@ -140,7 +140,7 @@ void LinkerScriptGenerator::createLinkerScript(
             {
                 if (ldsRegion->dest == info->unit->getTargetRegion()->destination)
                 {
-                    if (info->sourceType == patch::PatchSourceType::Section && !info->isNcpSet)
+                    if (info->origin == PatchOrigin::Section && !info->isNcpSet)
                     {
                         // Check if this patch's section is assigned to an overwrite region (only for final version)
                         bool patchInOverwrite = false;
@@ -169,11 +169,11 @@ void LinkerScriptGenerator::createLinkerScript(
                             ldsRegion->sectionPatches.emplace_back(info.get());
                     }
 
-                    if (info->patchType == patch::PatchType::Hook)
+                    if (info->type == PatchType::Hook)
                     {
                         ldsRegion->autogenDataSize += SizeOfHookBridge;
                     }
-                    else if (info->patchType == patch::PatchType::Jump)
+                    else if (info->type == PatchType::Jump)
                     {
                         if (!info->destThumb && info->srcThumb) // ARM -> THUMB
                             ldsRegion->autogenDataSize += SizeOfArm2ThumbJumpBridge;
@@ -237,7 +237,7 @@ void LinkerScriptGenerator::createLinkerScript(
 			continue;
 		
 		o += "\t.";
-		o += overwrite->memName;
+		o += overwrite->name;
 		o += " : ALIGN(4) {\n";
 
 		for (auto& p : overwrite->sectionPatches)
@@ -259,7 +259,7 @@ void LinkerScriptGenerator::createLinkerScript(
 		
 		o += "\t\t. = ALIGN(4);\n"
 				"\t} > ";
-		o += overwrite->memName;
+		o += overwrite->name;
 		o += " AT > bin\n\n";
 	}
 
@@ -430,7 +430,7 @@ void LinkerScriptGenerator::createLinkerScript(
     outputFile.close();
 }
 
-std::string LinkerScriptGenerator::ldFlagsToGccFlags(std::string flags)
+std::string Linker::ldFlagsToGccFlags(std::string flags)
 {
     std::size_t cpos = 0;
     while ((cpos = flags.find(' ', cpos)) != std::string::npos)
@@ -445,7 +445,7 @@ std::string LinkerScriptGenerator::ldFlagsToGccFlags(std::string flags)
 }
 
 /*
-void LinkerScriptGenerator::parseLinkerOutput(const std::string& output)
+void Linker::parseLinkerOutput(const std::string& output)
 {
     std::vector<std::string> discardedSections;
     std::istringstream iss(output);
@@ -504,11 +504,11 @@ void LinkerScriptGenerator::parseLinkerOutput(const std::string& output)
 }
 */
 
-void LinkerScriptGenerator::linkElfFile()
+void Linker::linkElfFile()
 {
     Log::out << OLINK << "Linking the ARM binary..." << std::endl;
 
-    fs::current_path(ncp::Application::getWorkPath());
+    std::filesystem::current_path(ncp::Application::getWorkPath());
 
     std::string ccmd;
     ccmd.reserve(128);
@@ -536,3 +536,20 @@ void LinkerScriptGenerator::linkElfFile()
         throw ncp::exception("Could not link the final ELF file.");
     }
 }
+
+void Linker::loadElfFile()
+{
+    if (!std::filesystem::exists(m_elfPath))
+        throw ncp::file_error(m_elfPath, ncp::file_error::find);
+
+    m_elf = std::make_unique<Elf32>();
+    if (!m_elf->load(m_elfPath))
+        throw ncp::file_error(m_elfPath, ncp::file_error::read);
+}
+
+void Linker::unloadElfFile()
+{
+    m_elf = nullptr;
+}
+
+} // namespace ncp::patch

@@ -6,14 +6,18 @@
 
 #include "../app/application.hpp"
 #include "../system/log.hpp"
+#include "../system/except.hpp"
 #include "../utils/util.hpp"
+
+namespace ncp::patch {
 
 OverwriteRegionManager::OverwriteRegionManager() = default;
 OverwriteRegionManager::~OverwriteRegionManager() = default;
 
-void OverwriteRegionManager::initialize(const BuildTarget& target)
+void OverwriteRegionManager::initialize(const BuildTarget& target, const DependencyResolver& dependencyResolver)
 {
     m_target = &target;
+	m_dependencyResolver = &dependencyResolver;
 }
 
 void OverwriteRegionManager::setupOverwriteRegions()
@@ -24,27 +28,26 @@ void OverwriteRegionManager::setupOverwriteRegions()
     {
         for (const auto& overwrite : region.overwrites)
         {
-            std::string memName = "overwrite_";
-            memName += Util::intToAddr(int(overwrite.startAddress), 8, false);
+            std::string name = "overwrite_";
+            name += Util::intToAddr(int(overwrite.startAddress), 8, false);
             if (region.destination != -1)
             {
-                memName += "_ov";
-                memName += std::to_string(region.destination);
+                name += "_ov";
+                name += std::to_string(region.destination);
             }
 
-            auto* overwriteRegion = new OverwriteRegionInfo{
-                .startAddress = overwrite.startAddress,
-                .endAddress = overwrite.endAddress,
-                .destination = region.destination,
-                .assignedSections = {},
-                .usedSize = 0,
-                .memName = memName
-            };
-            m_overwriteRegions.emplace_back(overwriteRegion);
+            auto overwriteRegion = std::make_unique<OverwriteRegionInfo>();
+            overwriteRegion->startAddress = overwrite.startAddress;
+            overwriteRegion->endAddress = overwrite.endAddress;
+            overwriteRegion->destination = region.destination;
+            overwriteRegion->assignedSections = {};
+            overwriteRegion->usedSize = 0;
+            overwriteRegion->name = name;
+            m_overwriteRegions.push_back(std::move(overwriteRegion));
 
             if (ncp::Application::isVerbose(ncp::VerboseTag::Section))
             {
-                Log::out << OINFO << "Found overwrite region: 0x" << std::hex << std::uppercase 
+                Log::out << OINFO << "Configured overwrite region: 0x" << std::hex << std::uppercase 
                     << overwrite.startAddress << "-0x" << overwrite.endAddress 
                     << " (size: " << std::dec << (overwrite.endAddress - overwrite.startAddress) 
                     << " bytes)" << std::endl;
@@ -55,6 +58,8 @@ void OverwriteRegionManager::setupOverwriteRegions()
 
 void OverwriteRegionManager::assignSectionsToOverwrites(std::vector<std::unique_ptr<SectionInfo>>& candidateSections)
 {
+    Log::info("Assigning sections to overwrite regions...");
+
     if (m_overwriteRegions.empty())
         return;
 
@@ -202,4 +207,94 @@ void OverwriteRegionManager::assignSectionsToOverwrites(std::vector<std::unique_
             }
         }
     }
+}
+
+void OverwriteRegionManager::checkForConflictsWithPatches(const std::vector<std::unique_ptr<PatchInfo>>& patches)
+{
+    // Check that no patch is being written to an overwrite region
+    bool foundPatchInOverwrite = false;
+    for (const auto& patch : patches)
+    {
+        for (const auto& overwrite : m_overwriteRegions)
+        {
+            // Check if patch targets the same destination as the overwrite region
+            if (patch->destAddressOv == overwrite->destination)
+            {
+                u32 patchEnd = patch->destAddress + patch->getOverwriteAmount();
+                
+                // Check if patch overlaps with overwrite region
+                if (Util::overlaps(patch->destAddress, patchEnd, overwrite->startAddress, overwrite->endAddress))
+                {
+                    Log::out << OERROR
+                        << "Patch " << OSTR(patch->getPrettyName()) << " (" << OSTR(patch->unit->getSourcePath().string()) 
+                        << ") conflicts with overwrite region 0x" << std::hex << std::uppercase 
+                        << overwrite->startAddress << "-0x" << overwrite->endAddress << std::endl;
+                    foundPatchInOverwrite = true;
+                }
+            }
+        }
+    }
+    if (foundPatchInOverwrite)
+        throw ncp::exception("Patches targeting overwrite regions were detected.");
+}
+
+void OverwriteRegionManager::finalizeOverwritesWithElfData(const Elf32& elf)
+{
+    const Elf32_Ehdr& eh = elf.getHeader();
+    auto sh_tbl = elf.getSectionHeaderTable();
+    auto str_tbl = elf.getSection<char>(sh_tbl[eh.e_shstrndx]);
+
+    // Gather overwrite section data
+    for (const auto& overwrite : m_overwriteRegions)
+    {
+        overwrite->sectionIdx = -1;
+
+		std::string overwriteSectionName = "." + overwrite->name;
+
+        Elf32::forEachSection(eh, sh_tbl, str_tbl,
+        [&](std::size_t sectionIdx, const Elf32_Shdr& section, std::string_view sectionName) -> bool {
+            if (sectionName == overwriteSectionName)
+            {
+                overwrite->sectionIdx = sectionIdx;
+                overwrite->sectionSize = section.sh_size;
+
+                if (overwrite->sectionSize != overwrite->usedSize)
+                {
+                    Log::out << OWARN << "Overwrite region " << OSTR(overwrite->name)
+                        << " at 0x" << std::hex << std::uppercase << overwrite->startAddress
+                        << " has section size " << std::dec << section.sh_size
+                        << " bytes, but expected " << overwrite->usedSize << " bytes." << std::endl;
+                }
+
+                u32 maxSize = overwrite->endAddress - overwrite->startAddress;
+
+                if (overwrite->sectionSize > maxSize)
+                {
+                    std::ostringstream oss;
+                    oss << OERROR << "Overwrite region is smaller than the generated section "
+                        << " (size: " << std::dec << overwrite->sectionSize << " bytes, max size: "  << maxSize << ")" << std::endl;
+                    throw ncp::exception(oss.str());
+                }
+                
+                if (ncp::Application::isVerbose(ncp::VerboseTag::Patch))
+                {
+                    Log::out << OINFO << "Found overwrite region " << OSTR(overwrite->name) 
+                        << " at 0x" << std::hex << std::uppercase << overwrite->startAddress
+                        << " (size: " << std::dec << section.sh_size << " bytes)" << std::endl;
+                }
+                
+                return true;
+            }
+            return false;
+        });
+
+        if (overwrite->sectionIdx == -1)
+        {
+            std::ostringstream oss;
+            oss << "Failed to get section " << OSTR(overwriteSectionName) << " from ELF file.";
+            throw ncp::exception(oss.str());
+        }
+    }
+}
+
 }

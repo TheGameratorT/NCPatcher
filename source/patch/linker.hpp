@@ -7,10 +7,12 @@
 #include <filesystem>
 
 #include "../utils/types.hpp"
+#include "../formats/elf.hpp"
 #include "../config/buildtarget.hpp"
 #include "../core/compilation_unit_manager.hpp"
-#include "patch_info_analyzer.hpp"
 #include "overwrite_region_manager.hpp"
+
+namespace ncp::patch {
 
 struct LDSMemoryEntry
 {
@@ -25,20 +27,20 @@ struct LDSRegionEntry
     LDSMemoryEntry* memory;
     const BuildTarget::Region* region;
     std::size_t autogenDataSize;
-    std::vector<GenericPatchInfo*> sectionPatches;
+    std::vector<PatchInfo*> sectionPatches;
 };
 
 struct LDSOverPatch
 {
-    GenericPatchInfo* info;
+    PatchInfo* info;
     LDSMemoryEntry* memory;
 };
 
-class LinkerScriptGenerator
+class Linker
 {
 public:
-    LinkerScriptGenerator();
-    ~LinkerScriptGenerator();
+    Linker();
+    ~Linker();
 
     void initialize(
         const BuildTarget& target,
@@ -48,13 +50,18 @@ public:
     );
 
     void createLinkerScript(
-        const std::vector<std::unique_ptr<GenericPatchInfo>>& patchInfo,
-        const std::vector<std::unique_ptr<RtReplPatchInfo>>& rtreplPatches,
+        const std::vector<std::unique_ptr<PatchInfo>>& patchInfo,
+        const std::vector<std::unique_ptr<PatchInfo>>& rtreplPatches,
         const std::vector<std::string>& externSymbols,
         const std::vector<std::unique_ptr<OverwriteRegionInfo>>& overwriteRegions
     );
 
     void linkElfFile();
+
+    void loadElfFile();
+    void unloadElfFile();
+
+    const Elf32* getElf() const { return m_elf.get(); }
 
     // Path accessors
     const std::filesystem::path& getStripElfPath() const { return m_elfStripPath; }
@@ -70,6 +77,10 @@ private:
     std::filesystem::path m_elfStripPath;
     std::filesystem::path m_elfPath;
 
+    std::unique_ptr<Elf32> m_elf;
+
     static std::string ldFlagsToGccFlags(std::string flags);
     //void parseLinkerOutput(const std::string& output);
 };
+
+} // namespace ncp::patch

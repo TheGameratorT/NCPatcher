@@ -1,4 +1,4 @@
-#include "arenalofinder.hpp"
+#include "arenalo_finder.hpp"
 
 #include <iostream>
 #include <algorithm>
@@ -7,6 +7,8 @@
 #include "../system/log.hpp"
 #include "../system/except.hpp"
 #include "../utils/util.hpp"
+
+namespace ncp::patch {
 
 namespace ArenaLoFinder {
 
@@ -144,3 +146,5 @@ void findArenaLo(ArmBin* arm, int& arenaLoOut, u32& newcodeDestOut)
 }
 
 }
+
+} // namespace ncp::patch
