@@ -31,7 +31,7 @@ public:
 		Mode mode;
 		bool compress;
 		u32 address;
-		int length;
+		int maxsize;
 		std::string cFlags;
 		std::string cppFlags;
 		std::string asmFlags;

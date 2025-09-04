@@ -71,7 +71,7 @@ void BuildTarget::load(const fs::path& targetFilePath, const fs::path& targetWor
 			region.address = regionObj.hasMember("address") ? regionObj["address"].getInt() : 0xFFFFFFFF;
 		else
 			region.address = (region.mode == Mode::Create) ? regionObj["address"].getInt() : 0;
-		region.length = regionObj.hasMember("length") ? regionObj["length"].getInt() : 0x100000;
+		region.maxsize = regionObj.hasMember("maxsize") ? regionObj["maxsize"].getInt() : 0x100000;
 		readOverwrites(region, regionObj);
 		regions.push_back(region);
 	}

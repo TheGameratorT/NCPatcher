@@ -101,14 +101,14 @@ void LinkerScriptGenerator::createLinkerScript(
         u32 newcodeAddr = m_newcodeAddrForDest->at(dest);
         if (dest == -1)
         {
-            memEntry = new LDSMemoryEntry{ "arm", newcodeAddr, region->length };
+            memEntry = new LDSMemoryEntry{ "arm", newcodeAddr, region->maxsize };
         }
         else
         {
             std::string memName; memName.reserve(8);
             memName += "ov";
             memName += std::to_string(dest);
-            memEntry = new LDSMemoryEntry{ std::move(memName), newcodeAddr, region->length };
+            memEntry = new LDSMemoryEntry{ std::move(memName), newcodeAddr, region->maxsize };
         }
 
         memoryEntries.emplace_back(memEntry);

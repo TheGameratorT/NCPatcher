@@ -786,10 +786,10 @@ void PatchMaker::validateThumbInterworking(const std::unique_ptr<GenericPatchInf
 
 void PatchMaker::validateOverlaySize(int dest, std::size_t totalSize, const BuildTarget::Region& region) const
 {
-	if (totalSize > region.length)
+	if (totalSize > region.maxsize)
 	{
 		throw ncp::exception("Overlay " + std::to_string(dest) + " exceeds max length of "
-			+ std::to_string(region.length) + " bytes, got " + std::to_string(totalSize) + " bytes.");
+			+ std::to_string(region.maxsize) + " bytes, got " + std::to_string(totalSize) + " bytes.");
 	}
 }
 
