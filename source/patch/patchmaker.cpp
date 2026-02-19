@@ -2132,8 +2132,10 @@ void PatchMaker::applyPatchesToRom()
 				// Write the new data
 				if (newcodeInfo->binSize != 0)
 				{
-					// Move/offset the old code by the size of our patch
-					std::memcpy(&data[binAutoloadStart + newcodeInfo->binSize], &data[binAutoloadStart], binAutoloadListStart - binAutoloadStart);
+					// Move/offset the old autoload payload data forward by the size of our patch.
+					// Source and destination overlap when binSize < (binAutoloadListStart - binAutoloadStart),
+					// so memmove must be used here instead of memcpy.
+					std::memmove(&data[binAutoloadStart + newcodeInfo->binSize], &data[binAutoloadStart], binAutoloadListStart - binAutoloadStart);
 
 					writeNewcode(&data[binAutoloadStart]);
 				}
