@@ -1830,22 +1830,22 @@ u32 PatchMaker::makeThumbCallOpCode(bool exchange, u32 fromAddr, u32 toAddr)
 	s32 offset;
 	
 	if (exchange) {
-		// BLX: target is always ARM (word-aligned), fromAddr alignment doesn't matter for calculation
+		// BLX: target is always ARM (word-aligned), and PC is word-aligned for offset base.
 		// Target address must be word-aligned
 		if (toAddr & 3) {
 			std::ostringstream oss;
 			oss << "BLX target address must be word-aligned: 0x" << std::uppercase << std::hex << toAddr;
 			throw ncp::exception(oss.str());
 		}
-		offset = (s32(toAddr) - s32(fromAddr)) >> 1;
+		offset = (s32(toAddr) - s32(fromAddr & ~3)) >> 1;
 	} else {
 		// BL: both addresses are THUMB (halfword-aligned)
 		offset = (s32(toAddr) - s32(fromAddr)) >> 1;
 	}
 	offset -= 2;
 	
-	// Check THUMB BL/BLX range: ±16MB (±0x400000 instructions * 2 bytes = ±0x800000 bytes)
-	if (offset < -0x400000 || offset > 0x3FFFFF) {
+	// Check THUMB BL/BLX range: ±4MB (±0x200000 halfwords * 2 bytes = ±0x400000 bytes)
+	if (offset < -0x200000 || offset > 0x1FFFFF) {
 		std::ostringstream oss;
 		oss << "THUMB BL/BLX instruction offset out of range: " << std::uppercase << std::hex 
 			<< "0x" << fromAddr << " -> 0x" << toAddr 
@@ -1853,7 +1853,7 @@ u32 PatchMaker::makeThumbCallOpCode(bool exchange, u32 fromAddr, u32 toAddr)
 		throw ncp::exception(oss.str());
 	}
 	
-	u16 opcode0 = thumbOpCodeBL0 | ((offset & 0x7FF800) >> 11);
+	u16 opcode0 = thumbOpCodeBL0 | ((offset & 0x3FF800) >> 11);
 	u16 opcode1 = (exchange ? thumbOpCodeBLX1 : thumbOpCodeBL1) | (offset & 0x7FF);
 	return (u32(opcode1) << 16) | opcode0;
 }
