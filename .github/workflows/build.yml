@@ -113,7 +113,7 @@ jobs:
     - name: Compress package
       if: ${{ success() && startsWith(github.ref, 'refs/tags') }}
       shell: powershell
-      run: Compress-Archive -Path $env:package_name -DestinationPath $env:package_name'.zip'
+      run: tar -a -c -f "$env:package_name.zip" "$env:package_name"
     - name: Upload to release
       if: ${{ success() && startsWith(github.ref, 'refs/tags') }}
       uses: AButler/upload-release-assets@v3.0
