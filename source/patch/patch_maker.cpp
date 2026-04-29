@@ -108,8 +108,8 @@ void PatchMaker::prepareBuildEnvironment()
 
 	// Load overlay files that will be patched
 	std::vector<u32>& patchedOverlays = m_target->getArm9() ?
-		RebuildConfig::getArm7PatchedOvs() :
-		RebuildConfig::getArm9PatchedOvs();
+		RebuildConfig::getArm9PatchedOvs() :
+		RebuildConfig::getArm7PatchedOvs();
 
 	for (u32 ovID : patchedOverlays)
 		m_fileSystemManager->loadOverlayBin(ovID);
@@ -268,8 +268,8 @@ void PatchMaker::finalizeBuild()
 
 	// Update patched overlays list
 	std::vector<u32>& patchedOverlays = m_target->getArm9() ?
-		RebuildConfig::getArm7PatchedOvs() :
-		RebuildConfig::getArm9PatchedOvs();
+		RebuildConfig::getArm9PatchedOvs() :
+		RebuildConfig::getArm7PatchedOvs();
 
 	patchedOverlays.clear();
 	for (const auto& [id, ov] : m_fileSystemManager->getLoadedOverlays())
