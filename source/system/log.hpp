@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstddef>
+#include <functional>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -58,8 +60,18 @@ extern const char* log_OBUILD;
 extern const char* log_OLINK;
 extern const char* log_OREASON;
 
-#define OERROR log_OERROR
-#define OWARN log_OWARN
+namespace Log {
+// The two severity prefixes are function calls rather than constants so that
+// tallying them costs nothing at the call site. Every warning in this program
+// is written as `Log::out << OWARN << ...`, and the run summary -- and the
+// `{"type":"result","warnings":N}` event -- has to be able to say how many
+// there were without anyone remembering to increment a counter alongside.
+[[nodiscard]] const char* warnPrefix();
+[[nodiscard]] const char* errorPrefix();
+}
+
+#define OERROR ::Log::errorPrefix()
+#define OWARN ::Log::warnPrefix()
 #define OINFO log_OINFO
 #define OBUILD log_OBUILD
 #define OLINK log_OLINK
@@ -97,8 +109,24 @@ public:
 
 extern OutputStream out;
 
+// How the console output should be styled.
+enum class ColorMode
+{
+	Auto,   // styled if the console can render it
+	Always, // styled regardless, for a pipe that is going to a pager
+	Never
+};
+
 void init();
 void destroy();
+
+// Chooses the console sink: whether it emits escapes, and which stream it
+// writes to. `toStderr` is what --message-format json uses to leave stdout
+// carrying nothing but the event stream.
+//
+// Call after init(), which installs the auto-detected default so that failures
+// before the command line has even been parsed still reach a console.
+void configureConsole(ColorMode color, bool toStderr);
 
 void openLogFile(const std::filesystem::path& path);
 void closeLogFile();
@@ -107,6 +135,22 @@ void log(const std::string& str);
 void info(const std::string& str);
 void warn(const std::string& str);
 void error(const std::string& str);
+
+// How many times the warning and error prefixes have been emitted this run.
+[[nodiscard]] std::size_t warningCount();
+[[nodiscard]] std::size_t errorCount();
+void resetCounts();
+
+// Called once per complete warning message, with the styling stripped and the
+// prefix removed.
+//
+// Warnings are written as `Log::out << OWARN << ...` in three dozen places, and
+// the machine-readable output needs the same text. Recognising them here rather
+// than rewriting every site is the difference between a small change and a
+// sweeping one, and the prefix is already exactly the assertion "this is a
+// warning". Errors are deliberately not observed: they are reported once,
+// explicitly, with the phase and file location attached.
+void setWarningObserver(std::function<void(std::string_view)> observer);
 
 void setMode(LogMode mode);
 [[nodiscard]] LogMode getMode();

@@ -6,6 +6,7 @@
 
 #include "../system/log.hpp"
 #include "../system/except.hpp"
+#include "../system/message.hpp"
 #include "../ndsbin/overlaybin.hpp"
 
 namespace fs = std::filesystem;
@@ -116,6 +117,8 @@ void FileSystemManager::saveArmBin()
 {
     const char* binName = m_target->getArm9() ? "arm9.bin" : "arm7.bin";
 
+    reportWrite("arm", binName, -1, m_arm->data().size(), nullptr);
+
     const std::vector<u8>& bytes = m_arm->data();
 
     const fs::path romBinPath = m_paths->rom(binName);
@@ -175,6 +178,8 @@ void FileSystemManager::saveOverlayTableBin()
     };
 
     const char* binName = m_target->getArm9() ? "arm9ovt.bin" : "arm7ovt.bin";
+
+    reportWrite("overlay-table", binName, -1, m_ovtEntries.size() * sizeof(OvtEntry), nullptr);
 
     if (m_bakOvtChanged)
         saveOvtEntries(m_bakOvtEntries, backupPath(binName));
@@ -241,11 +246,43 @@ void FileSystemManager::saveOverlayBins()
             outputFile.close();
         };
 
+        const OvtEntry& entry = m_ovtEntries[ovID];
+        reportWrite("overlay", binName.generic_string(), int(ovID), ov->data().size(), &entry);
+
         saveOvData(ov->data(), m_paths->rom(binName));
 
         if (!ov->backupData().empty())
             saveOvData(ov->backupData(), backupPath(binName));
     }
+}
+
+// Announces a ROM file this build is about to write.
+//
+// Called before the write so that `action` can still tell an overlay this build
+// invented from one it edited -- afterwards every file exists and the question
+// can no longer be answered. That distinction is the one NSMB-Editor needs:
+// re-importing a patched directory currently throws when it looks up an overlay
+// by a name its own filesystem has never been told about.
+void FileSystemManager::reportWrite(
+    const char* kind, const std::string& name, int id,
+    std::size_t size, const OvtEntry* entry) const
+{
+    msg::Artifact artifact;
+    artifact.kind = kind;
+    artifact.proc = m_target->getArm9() ? "arm9" : "arm7";
+    artifact.action = fs::exists(m_paths->rom(name)) ? "modified" : "created";
+    artifact.name = name;
+    artifact.id = id;
+    artifact.size = static_cast<long long>(size);
+
+    if (entry != nullptr)
+    {
+        artifact.ramAddress = entry->ramAddress;
+        artifact.hasRamAddress = true;
+        artifact.fileId = int(entry->fileID);
+    }
+
+    msg::artifact(std::move(artifact));
 }
 
 } // namespace ncp::patch

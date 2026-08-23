@@ -37,6 +37,12 @@ public:
 	// raw and expanded on demand; `origin` is where an error inside it points.
 	void setVariable(std::string name, std::string rawValue, cfg::Node origin);
 
+	// A value supplied from outside the file, by --var. It wins over a `vars:`
+	// entry of the same name and is used exactly as written: an override is a
+	// final answer, not another template to resolve against the thing it is
+	// overriding.
+	void setOverride(std::string name, std::string value);
+
 	[[nodiscard]] bool hasVariable(std::string_view name) const;
 
 	// Expands every reference in `text`. `where` is the node being expanded, so
@@ -59,6 +65,7 @@ private:
 	[[nodiscard]] std::string resolveVariable(const std::string& name, const cfg::Node& where) const;
 
 	std::unordered_map<std::string, std::string> m_constants;
+	std::unordered_map<std::string, std::string> m_overrides;
 	std::unordered_map<std::string, Variable> m_variables;
 
 	// Names currently being expanded, innermost last. A name that appears twice

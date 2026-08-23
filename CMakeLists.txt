@@ -41,7 +41,9 @@ else()
 	set(YAML_CPP_TARGET yaml-cpp)
 endif()
 
-# BS::thread_pool is vendored in-tree; see vendor/thread-pool/README.md
+# BS::thread_pool and CLI11 are vendored in-tree, both header-only. Neither is
+# packaged widely enough to rely on being installed, and both are small enough
+# that carrying them costs less than an offline-hostile build-time download.
 include_directories("${CMAKE_SOURCE_DIR}/vendor/thread-pool/include")
 
 # Find the source files
@@ -52,6 +54,7 @@ file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS "source/*.cpp")
 # Add the executable
 add_executable(${PROJECT_NAME} ${SOURCES} $<IF:$<BOOL:${WIN32}>,win_resources.rc,>)
 target_link_libraries(${PROJECT_NAME} PRIVATE ${YAML_CPP_TARGET})
+target_compile_definitions(${PROJECT_NAME} PRIVATE NCP_VERSION="${PROJECT_VERSION}")
 if (NOT WIN32)
 	find_package(Threads REQUIRED)
 	target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads)
@@ -66,10 +69,16 @@ if (NCP_BUILD_TESTS)
 	set_property(TARGET glob_test PROPERTY CXX_STANDARD_REQUIRED ON)
 	add_test(NAME glob COMMAND glob_test)
 
-	add_executable(diagnostics_test tests/diagnostics_test.cpp source/system/diagnostics.cpp)
+	add_executable(diagnostics_test tests/diagnostics_test.cpp
+		source/system/diagnostics.cpp source/system/exit_code.cpp)
 	set_property(TARGET diagnostics_test PROPERTY CXX_STANDARD 20)
 	set_property(TARGET diagnostics_test PROPERTY CXX_STANDARD_REQUIRED ON)
 	add_test(NAME diagnostics COMMAND diagnostics_test)
+
+	add_executable(json_test tests/json_test.cpp source/utils/json.cpp)
+	set_property(TARGET json_test PROPERTY CXX_STANDARD 20)
+	set_property(TARGET json_test PROPERTY CXX_STANDARD_REQUIRED ON)
+	add_test(NAME json COMMAND json_test)
 
 	add_executable(ansi_test tests/ansi_test.cpp source/system/ansi.cpp)
 	set_property(TARGET ansi_test PROPERTY CXX_STANDARD 20)
@@ -93,6 +102,7 @@ if (NCP_BUILD_TESTS)
 		source/config/migrate.cpp
 		source/config/rebuild_store.cpp
 		source/utils/glob.cpp
+		source/utils/json.cpp
 		source/utils/util.cpp
 		source/system/log.cpp
 		source/system/log_sink.cpp

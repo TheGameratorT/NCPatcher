@@ -1,3 +1,5 @@
+#include <optional>
+
 #include "app/application.hpp"
 
 /**
@@ -7,11 +9,11 @@
 int main(int argc, char* argv[])
 {
     ncp::Application app;
-    
-    int initResult = app.initialize(argc, argv);
-    if (initResult != 0) {
-        return initResult;
-    }
-    
+
+    // Initialization stops the process on its own for --help, --version and a
+    // command line that did not parse; only then does it hand back a code.
+    if (const std::optional<int> stop = app.initialize(argc, argv))
+        return *stop;
+
     return app.run();
 }

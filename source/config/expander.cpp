@@ -22,6 +22,11 @@ void Expander::setVariable(std::string name, std::string rawValue, cfg::Node ori
 	m_variables[std::move(name)] = std::move(variable);
 }
 
+void Expander::setOverride(std::string name, std::string value)
+{
+	m_overrides[std::move(name)] = std::move(value);
+}
+
 bool Expander::hasVariable(std::string_view name) const
 {
 	return m_variables.find(std::string(name)) != m_variables.end();
@@ -30,17 +35,24 @@ bool Expander::hasVariable(std::string_view name) const
 std::vector<std::string> Expander::knownNames() const
 {
 	std::vector<std::string> out;
-	out.reserve(m_constants.size() + m_variables.size());
+	out.reserve(m_constants.size() + m_variables.size() + m_overrides.size());
 	for (const auto& [name, value] : m_constants)
 		out.push_back(name);
 	for (const auto& [name, variable] : m_variables)
 		out.push_back("vars." + name);
+	for (const auto& [name, value] : m_overrides)
+		out.push_back("vars." + name);
 	std::sort(out.begin(), out.end());
+	out.erase(std::unique(out.begin(), out.end()), out.end());
 	return out;
 }
 
 std::string Expander::resolveVariable(const std::string& name, const cfg::Node& where) const
 {
+	const auto override_ = m_overrides.find(name);
+	if (override_ != m_overrides.end())
+		return override_->second;
+
 	const auto it = m_variables.find(name);
 	if (it == m_variables.end())
 	{

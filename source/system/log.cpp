@@ -19,7 +19,12 @@
 #endif
 
 #include "../utils/types.hpp"
+#include "ansi.hpp"
 #include "log_sink.hpp"
+
+// What log_OWARN looks like once its styling has been stripped. Kept next to
+// the definition below so the two cannot drift apart.
+#define WARN_PLAIN_PREFIX "[Warn] "
 
 const char* log_OERROR = OSQRTBRKTS(ANSI_bWHITE, ANSI_bRED, "Error") " ";
 const char* log_OWARN = OSQRTBRKTS(ANSI_bWHITE, ANSI_bYELLOW, "Warn") " ";
@@ -34,6 +39,60 @@ static LogMode logMode = LogMode::Both;
 #ifndef _WIN32
 static bool xyCapabilityAvailable = true;
 #endif
+
+// Set once the console sink has been chosen explicitly. A plain sink means
+// there is nothing to move a cursor on even where the terminal would allow it,
+// which is what --color never and --message-format json rely on.
+static bool cursorDisabled = false;
+
+static std::size_t warningsEmitted = 0;
+static std::size_t errorsEmitted = 0;
+
+const char* warnPrefix()
+{
+	warningsEmitted++;
+	return log_OWARN;
+}
+
+const char* errorPrefix()
+{
+	errorsEmitted++;
+	return log_OERROR;
+}
+
+std::size_t warningCount() { return warningsEmitted; }
+std::size_t errorCount() { return errorsEmitted; }
+
+void resetCounts()
+{
+	warningsEmitted = 0;
+	errorsEmitted = 0;
+}
+
+static std::function<void(std::string_view)> warningObserver;
+
+void setWarningObserver(std::function<void(std::string_view)> observer)
+{
+	warningObserver = std::move(observer);
+}
+
+// Recognises a warning by its prefix and hands on what follows it.
+static void observe(const std::string& text)
+{
+	if (!warningObserver)
+		return;
+
+	const std::string plain = Ansi::strip(text);
+	std::string_view rest(plain);
+	if (!rest.starts_with(WARN_PLAIN_PREFIX))
+		return;
+
+	rest.remove_prefix(std::string_view(WARN_PLAIN_PREFIX).size());
+	while (!rest.empty() && (rest.back() == '\n' || rest.back() == '\r'))
+		rest.remove_suffix(1);
+
+	warningObserver(rest);
+}
 
 // Collects everything streamed into Log::out until a flush, then hands the
 // whole chunk to the sinks.
@@ -53,7 +112,9 @@ public:
 
 	int sync() override
 	{
-		dispatch(str());
+		const std::string text = str();
+		observe(text);
+		dispatch(text);
 		str("");
 		return 0;
 	}
@@ -88,6 +149,17 @@ void init()
 	std::ios_base::sync_with_stdio(false);
 
 #ifndef _WIN32
+	// The capability test below asks the terminal where its cursor is and waits
+	// for the reply. Against anything that is not a terminal there is no reply
+	// and, worse, the query itself is written to stdout -- which for
+	// `config path` or --message-format json is output somebody is parsing.
+	if (!isatty(STDOUT_FILENO) || !isatty(STDIN_FILENO))
+	{
+		xyCapabilityAvailable = false;
+		installConsoleSink();
+		return;
+	}
+
 	// Test XY capability by attempting to query cursor position with timeout
 	struct termios term, restore;
 	tcgetattr(0, &term);
@@ -191,11 +263,43 @@ LogMode getMode()
 
 bool terminalSupportsCursor()
 {
+	if (cursorDisabled)
+		return false;
 #ifdef _WIN32
 	return true;
 #else
 	return xyCapabilityAvailable;
 #endif
+}
+
+void configureConsole(ColorMode color, bool toStderr)
+{
+	bool styled;
+	switch (color)
+	{
+	case ColorMode::Always: styled = true; break;
+	case ColorMode::Never:  styled = false; break;
+	default:
+		// Auto: the same question init() already answered. A console whose
+		// cursor cannot be addressed is also one whose escapes are unlikely to
+		// mean anything -- a pipe, a file, a CI job.
+		styled = hasSink(SinkKind::Terminal);
+		break;
+	}
+
+	removeSinks(SinkKind::Terminal);
+	removeSinks(SinkKind::Plain);
+
+	if (styled)
+	{
+		addSink(std::make_unique<TerminalSink>(toStderr));
+		cursorDisabled = toStderr;
+	}
+	else
+	{
+		addSink(std::make_unique<PlainSink>(toStderr));
+		cursorDisabled = true;
+	}
 }
 
 #ifdef _WIN32

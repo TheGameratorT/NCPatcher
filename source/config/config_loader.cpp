@@ -25,7 +25,8 @@ fs::path findProjectFile(const fs::path& projectRoot)
 	return {};
 }
 
-ProjectConfig load(const fs::path& projectFile, const fs::path& projectRoot)
+ProjectConfig load(const fs::path& projectFile, const fs::path& projectRoot,
+                   const VarOverrides& varOverrides)
 {
 	// Which schema a file is written in is decided by what is in it, not by its
 	// extension: a project that renamed ncpatcher.json to ncpatcher.yaml before
@@ -45,14 +46,16 @@ ProjectConfig load(const fs::path& projectFile, const fs::path& projectRoot)
 	}
 
 	if (version >= 2)
-		return loadV2(projectFile, projectRoot);
+		return loadV2(projectFile, projectRoot, varOverrides);
 
 	Log::out << OWARN << OSTR(projectFile.filename().string())
 	         << " uses the version 1 schema." OREASONNL "Run "
 	            ANSI_bCYAN "ncpatcher migrate" ANSI_RESET " to convert it; version 1 keeps working"
 	            " for now." << std::endl;
 
-	return loadV1(projectFile, projectRoot);
+	V1Options options;
+	options.varOverrides = varOverrides;
+	return loadV1(projectFile, projectRoot, options);
 }
 
 } // namespace ncp::config

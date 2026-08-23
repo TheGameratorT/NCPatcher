@@ -53,6 +53,11 @@ private:
     // Absolute path of a file inside the backup directory, which the project
     // config names relative to the project root.
     [[nodiscard]] std::filesystem::path backupPath(const std::filesystem::path& relative) const;
+
+    // Emits the machine-readable record of a ROM file about to be written.
+    // `entry` is the overlay table row, where there is one.
+    void reportWrite(const char* kind, const std::string& name, int id,
+                     std::size_t size, const OvtEntry* entry) const;
     
     std::unique_ptr<ArmBin> m_arm;
     std::unordered_map<std::size_t, std::unique_ptr<OverlayBin>> m_loadedOverlays;

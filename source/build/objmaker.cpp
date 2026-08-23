@@ -1,5 +1,6 @@
 #include "objmaker.hpp"
 
+#include <atomic>
 #include <fstream>
 #include <thread>
 #include <chrono>
@@ -12,6 +13,8 @@
 #include "../config/buildtarget.hpp"
 #include "../system/except.hpp"
 #include "../system/log.hpp"
+#include "../system/ansi.hpp"
+#include "../system/message.hpp"
 #include "../system/process.hpp"
 #include "../core/compilation_unit_manager.hpp"
 #include "../utils/base32.hpp"
@@ -265,6 +268,14 @@ void ObjMaker::compileSources()
 	logger.setUnits(m_compilationUnitMgr->getUserUnits());
 	logger.start(m_paths->targetWorkDir);
 
+	// Counted up front rather than as they are pushed, because a progress event
+	// is only worth anything to the caller if it knows the denominator.
+	std::size_t pendingCount = 0;
+	for (const auto* unit : m_compilationUnitMgr->getUserUnits())
+		pendingCount += unit->needsRebuild() ? 1 : 0;
+
+	auto completed = std::make_shared<std::atomic<std::size_t>>(0);
+
 	std::size_t jobID = 0;
 	for (auto* unit : m_compilationUnitMgr->getUserUnits())
 	{
@@ -290,7 +301,7 @@ void ObjMaker::compileSources()
 		buildInfo.buildComplete = false;
 		buildInfo.buildFailed = false;
 
-		pool.push_task([unit, this](){
+		pool.push_task([unit, this, completed, pendingCount](){
 			core::BuildInfo& buildInfo = unit->getBuildInfo();
 			
 			buildInfo.buildStarted = true;
@@ -356,6 +367,13 @@ void ObjMaker::compileSources()
 				return ccmd;
 			};
 
+			// One place to report a unit as done, so the progress count cannot
+			// drift from the units that actually finished.
+			auto reportProgress = [&]() {
+				ncp::msg::progress("compile", completed->fetch_add(1) + 1, pendingCount,
+					unit->getSourcePath().string());
+			};
+
 			if (buildInfo.fileType != SourceFileType::ASM)
 			{
 				std::string asmS = buildInfo.assemblyPath.string();
@@ -369,6 +387,7 @@ void ObjMaker::compileSources()
 					out << "Exit code: " << retcode << "\n";
 					buildInfo.buildOutput = out.str();
 					buildInfo.buildComplete = true;
+					reportProgress();
 					return;
 				}
 
@@ -385,6 +404,7 @@ void ObjMaker::compileSources()
 			}
 			buildInfo.buildOutput = out.str();
 			buildInfo.buildComplete = true;
+			reportProgress();
 		});
 	}
 
@@ -404,5 +424,22 @@ void ObjMaker::compileSources()
 	logger.finish();
 
 	if (logger.getFailed())
+	{
+		// The human already has the compiler's own output from BuildLogger.
+		// This is the same information addressed to a tool: which files failed,
+		// and what the compiler said about each.
+		for (const auto* unit : m_compilationUnitMgr->getUserUnits())
+		{
+			const core::BuildInfo& buildInfo = unit->getBuildInfo();
+			if (!buildInfo.buildFailed)
+				continue;
+
+			ncp::msg::Location location;
+			location.file = unit->getSourcePath().string();
+			ncp::msg::diagnostic(ncp::msg::Level::Error, ncp::Diag::TargetCompile,
+				Ansi::strip(buildInfo.buildOutput), location);
+		}
+
 		throw ncp::exception("Compilation failed.");
+	}
 }

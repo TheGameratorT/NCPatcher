@@ -319,7 +319,8 @@ void readTarget(TargetConfig& target, const cfg::Node& node, Expander expander,
 
 } // namespace
 
-ProjectConfig loadV2(const fs::path& projectFile, const fs::path& projectRoot)
+ProjectConfig loadV2(const fs::path& projectFile, const fs::path& projectRoot,
+                     const VarOverrides& varOverrides)
 {
 	ProjectConfig config;
 	config.version = 2;
@@ -351,6 +352,9 @@ ProjectConfig loadV2(const fs::path& projectFile, const fs::path& projectRoot)
 		for (const auto& [name, value] : vars.fields())
 			expander.setVariable(name, value.asString(), value);
 	}
+
+	for (const auto& [name, value] : varOverrides)
+		expander.setOverride(name, value);
 
 	// ROM location ---------------------------------------------------------
 
@@ -428,6 +432,10 @@ ProjectConfig loadV2(const fs::path& projectFile, const fs::path& projectRoot)
 		for (const auto& [name, value] : vars.fields())
 			config.vars[name] = expander.expand(value.asString(), value);
 	}
+
+	// Last, so that what `config dump` shows is what the build actually used.
+	for (const auto& [name, value] : varOverrides)
+		config.vars[name] = value;
 
 	// Targets --------------------------------------------------------------
 

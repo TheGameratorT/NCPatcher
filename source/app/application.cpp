@@ -2,19 +2,22 @@
 
 #include <iostream>
 #include <sstream>
-#include <cstring>
-#include <unordered_set>
 
+#include "../system/ansi.hpp"
 #include "../system/log.hpp"
 #include "../system/process.hpp"
 #include "../system/except.hpp"
 #include "../system/cache.hpp"
 #include "../system/diagnostics.hpp"
+#include "../system/exit_code.hpp"
+#include "../system/message.hpp"
 #include "../utils/types.hpp"
+#include "../utils/json.hpp"
 #include "../config/buildtarget.hpp"
 #include "../config/config_loader.hpp"
 #include "../config/migrate.hpp"
 #include "../config/target_resolver.hpp"
+#include "config_dump.hpp"
 #include "../utils/hash.hpp"
 #include "../ndsbin/headerbin.hpp"
 #include "../build/objmaker.hpp"
@@ -42,30 +45,44 @@ namespace ncp {
 Application::Application() = default;
 Application::~Application() = default;
 
-int Application::initialize(int argc, char* argv[])
+std::optional<int> Application::initialize(int argc, char* argv[])
 {
     Log::init();
+
+    if (const std::optional<int> stop = parseCommandLine(argc, argv, m_cli))
+        return stop;
+
+    // Console styling and the destination of the human log are decided before
+    // anything else can print. Two things move the log to stderr: json output,
+    // whose event stream has to be the only thing on stdout, and the commands
+    // whose product *is* stdout -- a `config dump` with a deprecation warning
+    // mixed into it is not something a caller can pipe anywhere.
+    const bool logToStderr =
+        m_cli.messageFormat == msg::Format::Json ||
+        m_cli.command == Command::ConfigDump ||
+        m_cli.command == Command::ConfigPath;
+    Log::configureConsole(m_cli.color, logToStderr);
+    msg::configure(m_cli.messageFormat, m_cli.resultPath);
 
     try {
         initializePaths();
     } catch (std::exception& ex) {
-        Log::error("Could not initialize application paths.");
-        return 1;
+        Log::error(std::string("Could not initialize application paths.") + OREASONNL + ex.what());
+        return exitValue(ExitCode::Internal);
     }
 
     try {
         initializeLogging();
     } catch (std::exception& ex) {
         Log::error("Could not open the log file for writing.");
-        return 1;
+        return exitValue(ExitCode::Internal);
     }
 
     // Initialize caches
     ncp::cache::CacheManager::getInstance().clearCaches();
 
-    if (!parseCommandLineArgs(argc, argv)) {
-        return 1;
-    }
+    m_options.defines = m_cli.defines;
+    m_options.verboseTags = m_cli.verboseTags;
 
     // The context is assembled once and then only ever copied: the per-target
     // copies adjust their path anchors and share everything else.
@@ -73,21 +90,30 @@ int Application::initialize(int argc, char* argv[])
     m_ctx.options = &m_options;
     m_ctx.rebuild = &m_rebuild;
 
-    return 0;
+    return std::nullopt;
 }
 
 int Application::run()
 {
+    int code = exitValue(ExitCode::Ok);
+
     try {
-        if (m_command == Command::Migrate)
-            return runMigrate();
-        runMainLogic();
+        switch (m_cli.command)
+        {
+        case Command::Clean:          code = runClean(); break;
+        case Command::Restore:        code = runRestore(); break;
+        case Command::ConfigDump:     code = runConfigDump(); break;
+        case Command::ConfigValidate: code = runConfigValidate(); break;
+        case Command::ConfigPath:     code = runConfigPath(); break;
+        case Command::Migrate:        code = runMigrate(); break;
+        default:                      runBuild(); break;
+        }
     } catch (std::exception& e) {
-        reportFailure(e);
-        return 1;
+        code = reportFailure(e);
     }
 
-    return 0;
+    msg::finish(code == 0 ? "ok" : "error", code);
+    return code;
 }
 
 int Application::runMigrate()
@@ -95,42 +121,226 @@ int Application::runMigrate()
     ScopedContext ctx(Diag::ConfigMigrate, "Could not migrate the configuration.");
 
     const fs::path file = projectFile();
-    return config::migrate(file, m_ctx.paths.workDir, m_migrateWrite) ? 0 : 1;
+    return config::migrate(file, m_ctx.paths.workDir, m_cli.migrateWrite) ?
+        exitValue(ExitCode::Ok) : exitValue(ExitCode::Config);
+}
+
+int Application::runConfigPath()
+{
+    // Deliberately on stdout with nothing around it, so that
+    // `ncpatcher config path` can be used in a shell substitution.
+    std::cout << projectFile().string() << std::endl;
+    return exitValue(ExitCode::Ok);
+}
+
+int Application::runConfigValidate()
+{
+    loadConfigurations();
+
+    {
+        ScopedContext ctx(Diag::TargetConfigLoad, "Could not load the target configuration.");
+        config::loadTargets(m_config);
+    }
+
+    resolveRomDir();
+
+    // Resolving is the validation: inheritance, ${...} expansion and glob
+    // matching all report through the same errors a build would raise.
+    for (bool arm9 : { false, true })
+    {
+        if (!m_config.target(arm9).enabled)
+            continue;
+        Context targetCtx = m_ctx;
+        (void)resolveTarget(arm9, targetCtx);
+    }
+
+    if (!msg::isJson())
+        Log::info("The configuration is valid.");
+    return exitValue(ExitCode::Ok);
+}
+
+int Application::runConfigDump()
+{
+    loadConfigurations();
+
+    {
+        ScopedContext ctx(Diag::TargetConfigLoad, "Could not load the target configuration.");
+        config::loadTargets(m_config);
+    }
+
+    resolveRomDir();
+
+    std::vector<ResolvedTarget> resolved;
+    for (bool arm9 : { false, true })
+    {
+        const config::TargetConfig& targetConfig = m_config.target(arm9);
+        if (!targetConfig.enabled)
+        {
+            resolved.push_back({ &targetConfig, BuildTarget{} });
+            continue;
+        }
+        Context targetCtx = m_ctx;
+        resolved.push_back(resolveTarget(arm9, targetCtx));
+    }
+
+    DumpOptions options;
+    options.json = m_cli.dumpJson;
+    options.explain = m_cli.explain;
+
+    // The dump is the product, so it goes to stdout whole rather than through
+    // the log, which may be styled, wrapped or duplicated into a file.
+    dumpConfig(std::cout, m_config, m_ctx.paths, resolved, options);
+    return exitValue(ExitCode::Ok);
+}
+
+int Application::runClean()
+{
+    ScopedContext ctx(Diag::CleanFailed, "Could not clean the project.");
+
+    loadConfigurations();
+    {
+        ScopedContext targetCtx(Diag::TargetConfigLoad, "Could not load the target configuration.");
+        config::loadTargets(m_config);
+    }
+
+    // Needed only for the warning below, but resolved unconditionally so that
+    // the warning cannot be the one code path that names an empty directory.
+    resolveRomDir();
+
+    std::uintmax_t removed = 0;
+    for (bool arm9 : { false, true })
+    {
+        const config::TargetConfig& targetConfig = m_config.target(arm9);
+        if (!targetConfig.enabled)
+            continue;
+
+        const fs::path buildDir = m_ctx.paths.work(targetConfig.buildDir.value);
+        if (!fs::exists(buildDir))
+            continue;
+
+        Log::info("Removing " + buildDir.string());
+        removed += fs::remove_all(buildDir);
+    }
+
+    if (m_cli.cleanBackups)
+    {
+        const fs::path backupDir = m_ctx.backupDir();
+        if (fs::exists(backupDir))
+        {
+            // Said before it happens, because afterwards there is nothing left
+            // to say it about: the patched binaries in the ROM directory are
+            // then the only copy there is.
+            Log::out << OWARN << "Deleting the backups leaves the binaries in "
+                     << OSTR(m_ctx.paths.romDir.string()) << " patched, with no way back."
+                     << OREASONNL << "Run " ANSI_bCYAN "ncpatcher restore" ANSI_RESET
+                     << " instead if you wanted the ROM back the way it was." << std::endl;
+
+            Log::info("Removing " + backupDir.string());
+            removed += fs::remove_all(backupDir);
+        }
+    }
+
+    Log::info("Removed " + std::to_string(removed) + " file(s).");
+    return exitValue(ExitCode::Ok);
+}
+
+int Application::runRestore()
+{
+    ScopedContext ctx(Diag::RestoreFailed, "Could not restore the ROM binaries.");
+
+    loadConfigurations();
+    resolveRomDir();
+
+    const fs::path backupDir = m_ctx.backupDir();
+    if (!fs::exists(backupDir))
+    {
+        Log::info("Nothing to restore: there are no backups.");
+        return exitValue(ExitCode::Ok);
+    }
+
+    // The backup directory mirrors the ROM directory, one file per binary the
+    // patcher has ever touched, so restoring is a copy back along the same
+    // relative paths. Everything else in there is bookkeeping.
+    static const char* NOT_A_BINARY[] = { "rebuild.json", "rebuild.bin" };
+
+    std::size_t restored = 0;
+    for (const fs::directory_entry& entry : fs::recursive_directory_iterator(backupDir))
+    {
+        if (!entry.is_regular_file())
+            continue;
+
+        const fs::path relative = fs::relative(entry.path(), backupDir);
+        bool skip = false;
+        for (const char* name : NOT_A_BINARY)
+            skip = skip || relative == name;
+        if (skip)
+            continue;
+
+        const fs::path destination = m_ctx.paths.rom(relative);
+        fs::create_directories(destination.parent_path());
+        fs::copy_file(entry.path(), destination, fs::copy_options::overwrite_existing);
+
+        msg::Artifact artifact;
+        artifact.kind = "file";
+        artifact.action = "restored";
+        artifact.name = relative.generic_string();
+        artifact.size = static_cast<long long>(fs::file_size(destination));
+        msg::artifact(std::move(artifact));
+
+        restored++;
+    }
+
+    // Removed rather than kept: a backup is by definition a copy of a pristine
+    // file, and once the pristine file is back in place keeping it would let a
+    // later build treat an unpatched binary as if it had already been saved.
+    fs::remove_all(backupDir);
+
+    Log::info("Restored " + std::to_string(restored) + " file(s) to " + m_ctx.paths.romDir.string() + ".");
+    return exitValue(ExitCode::Ok);
 }
 
 // Renders a failure as the phase it happened in, the reason, and then any
 // enclosing phases. The innermost context is the headline because it is the
 // most specific thing that was being attempted.
-void Application::reportFailure(const std::exception& e)
+int Application::reportFailure(const std::exception& e)
 {
     const std::vector<DiagContext>& contexts = diagnostics::failureContext();
+    const Diag code = contexts.empty() ? Diag::None : contexts.front().code;
 
     Log::out << OERROR;
     if (!contexts.empty())
-        Log::out << diagCode(contexts.front().code) << ": " << contexts.front().description << "\n" << OREASON;
+        Log::out << diagCode(code) << ": " << contexts.front().description << "\n" << OREASON;
     Log::out << e.what() << std::endl;
 
     for (std::size_t i = 1; i < contexts.size(); i++)
         Log::out << "        while " << diagCode(contexts[i].code) << ": " << contexts[i].description << std::endl;
 
+    // A configuration error knows the line it is about; everything else does
+    // not. Reporting the location is the difference between a caller being able
+    // to point at the offending key and having to grep for the message.
+    msg::Location location;
+    if (const auto* configError = dynamic_cast<const cfg::cfg_error*>(&e))
+    {
+        location.file = configError->file().string();
+        location.line = configError->mark().line;
+        location.column = configError->mark().column;
+        location.path = configError->nodePath();
+    }
+
+    msg::diagnostic(msg::Level::Error, code, Ansi::strip(e.what()), location);
+
     diagnostics::clearFailureContext();
+    return exitValue(exitCodeFor(code));
 }
 
-void Application::runMainLogic()
+void Application::runBuild()
 {
     Log::out << ANSI_bWHITE " ----- Nitro Code Patcher -----" ANSI_RESET << std::endl;
 
     loadConfigurations();
     validateToolchain();
 
-    if (m_config.romFile.configured()) {
-        std::ostringstream oss;
-        oss << "Reading a ROM file directly is not supported by this version of NCPatcher."
-            << OREASONNL << "Extract the ROM and point " << OSTRa("rom.dir") << " at the result.";
-        throw ncp::exception(oss.str());
-    }
-
-    m_ctx.paths.romDir = m_ctx.paths.work(m_config.filesystemDir.value);
+    resolveRomDir();
 
     HeaderBin header;
     header.load(m_ctx.paths.romDir / "header.bin");
@@ -170,22 +380,8 @@ void Application::processTarget(HeaderBin& header, bool isArm9)
         "Resolving ARM9 target configuration..." :
         "Resolving ARM7 target configuration...");
 
-    const config::TargetConfig& targetConfig = m_config.target(isArm9);
-
-    // Per-target anchors. A copy, so the two targets cannot see each other's.
     Context targetCtx = m_ctx;
-    targetCtx.paths.targetWorkDir = targetConfig.workDir.configured() ?
-        m_ctx.paths.work(targetConfig.workDir.value) :
-        targetConfig.file.parent_path();
-    targetCtx.paths.buildDir = m_ctx.paths.work(targetConfig.buildDir.value);
-
-    BuildTarget buildTarget;
-    {
-        ScopedContext ctx(Diag::TargetConfigLoad, isArm9 ?
-            "Could not resolve the ARM9 target configuration." :
-            "Could not resolve the ARM7 target configuration.");
-        buildTarget = config::TargetResolver::resolve(m_config, targetConfig, targetCtx.paths);
-    }
+    BuildTarget buildTarget = resolveTarget(isArm9, targetCtx).target;
 
     // Staleness is a question about the resolved configuration, not about when
     // a file was last touched: what matters is whether the objects on disk were
@@ -230,7 +426,10 @@ void Application::runCommandList(const std::vector<std::string>& commands,
         oss << ANSI_bWHITE "[#" << commandIndex << "] " ANSI_bYELLOW << command << ANSI_RESET;
         Log::info(oss.str());
 
-        int retcode = Process::start(command.c_str(), m_ctx.paths.workDir, &std::cout);
+        // A hook's own output is for the person watching, so in json mode it
+        // must not land in the middle of the event stream.
+        std::ostream& hookOutput = msg::isJson() ? std::cerr : std::cout;
+        int retcode = Process::start(command.c_str(), m_ctx.paths.workDir, &hookOutput);
         if (retcode != 0) {
             throw ncp::exception("Process returned: " + std::to_string(retcode));
         }
@@ -239,8 +438,36 @@ void Application::runCommandList(const std::vector<std::string>& commands,
     }
 }
 
+// The per-target half of resolution, in one place because `config dump` has to
+// answer with exactly what a build would have used.
+ResolvedTarget Application::resolveTarget(bool isArm9, Context& targetCtx) const
+{
+    const config::TargetConfig& targetConfig = m_config.target(isArm9);
+
+    // Per-target anchors. A copy, so the two targets cannot see each other's.
+    targetCtx.paths.targetWorkDir = targetConfig.workDir.configured() ?
+        m_ctx.paths.work(targetConfig.workDir.value) :
+        targetConfig.file.parent_path();
+    targetCtx.paths.buildDir = m_ctx.paths.work(targetConfig.buildDir.value);
+
+    ScopedContext ctx(Diag::TargetConfigLoad, isArm9 ?
+        "Could not resolve the ARM9 target configuration." :
+        "Could not resolve the ARM7 target configuration.");
+
+    ResolvedTarget out;
+    out.config = &targetConfig;
+    out.target = config::TargetResolver::resolve(m_config, targetConfig, targetCtx.paths);
+    return out;
+}
+
 std::filesystem::path Application::projectFile() const
 {
+    // -C naming the file itself is accepted as well as -C naming its directory:
+    // both spellings turn up in scripts, and guessing wrong would mean an error
+    // about a path the caller can see is right there.
+    if (!m_cli.projectPath.empty() && fs::is_regular_file(m_cli.projectPath))
+        return fs::absolute(m_cli.projectPath);
+
     const fs::path file = config::findProjectFile(m_ctx.paths.workDir);
     if (file.empty()) {
         std::ostringstream oss;
@@ -256,9 +483,57 @@ void Application::loadConfigurations()
     ScopedContext ctx(Diag::ConfigLoad, "Could not load the build configuration.");
 
     Log::info("Loading build configuration...");
-    m_config = config::load(projectFile(), m_ctx.paths.workDir);
+
+    config::VarOverrides overrides;
+    for (const std::string& assignment : m_cli.vars) {
+        const std::size_t separator = assignment.find('=');
+        if (separator == std::string::npos) {
+            std::ostringstream oss;
+            oss << "Malformed " << OSTRa("--var") << " argument " << OSTR(assignment) << "."
+                << OREASONNL << "Expected " << OSTRa("NAME=VALUE") << ".";
+            throw ncp::exception(oss.str());
+        }
+        overrides.emplace_back(assignment.substr(0, separator), assignment.substr(separator + 1));
+    }
+
+    m_config = config::load(projectFile(), m_ctx.paths.workDir, overrides);
+
+    applyCommandLineOverrides();
 
     m_rebuild.load(m_ctx.backupDir() / "rebuild.json");
+}
+
+// Command line, then NCPATCHER_* environment, then the file. Applied after the
+// file is read rather than before, so that Setting<T>::source still records
+// which of them won and `config dump --explain` can say so.
+void Application::applyCommandLineOverrides()
+{
+    if (m_cli.toolchainSource != config::Source::Default)
+        m_config.toolchain.set(m_cli.toolchain, m_cli.toolchainSource);
+
+    if (m_cli.jobsSource != config::Source::Default)
+        m_config.threadCount.set(m_cli.jobs, m_cli.jobsSource);
+
+    if (!m_cli.romDir.empty()) {
+        m_config.filesystemDir.set(m_cli.romDir, config::Source::CommandLine);
+        // --rom names a directory, so it also settles the question the config
+        // file would otherwise have answered with rom.file.
+        m_config.romFile = {};
+    }
+}
+
+// Turns the configured extracted-ROM directory into the absolute anchor that
+// every binary in the ROM is named relative to.
+void Application::resolveRomDir()
+{
+    if (m_config.romFile.configured()) {
+        std::ostringstream oss;
+        oss << "Reading a ROM file directly is not supported by this version of NCPatcher."
+            << OREASONNL << "Extract the ROM and point " << OSTRa("rom.dir") << " at the result.";
+        throw ncp::exception(oss.str());
+    }
+
+    m_ctx.paths.romDir = m_ctx.paths.work(m_config.filesystemDir.value);
 }
 
 void Application::saveRebuildConfig()
@@ -270,6 +545,8 @@ void Application::saveRebuildConfig()
 
 void Application::validateToolchain()
 {
+    ScopedContext ctx(Diag::ToolchainMissing, "The build toolchain is not usable.");
+
     const std::string& toolchain = m_ctx.toolchain();
     std::string gccPath = toolchain + "gcc";
 
@@ -278,7 +555,8 @@ void Application::validateToolchain()
         oss << "The building toolchain " << OSTR(toolchain) << " was not found." << OREASONNL;
         oss << "Make sure that it is correctly specified in "
             << OSTR(m_config.file.filename().string())
-            << " and that it is present on your system.";
+            << ", or override it with " << OSTRa("--toolchain") << " or "
+            << OSTRa("NCPATCHER_TOOLCHAIN") << ", and that it is present on your system.";
         throw ncp::exception(oss.str());
     }
 }
@@ -288,12 +566,25 @@ void Application::initializePaths()
     // The cwd is read exactly once, here, and is never written. Everything
     // downstream resolves against m_ctx.paths instead.
     m_ctx.paths.appDir = fetchAppPath();
-    m_ctx.paths.workDir = fs::current_path();
+
+    // -C is what removes the "must be launched from the project directory"
+    // constraint that the level editor and CTGPNitro's build script each work
+    // around by chdir-ing first.
+    if (m_cli.projectPath.empty()) {
+        m_ctx.paths.workDir = fs::current_path();
+    } else if (fs::is_regular_file(m_cli.projectPath)) {
+        m_ctx.paths.workDir = fs::absolute(m_cli.projectPath).parent_path();
+    } else {
+        m_ctx.paths.workDir = fs::absolute(m_cli.projectPath);
+    }
 }
 
 void Application::initializeLogging()
 {
-    Log::openLogFile(m_ctx.paths.appDir / "log.txt");
+    if (m_cli.noLog)
+        return;
+
+    Log::openLogFile(m_cli.logPathSet ? m_cli.logPath : m_ctx.paths.appDir / "log.txt");
 }
 
 std::filesystem::path Application::fetchAppPath()
@@ -370,113 +661,6 @@ std::filesystem::path Application::fetchAppPath()
     return std::filesystem::path(buf).parent_path();
 
 #endif
-}
-
-bool Application::parseCommandLineArgs(int argc, char* argv[])
-{
-    int first = 1;
-
-    // One subcommand, recognised only in first position, so that a project with
-    // a source directory called "migrate" cannot be mistaken for one.
-    if (argc > 1 && strcmp(argv[1], "migrate") == 0) {
-        m_command = Command::Migrate;
-        first = 2;
-    }
-
-    for (int i = first; i < argc; i++) {
-        if ((strcmp(argv[i], "--help") == 0) || (strcmp(argv[i], "-h") == 0)) {
-            printHelp();
-            return false; // Exit successfully after showing help
-        } else if ((strcmp(argv[i], "--verbose") == 0) || (strcmp(argv[i], "-v") == 0)) {
-            // Enables all verbose output
-            m_options.verboseTags.insert(VerboseTag::All);
-        } else if (strcmp(argv[i], "--verbose-tag") == 0) {
-            if (i + 1 < argc) {
-                std::string tagName = argv[i + 1];
-                VerboseTag tag = parseVerboseTag(tagName);
-                if (tag != static_cast<VerboseTag>(-1)) {
-                    m_options.verboseTags.insert(tag);
-                } else {
-                    std::ostringstream oss;
-                    oss << "Unknown verbose tag: " << tagName;
-                    Log::error(oss.str());
-                    return false;
-                }
-                i++; // Skip the next argument since we consumed it
-            } else {
-                Log::error("--verbose-tag option requires a tag name");
-                return false;
-            }
-        } else if (strcmp(argv[i], "--define") == 0) {
-            if (i + 1 < argc) {
-                m_options.defines.push_back(argv[i + 1]);
-                i++; // Skip the next argument since we consumed it
-            } else {
-                Log::error("--define option requires a value");
-                return false;
-            }
-        } else if (m_command == Command::Migrate && strcmp(argv[i], "--write") == 0) {
-            m_migrateWrite = true;
-        } else {
-            std::ostringstream oss;
-            oss << "Unknown argument: " << argv[i];
-            Log::error(oss.str());
-            Log::out << std::endl;
-            Log::out << "Use --help or -h to see available options." << std::endl;
-            return false;
-        }
-    }
-    return true;
-}
-
-VerboseTag Application::parseVerboseTag(const std::string& tagName)
-{
-    if (tagName == "build") return VerboseTag::Build;
-    if (tagName == "section") return VerboseTag::Section;
-    if (tagName == "elf") return VerboseTag::Elf;
-    if (tagName == "patch") return VerboseTag::Patch;
-    if (tagName == "library") return VerboseTag::Library;
-    if (tagName == "linking") return VerboseTag::Linking;
-    if (tagName == "symbols") return VerboseTag::Symbols;
-    if (tagName == "nolib") return VerboseTag::NoLib;
-    if (tagName == "all") return VerboseTag::All;
-    
-    return static_cast<VerboseTag>(-1); // Invalid tag
-}
-
-void Application::printHelp()
-{
-    Log::out << ANSI_bWHITE " ----- Nitro Code Patcher -----" ANSI_RESET << std::endl;
-    Log::out << std::endl;
-    Log::out << "Usage: ncpatcher [options]" << std::endl;
-    Log::out << "       ncpatcher migrate [--write]" << std::endl;
-    Log::out << std::endl;
-    Log::out << "Commands:" << std::endl;
-    Log::out << "  migrate          Convert a version 1 ncpatcher.json to ncpatcher.yaml" << std::endl;
-    Log::out << "                   Prints the result; --write saves it" << std::endl;
-    Log::out << std::endl;
-    Log::out << "Options:" << std::endl;
-    Log::out << "  -h, --help       Show this help message and exit" << std::endl;
-    Log::out << "  -v, --verbose    Enable all verbose logging output (legacy)" << std::endl;
-    Log::out << "  --verbose-tag TAG  Enable verbose output for specific category:" << std::endl;
-    Log::out << "                     build     - Build process and compilation" << std::endl;
-    Log::out << "                     section   - Section usage analysis" << std::endl;
-    Log::out << "                     elf       - ELF file processing" << std::endl;
-    Log::out << "                     patch     - Patch information and analysis" << std::endl;
-    Log::out << "                     library   - Library dependency analysis" << std::endl;
-    Log::out << "                     linking   - Linker script generation" << std::endl;
-    Log::out << "                     symbols   - Symbol resolution" << std::endl;
-    Log::out << "                     all       - All verbose output" << std::endl;
-    Log::out << "                     (Multiple --verbose-tag options can be used)" << std::endl;
-    Log::out << "  --define VALUE   Define a preprocessor macro for compilation" << std::endl;
-    Log::out << std::endl;
-    Log::out << "Description:" << std::endl;
-    Log::out << "  NCPatcher is a tool for patching Nintendo DS ROMs by compiling" << std::endl;
-    Log::out << "  and injecting custom ARM7/ARM9 code into the ROM filesystem." << std::endl;
-    Log::out << std::endl;
-    Log::out << "  The tool reads 'ncpatcher.yaml' from the current directory, falling" << std::endl;
-    Log::out << "  back to the version 1 'ncpatcher.json', and processes the ARM7 and" << std::endl;
-    Log::out << "  ARM9 targets it specifies." << std::endl;
 }
 
 } // namespace ncp

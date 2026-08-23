@@ -197,6 +197,30 @@ static void testExpanderDetectsCycles()
 	check(contains(error, "vars.a -> vars.b"), "the cycle error shows the loop");
 }
 
+// --var has to beat the file, or it is not an override. It also has to be taken
+// literally rather than expanded again, since its value comes from a shell that
+// has already done whatever expanding it meant to do.
+static void testExpanderOverrides()
+{
+	const Document doc("a: x\n", "t.yaml");
+	const Node origin = doc.root()["a"];
+
+	Expander expander;
+	expander.setVariable("ref", "/from/the/file", origin);
+	expander.setOverride("ref", "/from/the/command/line");
+
+	checkEqual(expander.expand("${vars.ref}/include", origin), "/from/the/command/line/include",
+		"an override wins over the file's own value");
+
+	expander.setOverride("only", "${vars.ref}");
+	checkEqual(expander.expand("${vars.only}", origin), "${vars.ref}",
+		"an override is used as written, not expanded again");
+
+	const std::vector<std::string> names = expander.knownNames();
+	check(std::count(names.begin(), names.end(), "vars.ref") == 1,
+		"a name that is both declared and overridden is listed once");
+}
+
 static void testExpanderEnvironment()
 {
 	const Document doc("a: x\n", "t.yaml");
@@ -507,6 +531,7 @@ int main()
 	testDefineSet();
 	testExpanderIsLazy();
 	testExpanderDetectsCycles();
+	testExpanderOverrides();
 	testExpanderEnvironment();
 
 	testV1Reader(root / "v1");

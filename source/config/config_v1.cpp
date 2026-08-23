@@ -457,6 +457,13 @@ ProjectConfig loadV1(const fs::path& projectFile, const fs::path& projectRoot,
 
 	V1Vars vars("\"" + projectFile.filename().string() + "\"", nullptr, options);
 	vars.define("root", projectRoot.string());
+
+	// Before the file's own, because define() keeps the first value it is
+	// given: that is how a repeated $name behaved in v1, and it is what makes
+	// --var an override rather than a suggestion.
+	for (const auto& [name, value] : options.varOverrides)
+		vars.define(name, value);
+
 	collectVars(root, vars);
 	config.vars = vars.all();
 

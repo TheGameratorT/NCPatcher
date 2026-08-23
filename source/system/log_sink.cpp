@@ -103,9 +103,10 @@ void applyCode(int value)
 
 } // namespace
 
-TerminalSink::TerminalSink()
+TerminalSink::TerminalSink(bool useStderr) :
+	m_stream(useStderr ? &std::cerr : &std::cout)
 {
-	s_conOut = GetStdHandle(STD_OUTPUT_HANDLE);
+	s_conOut = GetStdHandle(useStderr ? STD_ERROR_HANDLE : STD_OUTPUT_HANDLE);
 	resetStyles();
 }
 
@@ -118,8 +119,9 @@ void TerminalSink::write(std::string_view text)
 {
 	// The console does not interpret escapes, so they are applied as attribute
 	// changes between the literal runs they were sitting between.
+	std::ostream& out = *m_stream;
 	Ansi::parse(text,
-		[](std::string_view run) { std::cout << run << std::flush; },
+		[&out](std::string_view run) { out << run << std::flush; },
 		[](char finalByte, const std::vector<int>& params)
 		{
 			if (finalByte != 'm')
@@ -131,22 +133,29 @@ void TerminalSink::write(std::string_view text)
 
 #else
 
-TerminalSink::TerminalSink() = default;
+TerminalSink::TerminalSink(bool useStderr) :
+	m_stream(useStderr ? &std::cerr : &std::cout)
+{}
+
 TerminalSink::~TerminalSink() = default;
 
 void TerminalSink::write(std::string_view text)
 {
 	// The terminal renders the escapes itself, so nothing needs decoding.
-	std::cout << text << std::flush;
+	*m_stream << text << std::flush;
 }
 
 #endif
 
 // PlainSink =============================================================
 
+PlainSink::PlainSink(bool useStderr) :
+	m_stream(useStderr ? &std::cerr : &std::cout)
+{}
+
 void PlainSink::write(std::string_view text)
 {
-	std::cout << Ansi::strip(text) << std::flush;
+	*m_stream << Ansi::strip(text) << std::flush;
 }
 
 // FileSink ==============================================================

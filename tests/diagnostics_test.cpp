@@ -5,12 +5,14 @@
 // Run via ctest, or directly: ./diagnostics_test
 
 #include "../source/system/diagnostics.hpp"
+#include "../source/system/exit_code.hpp"
 
 #include <iostream>
 #include <string>
 #include <vector>
 
 using ncp::Diag;
+using ncp::ExitCode;
 using ncp::DiagContext;
 using ncp::ScopedContext;
 namespace diagnostics = ncp::diagnostics;
@@ -156,9 +158,36 @@ static void testHandledFailureDoesNotStickToNextRun()
 	check(renderFailure().empty(), "opening a new outermost phase drops the old failure");
 }
 
+// A caller that branches on the exit code is relying on the category staying
+// put, so the mapping is pinned rather than left to whichever switch arm a
+// later edit happens to add the new phase to.
+static void testExitCodes()
+{
+	check(ncp::exitCodeFor(Diag::ConfigLoad) == ExitCode::Config, "a config load failure is a config error");
+	check(ncp::exitCodeFor(Diag::TargetConfigLoad) == ExitCode::Config, "resolving a target is a config error");
+	check(ncp::exitCodeFor(Diag::ConfigMigrate) == ExitCode::Config, "migration is a config error");
+	check(ncp::exitCodeFor(Diag::ToolchainMissing) == ExitCode::Toolchain, "a missing compiler is its own category");
+	check(ncp::exitCodeFor(Diag::PreBuildCommand) == ExitCode::Hook, "a pre-build command is a hook");
+	check(ncp::exitCodeFor(Diag::PostBuildCommand) == ExitCode::Hook, "a post-build command is a hook");
+	check(ncp::exitCodeFor(Diag::TargetCompile) == ExitCode::Compile, "compiling is a compile error");
+	check(ncp::exitCodeFor(Diag::PatchElfGeneration) == ExitCode::Link, "producing the ELF is the link step");
+	check(ncp::exitCodeFor(Diag::PatchApplication) == ExitCode::Patch, "applying patches is a patch error");
+	check(ncp::exitCodeFor(Diag::RomHeaderLoad) == ExitCode::RomIo, "reading the header is ROM I/O");
+	check(ncp::exitCodeFor(Diag::ArmBinLoad) == ExitCode::RomIo, "reading an ARM binary is ROM I/O");
+
+	// A throw that escaped every phase is a bug here, not a category a caller
+	// can act on, so it must not be dressed up as one.
+	check(ncp::exitCodeFor(Diag::None) == ExitCode::Internal, "no context means an internal error");
+
+	check(ncp::exitValue(ExitCode::Ok) == 0, "success is zero");
+	check(ncp::exitValue(ExitCode::Usage) == 2, "a usage error is 2");
+	check(ncp::exitValue(ExitCode::Interrupted) == 130, "interruption follows the 128+signal convention");
+}
+
 int main()
 {
 	testCodeFormatting();
+	testExitCodes();
 	testNormalExitLeavesNothing();
 	testNoLeakIntoLaterPhase();
 	testThrowCapturesWholeChain();

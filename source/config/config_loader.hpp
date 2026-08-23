@@ -9,10 +9,18 @@
 // program from having to know which it was.
 
 #include <filesystem>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "project_config.hpp"
 
 namespace ncp::config {
+
+// --var NAME=VALUE, as given on the command line. These win over the file's own
+// vars: entries of the same name, which is what lets one project file serve a
+// machine whose reference tree lives somewhere unusual without being edited.
+using VarOverrides = std::vector<std::pair<std::string, std::string>>;
 
 // Locates the configuration file in `projectRoot`. A v2 ncpatcher.yaml wins
 // over a v1 ncpatcher.json when both are present, so a migrated project stops
@@ -23,7 +31,8 @@ namespace ncp::config {
 // Reads `projectFile`, dispatching on its schema. A document with no `version:`
 // key is v1.
 [[nodiscard]] ProjectConfig load(const std::filesystem::path& projectFile,
-                                 const std::filesystem::path& projectRoot);
+                                 const std::filesystem::path& projectRoot,
+                                 const VarOverrides& varOverrides = {});
 
 // The two readers, reachable directly because `migrate` needs the v1 one
 // specifically and the tests need both.
@@ -38,6 +47,8 @@ struct V1Options
 	// Suppresses deprecation notices. Set for the second of migrate's two
 	// reads, which would otherwise say everything twice.
 	bool quiet = false;
+
+	VarOverrides varOverrides;
 };
 
 [[nodiscard]] ProjectConfig loadV1(const std::filesystem::path& projectFile,
@@ -49,7 +60,8 @@ struct V1Options
 // nothing there and can be called unconditionally.
 void loadTargets(ProjectConfig& config, const V1Options& options = {});
 [[nodiscard]] ProjectConfig loadV2(const std::filesystem::path& projectFile,
-                                   const std::filesystem::path& projectRoot);
+                                   const std::filesystem::path& projectRoot,
+                                   const VarOverrides& varOverrides = {});
 
 // Translates one v1 `includes`/`sources` entry of the old [path, recursive]
 // pair form into the glob patterns that mean the same thing. Shared with

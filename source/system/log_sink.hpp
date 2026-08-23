@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <iosfwd>
 #include <memory>
 #include <string_view>
 
@@ -44,12 +45,17 @@ public:
 class TerminalSink final : public Sink
 {
 public:
-	TerminalSink();
+	// `useStderr` moves the human log off stdout, which --message-format json
+	// needs so that its event stream is the only thing a caller has to parse.
+	explicit TerminalSink(bool useStderr = false);
 	~TerminalSink() override;
 
 	void write(std::string_view text) override;
 	[[nodiscard]] SinkKind kind() const override { return SinkKind::Terminal; }
 	[[nodiscard]] bool accepts(LogMode mode) const override { return mode != LogMode::File; }
+
+private:
+	std::ostream* m_stream;
 };
 
 // Console without styling or cursor control: a pipe, a file, a CI job's stdout.
@@ -61,9 +67,14 @@ public:
 class PlainSink final : public Sink
 {
 public:
+	explicit PlainSink(bool useStderr = false);
+
 	void write(std::string_view text) override;
 	[[nodiscard]] SinkKind kind() const override { return SinkKind::Plain; }
 	[[nodiscard]] bool accepts(LogMode mode) const override { return mode != LogMode::Console; }
+
+private:
+	std::ostream* m_stream;
 };
 
 class FileSink final : public Sink

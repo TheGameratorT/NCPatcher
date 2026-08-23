@@ -43,6 +43,78 @@ NCPatcher does NOT build the ROM, it requires an extracted ROM to work with, you
 `nds-build` and `nds-extract` included with Fireflower: https://github.com/MammaMiaTeam/Fireflower/releases/latest \
 This design choice was made to allow modders to choose how they want to pack their ROMs.
 
+## Command line
+
+Running `ncpatcher` with no subcommand builds the project in the current
+directory, which is how it has always been invoked and still is.
+
+```
+ncpatcher [build]                    compile and patch
+          clean [--backups]          delete the build directories
+          restore                    put the ROM binaries back and drop the backups
+          config dump [--explain] [--json]
+          config validate
+          config path
+          migrate [--write]          convert ncpatcher.json to ncpatcher.yaml
+          version
+```
+
+Options, which may be written before or after the subcommand:
+
+| Option | Meaning |
+|---|---|
+| `-C, --project PATH` | Project directory, or the configuration file itself |
+| `--rom PATH` | Extracted-ROM directory, overriding the configured one |
+| `-D, --define NAME[=VAL]` | Define a preprocessor macro |
+| `--var NAME=VAL` | Override a `vars:` entry |
+| `--toolchain PREFIX` | Cross-compiler prefix |
+| `-j, --jobs N` | Compile jobs; 0 means one per hardware thread |
+| `-v, --verbose` / `--verbose-tag TAG` | Verbose output, all of it or one category |
+| `--color auto\|always\|never` | Console styling. `NO_COLOR` is honoured |
+| `--log PATH` / `--no-log` | Where the log file goes, or that there is none |
+| `--message-format human\|json` | See below |
+| `--result PATH` | Write a JSON summary of the run |
+
+`-C` is what removes the "must be launched from the project directory"
+constraint, so a ROM editor or a build script no longer has to `cd` first.
+
+Three settings also read the environment, which the command line still beats:
+`NCPATCHER_TOOLCHAIN`, `NCPATCHER_JOBS` and `NCPATCHER_LOG`. The precedence is
+command line, then environment, then the project file, then the built-in
+default, and `ncpatcher config dump --explain` says which of them won for each
+setting.
+
+### Machine-readable output
+
+`--message-format json` writes one JSON object per line on stdout and moves the
+human log to stderr, so a caller never has to match on English:
+
+```json
+{"type":"progress","phase":"compile","current":43,"total":210,"item":"source/Coop.cpp"}
+{"type":"artifact","kind":"overlay","proc":"arm9","id":58,"action":"modified","size":4788,"ram-address":"0x021726C0","file-id":117,"name":"overlay9/overlay9_58.bin"}
+{"type":"diagnostic","level":"error","code":"NCP0001","message":"...","location":{"file":"ncpatcher.yaml","line":88,"col":9,"path":"targets.arm9.regions[12].maxsize"}}
+{"type":"result","status":"error","exit-code":3,"duration-ms":8123,"errors":1,"warnings":3}
+```
+
+`--result PATH` writes the same run as a single JSON object, including every
+diagnostic and artifact. Both work with or without `--message-format json`.
+
+### Exit codes
+
+| Code | Meaning |
+|---|---|
+| 0 | Success |
+| 1 | Internal error |
+| 2 | The command line did not parse |
+| 3 | Configuration |
+| 5 | Toolchain not found |
+| 6 | Compilation |
+| 7 | Linking |
+| 8 | Patching |
+| 9 | ROM file I/O |
+| 10 | A pre-build or post-build command failed |
+
+
 ## Configuration
 
 For the program to run at least one configuration file must exist with at least one target specified.

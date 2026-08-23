@@ -23,6 +23,9 @@ enum class Diag : unsigned
 	PreBuildCommand      = 3,
 	PostBuildCommand     = 4,
 	ConfigMigrate        = 5,   // converting a v1 config to v2
+	ToolchainMissing     = 6,   // the configured cross-compiler is not installed
+	CleanFailed          = 7,
+	RestoreFailed        = 8,
 
 	TargetCompile        = 1001,
 
