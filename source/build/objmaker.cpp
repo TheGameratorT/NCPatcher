@@ -49,21 +49,15 @@ ObjMaker::ObjMaker() = default;
 
 void ObjMaker::makeTarget(
 	const BuildTarget& target,
-	const fs::path& targetWorkDir,
-	const fs::path& buildDir,
+	const ncp::PathContext& paths,
 	core::CompilationUnitManager& compilationUnitMgr
 	)
 {
 	m_target = &target;
-	m_targetWorkDir = &targetWorkDir;
-	m_buildDir = &buildDir;
+	m_paths = &paths;
 	m_compilationUnitMgr = &compilationUnitMgr;
 
-	fs::path curPath = fs::current_path();
-
-	fs::current_path(*m_targetWorkDir);
-
-	fs::path ncpInclude = ncp::Application::getAppPath() / "ncp.h";
+	fs::path ncpInclude = paths.appDir / "ncp.h";
 	if (!fs::exists(ncpInclude))
 		throw ncp::file_error(ncpInclude, ncp::file_error::find);
 
@@ -96,8 +90,6 @@ void ObjMaker::makeTarget(
 		compileSources();
 	else
 		Log::out << OBUILD << "Nothing needs building." << std::endl;
-
-	fs::current_path(curPath);
 }
 
 void ObjMaker::getSourceFiles()
@@ -127,12 +119,12 @@ void ObjMaker::getSourceFiles()
 				if (pathStr.front() == '_')
 					pathStr = pathStr.substr(1);
 					
-				safeBuildPath = *m_buildDir / "external" / pathStr;
+				safeBuildPath = m_paths->buildDir / "external" / pathStr;
 			}
 			else
 			{
 				// For relative paths, use the original behavior
-				safeBuildPath = *m_buildDir / srcPath;
+				safeBuildPath = m_paths->buildDir / srcPath;
 			}
 			
 			std::string buildPath = safeBuildPath.string();
@@ -236,6 +228,12 @@ void ObjMaker::checkIfSourcesNeedRebuild()
 
 		for (auto& dep : deps)
 		{
+			// gcc writes these relative to the directory it was run in, which is
+			// the target work dir -- not wherever ncpatcher happens to sit. Anchor
+			// them, or every dependency reads as missing and nothing is ever
+			// considered up to date.
+			dep = m_paths->target(dep);
+
 			if (!fs::exists(dep))
 			{
 				unit->setNeedsRebuild(true);
@@ -266,7 +264,7 @@ void ObjMaker::compileSources()
 
 	BuildLogger logger;
 	logger.setUnits(m_compilationUnitMgr->getUserUnits());
-	logger.start(*m_targetWorkDir);
+	logger.start(m_paths->targetWorkDir);
 
 	std::size_t jobID = 0;
 	for (auto* unit : m_compilationUnitMgr->getUserUnits())
@@ -365,7 +363,7 @@ void ObjMaker::compileSources()
 
 				std::string ccmd = makeBuildCmd(true, buildInfo.fileType, srcS, asmS);
 
-				int retcode = Process::start(ccmd.c_str(), &out);
+				int retcode = Process::start(ccmd.c_str(), m_paths->targetWorkDir, &out);
 				if (retcode != 0)
 				{
 					buildInfo.buildFailed = true;
@@ -380,7 +378,7 @@ void ObjMaker::compileSources()
 
 			std::string ccmd = makeBuildCmd(buildInfo.fileType == SourceFileType::ASM, SourceFileType::ASM, srcS, objS);
 
-			int retcode = Process::start(ccmd.c_str(), &out);
+			int retcode = Process::start(ccmd.c_str(), m_paths->targetWorkDir, &out);
 			if (retcode != 0)
 			{
 				buildInfo.buildFailed = true;

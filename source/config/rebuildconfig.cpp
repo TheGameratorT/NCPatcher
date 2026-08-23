@@ -19,18 +19,15 @@ static std::vector<u32> arm7PatchedOvs;
 static std::vector<u32> arm9PatchedOvs;
 static std::vector<std::string> defines;
 
-void load()
+void load(const ncp::PathContext& paths)
 {
-	fs::path curPath = fs::current_path();
-	fs::current_path(ncp::Application::getWorkPath());
-	const fs::path& rebFile = BuildConfig::getBackupDir() / "rebuild.bin";
+	const fs::path rebFile = paths.work(BuildConfig::getBackupDir()) / "rebuild.bin";
 
 	if (!fs::exists(rebFile))
 	{
 		buildConfigWriteTime = std::numeric_limits<std::time_t>::max();
 		arm7TargetWriteTime = std::numeric_limits<std::time_t>::max();
 		arm9TargetWriteTime = std::numeric_limits<std::time_t>::max();
-		fs::current_path(curPath);
 		return;
 	}
 
@@ -91,15 +88,11 @@ void load()
 		curDataPtr += defineLength;
 		defines.push_back(std::move(define));
 	}
-
-	fs::current_path(curPath);
 }
 
-void save()
+void save(const ncp::PathContext& paths)
 {
-	fs::path curPath = fs::current_path();
-	fs::current_path(ncp::Application::getWorkPath());
-	const fs::path& rebFile = BuildConfig::getBackupDir() / "rebuild.bin";
+	const fs::path rebFile = paths.work(BuildConfig::getBackupDir()) / "rebuild.bin";
 
 	u32 arm7PatchedOvCount = arm7PatchedOvs.size();
 	u32 arm9PatchedOvCount = arm9PatchedOvs.size();
@@ -147,8 +140,6 @@ void save()
 		throw ncp::file_error(rebFile, ncp::file_error::write);
 	outputFile.write(reinterpret_cast<const char*>(pData), std::streamsize(dataSize));
 	outputFile.close();
-
-	fs::current_path(curPath);
 }
 
 std::time_t getBuildConfigWriteTime() { return buildConfigWriteTime; }

@@ -9,6 +9,7 @@
 #include "../utils/types.hpp"
 #include "../core/compilation_unit_manager.hpp"
 #include "../config/buildtarget.hpp"
+#include "../system/path_context.hpp"
 #include "../ndsbin/headerbin.hpp"
 #include "../ndsbin/armbin.hpp"
 #include "../ndsbin/overlaybin.hpp"
@@ -35,8 +36,7 @@ public:
 
 	void makeTarget(
 		const BuildTarget& target,
-		const std::filesystem::path& targetWorkDir,
-		const std::filesystem::path& buildDir,
+		const ncp::PathContext& paths,
 		const HeaderBin& header,
 		core::CompilationUnitManager& compilationUnitMgr
 	);
@@ -44,8 +44,7 @@ public:
 private:
 	// Core data
 	const BuildTarget* m_target;
-	const std::filesystem::path* m_targetWorkDir;
-	const std::filesystem::path* m_buildDir;
+	const ncp::PathContext* m_paths;
 	const HeaderBin* m_header;
 	core::CompilationUnitManager* m_compilationUnitMgr;
 	

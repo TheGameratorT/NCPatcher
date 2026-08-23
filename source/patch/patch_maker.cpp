@@ -13,6 +13,7 @@
 #include "arenalo_finder.hpp"
 
 #include "../app/application.hpp"
+#include "../system/diagnostics.hpp"
 #include "../system/log.hpp"
 #include "../system/except.hpp"
 #include "../config/rebuildconfig.hpp"
@@ -33,16 +34,14 @@ PatchMaker::~PatchMaker() = default;
 
 void PatchMaker::makeTarget(
 	const BuildTarget& target,
-	const std::filesystem::path& targetWorkDir,
-	const std::filesystem::path& buildDir,
+	const ncp::PathContext& paths,
 	const HeaderBin& header,
 	core::CompilationUnitManager& compilationUnitMgr
 	)
 {
 	// Store core data references
 	m_target = &target;
-	m_targetWorkDir = &targetWorkDir;
-	m_buildDir = &buildDir;
+	m_paths = &paths;
 	m_header = &header;
 	m_compilationUnitMgr = &compilationUnitMgr;
 
@@ -66,7 +65,7 @@ void PatchMaker::makeTarget(
 
 void PatchMaker::initializeComponents()
 {
-	ncp::Application::setErrorContext(m_target->getArm9() ?
+	ncp::ScopedContext ctx(ncp::Diag::PatchInit, m_target->getArm9() ?
 		"Failed to initialize components for ARM9 target." :
 		"Failed to initialize components for ARM7 target.");
 
@@ -79,17 +78,17 @@ void PatchMaker::initializeComponents()
 	m_dependencyResolver = std::make_unique<DependencyResolver>();
 
 	// Initialize all components
-	m_fileSystemManager->initialize(*m_target, *m_buildDir, *m_header);
+	m_fileSystemManager->initialize(*m_target, *m_paths, *m_header);
 	m_dependencyResolver->initialize(*m_compilationUnitMgr);
-	m_patchTracker->initialize(*m_target, *m_targetWorkDir, *m_compilationUnitMgr, *m_dependencyResolver);
-	m_libraryManager->initialize(*m_target, *m_buildDir, *m_compilationUnitMgr);
+	m_patchTracker->initialize(*m_target, *m_paths, *m_compilationUnitMgr, *m_dependencyResolver);
+	m_libraryManager->initialize(*m_target, *m_paths, *m_compilationUnitMgr);
 	m_overwriteRegionManager->initialize(*m_target, *m_dependencyResolver);
-	m_linker->initialize(*m_target, *m_buildDir, *m_compilationUnitMgr, m_newcodeAddrForDest);
+	m_linker->initialize(*m_target, *m_paths, *m_compilationUnitMgr, m_newcodeAddrForDest);
 }
 
 void PatchMaker::setupFileSystem()
 {
-	ncp::Application::setErrorContext(m_target->getArm9() ?
+	ncp::ScopedContext ctx(ncp::Diag::PatchFileSystemSetup, m_target->getArm9() ?
 		"Failed to setup filesystem for ARM9 target." :
 		"Failed to setup filesystem for ARM7 target.");
 
@@ -99,7 +98,7 @@ void PatchMaker::setupFileSystem()
 
 void PatchMaker::prepareBuildEnvironment()
 {
-	ncp::Application::setErrorContext(m_target->getArm9() ?
+	ncp::ScopedContext ctx(ncp::Diag::PatchEnvironment, m_target->getArm9() ?
 		"Failed to prepare build environment for ARM9 target." :
 		"Failed to prepare build environment for ARM7 target.");
 
@@ -120,7 +119,7 @@ void PatchMaker::prepareBuildEnvironment()
 
 void PatchMaker::generateElfFile()
 {
-	ncp::Application::setErrorContext(m_target->getArm9() ?
+	ncp::ScopedContext ctx(ncp::Diag::PatchElfGeneration, m_target->getArm9() ?
 		"Failed to generate ELF files for ARM9 target." :
 		"Failed to generate ELF files for ARM7 target.");
 
@@ -233,7 +232,7 @@ std::vector<std::unique_ptr<DependencyResolver::UnitEntryPoints>> PatchMaker::cr
 
 void PatchMaker::processPatches()
 {
-	ncp::Application::setErrorContext(m_target->getArm9() ?
+	ncp::ScopedContext ctx(ncp::Diag::PatchProcessing, m_target->getArm9() ?
 		"Failed to process patches for ARM9 target." :
 		"Failed to process patches for ARM7 target.");
 
@@ -262,7 +261,7 @@ void PatchMaker::processPatches()
 
 void PatchMaker::finalizeBuild()
 {
-	ncp::Application::setErrorContext(m_target->getArm9() ?
+	ncp::ScopedContext ctx(ncp::Diag::PatchFinalize, m_target->getArm9() ?
 		"Failed to finalize build for ARM9 target." :
 		"Failed to finalize build for ARM7 target.");
 
@@ -282,8 +281,6 @@ void PatchMaker::finalizeBuild()
 	m_fileSystemManager->saveOverlayBins();
 	m_fileSystemManager->saveOverlayTableBin();
 	m_fileSystemManager->saveArmBin();
-
-	ncp::Application::setErrorContext(nullptr);
 }
 
 void PatchMaker::fetchNewcodeAddr()
@@ -363,7 +360,7 @@ void PatchMaker::fetchNewcodeAddr()
 
 void PatchMaker::applyPatchesToRom(const PatchOperationContext& context)
 {
-	ncp::Application::setErrorContext(m_target->getArm9() ?
+	ncp::ScopedContext ctx(ncp::Diag::PatchApplication, m_target->getArm9() ?
 		"Failed to apply patches for ARM9 target." :
 		"Failed to apply patches for ARM7 target.");
 
@@ -394,8 +391,6 @@ void PatchMaker::applyPatchesToRom(const PatchOperationContext& context)
 	// Apply overwrite regions and newcode
 	applyOverwriteRegions(context);
 	applyNewcodeToDestinations(context);
-
-	ncp::Application::setErrorContext(nullptr);
 }
 
 void PatchMaker::applyJumpPatch(const std::unique_ptr<PatchInfo>& patch, const PatchOperationContext& context)

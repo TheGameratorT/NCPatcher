@@ -9,6 +9,7 @@
 #include "../formats/elf.hpp"
 #include "../core/compilation_unit_manager.hpp"
 #include "../config/buildtarget.hpp"
+#include "../system/path_context.hpp"
 #include "dependency_resolver.hpp"
 #include "types.hpp"
 
@@ -22,7 +23,7 @@ public:
 
     void initialize(
         const BuildTarget& target,
-        const std::filesystem::path& targetWorkDir,
+        const ncp::PathContext& paths,
 		core::CompilationUnitManager& compilationUnitMgr,
 		DependencyResolver& dependencyResolver
     );
@@ -54,7 +55,7 @@ private:
     };
 
     const BuildTarget* m_target;
-    const std::filesystem::path* m_targetWorkDir;
+    const ncp::PathContext* m_paths;
     core::CompilationUnitManager* m_compilationUnitMgr;
 	DependencyResolver* m_dependencyResolver;
 

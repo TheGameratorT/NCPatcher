@@ -9,6 +9,7 @@
 #include "../system/process.hpp"
 #include "../system/except.hpp"
 #include "../system/cache.hpp"
+#include "../system/diagnostics.hpp"
 #include "../utils/types.hpp"
 #include "../config/buildconfig.hpp"
 #include "../config/buildtarget.hpp"
@@ -37,12 +38,8 @@ namespace fs = std::filesystem;
 namespace ncp {
 
 // Static member definitions
-std::filesystem::path Application::s_appPath;
-std::filesystem::path Application::s_workPath;
-std::filesystem::path Application::s_romPath;
 std::vector<std::string> Application::s_defines;
 std::unordered_set<VerboseTag> Application::s_verboseTags;
-const char* Application::s_errorContext = nullptr;
 
 Application::Application() = default;
 Application::~Application() = default;
@@ -50,13 +47,6 @@ Application::~Application() = default;
 int Application::initialize(int argc, char* argv[])
 {
     Log::init();
-
-    try {
-        s_appPath = fetchAppPath();
-    } catch (std::exception& ex) {
-        Log::error(ex.what());
-        return 1;
-    }
 
     try {
         initializePaths();
@@ -87,15 +77,29 @@ int Application::run()
     try {
         runMainLogic();
     } catch (std::exception& e) {
-        Log::out << OERROR;
-        if (s_errorContext) {
-            Log::out << s_errorContext << "\n" << OREASON;
-        }
-        Log::out << e.what() << std::endl;
+        reportFailure(e);
         return 1;
     }
 
     return 0;
+}
+
+// Renders a failure as the phase it happened in, the reason, and then any
+// enclosing phases. The innermost context is the headline because it is the
+// most specific thing that was being attempted.
+void Application::reportFailure(const std::exception& e)
+{
+    const std::vector<DiagContext>& contexts = diagnostics::failureContext();
+
+    Log::out << OERROR;
+    if (!contexts.empty())
+        Log::out << diagCode(contexts.front().code) << ": " << contexts.front().description << "\n" << OREASON;
+    Log::out << e.what() << std::endl;
+
+    for (std::size_t i = 1; i < contexts.size(); i++)
+        Log::out << "        while " << diagCode(contexts[i].code) << ": " << contexts[i].description << std::endl;
+
+    diagnostics::clearFailureContext();
 }
 
 void Application::runMainLogic()
@@ -105,15 +109,16 @@ void Application::runMainLogic()
     loadConfigurations();
     validateToolchain();
 
-    s_romPath = fs::absolute(BuildConfig::getFilesystemDir());
+    m_paths.romDir = m_paths.work(BuildConfig::getFilesystemDir());
 
     HeaderBin header;
-    header.load(s_romPath / "header.bin");
+    header.load(m_paths.romDir / "header.bin");
 
     bool forceRebuild = checkForceRebuild();
 
-    runCommandList(BuildConfig::getPreBuildCmds(), 
-                   "Running pre-build commands...", 
+    runCommandList(BuildConfig::getPreBuildCmds(),
+                   "Running pre-build commands...",
+                   Diag::PreBuildCommand,
                    "Not all pre-build commands succeeded.");
 
     if (BuildConfig::getBuildArm7()) {
@@ -126,8 +131,9 @@ void Application::runMainLogic()
 
     saveRebuildConfig();
 
-    runCommandList(BuildConfig::getPostBuildCmds(), 
-                   "Running post-build commands...", 
+    runCommandList(BuildConfig::getPostBuildCmds(),
+                   "Running post-build commands...",
+                   Diag::PostBuildCommand,
                    "Not all post-build commands succeeded.");
 
     Log::info("All tasks finished.");
@@ -135,31 +141,34 @@ void Application::runMainLogic()
 
 void Application::processTarget(HeaderBin& header, bool isArm9)
 {
-    fs::current_path(getWorkPath());
-
     Log::info(isArm9 ? 
         "Loading ARM9 target configuration..." :
         "Loading ARM7 target configuration...");
 
-    const fs::path& targetPath = fs::absolute(isArm9 ? 
-        BuildConfig::getArm9Target() : 
+    const fs::path targetPath = m_paths.work(isArm9 ?
+        BuildConfig::getArm9Target() :
         BuildConfig::getArm7Target());
 
     const fs::path& targetWorkDirCfg = isArm9 ?
 		BuildConfig::getArm9WorkDir() :
 		BuildConfig::getArm7WorkDir();
 
-    fs::path targetWorkDir = targetWorkDirCfg.empty() ?
+    // Per-target anchors. A copy, so the two targets cannot see each other's.
+    PathContext targetPaths = m_paths;
+    targetPaths.targetWorkDir = targetWorkDirCfg.empty() ?
 		targetPath.parent_path() :
-		fs::absolute(ncp::Application::getWorkPath() / targetWorkDirCfg);
+		m_paths.work(targetWorkDirCfg);
+    targetPaths.buildDir = m_paths.work(isArm9 ?
+        BuildConfig::getArm9BuildDir() :
+        BuildConfig::getArm7BuildDir());
 
-    setErrorContext(isArm9 ?
-        "Could not load the ARM9 target configuration." :
-        "Could not load the ARM7 target configuration.");
-    
     BuildTarget buildTarget;
-    buildTarget.load(targetPath, targetWorkDir, isArm9);
-    setErrorContext(nullptr);
+    {
+        ScopedContext ctx(Diag::TargetConfigLoad, isArm9 ?
+            "Could not load the ARM9 target configuration." :
+            "Could not load the ARM7 target configuration.");
+        buildTarget.load(targetPath, targetPaths, isArm9);
+    }
 
     std::time_t lastTargetWriteTimeNew = buildTarget.getLastWriteTime();
     std::time_t lastTargetWriteTimeOld = isArm9 ?
@@ -169,21 +178,17 @@ void Application::processTarget(HeaderBin& header, bool isArm9)
     bool forceRebuild = checkForceRebuild();
     buildTarget.setForceRebuild(forceRebuild || (lastTargetWriteTimeNew > lastTargetWriteTimeOld));
 
-    setErrorContext(isArm9 ?
+    ScopedContext ctx(Diag::TargetCompile, isArm9 ?
         "Could not compile the ARM9 target." :
         "Could not compile the ARM7 target.");
-
-    fs::path buildPath = fs::absolute(isArm9 ? 
-        BuildConfig::getArm9BuildDir() : 
-        BuildConfig::getArm7BuildDir());
 
     core::CompilationUnitManager compilationUnitsMgr;
 
     ObjMaker objMaker;
-    objMaker.makeTarget(buildTarget, targetWorkDir, buildPath, compilationUnitsMgr);
+    objMaker.makeTarget(buildTarget, targetPaths, compilationUnitsMgr);
 
     ncp::patch::PatchMaker patchMaker;
-    patchMaker.makeTarget(buildTarget, targetWorkDir, buildPath, header, compilationUnitsMgr);
+    patchMaker.makeTarget(buildTarget, targetPaths, header, compilationUnitsMgr);
 
     // Update rebuild config
     if (isArm9) {
@@ -191,12 +196,11 @@ void Application::processTarget(HeaderBin& header, bool isArm9)
     } else {
         RebuildConfig::setArm7TargetWriteTime(lastTargetWriteTimeNew);
     }
-
-    setErrorContext(nullptr);
 }
 
-void Application::runCommandList(const std::vector<std::string>& commands, 
-                                const char* message, 
+void Application::runCommandList(const std::vector<std::string>& commands,
+                                const char* message,
+                                Diag code,
                                 const char* errorContext)
 {
     if (commands.empty()) {
@@ -204,7 +208,7 @@ void Application::runCommandList(const std::vector<std::string>& commands,
     }
 
     Log::info(message);
-    setErrorContext(errorContext);
+    ScopedContext ctx(code, errorContext);
 
     int commandIndex = 1;
     for (const std::string& command : commands) {
@@ -212,23 +216,19 @@ void Application::runCommandList(const std::vector<std::string>& commands,
         oss << ANSI_bWHITE "[#" << commandIndex << "] " ANSI_bYELLOW << command << ANSI_RESET;
         Log::info(oss.str());
 
-        fs::current_path(getWorkPath());
-
-        int retcode = Process::start(command.c_str(), &std::cout);
+        int retcode = Process::start(command.c_str(), m_paths.workDir, &std::cout);
         if (retcode != 0) {
             throw ncp::exception("Process returned: " + std::to_string(retcode));
         }
         
         commandIndex++;
     }
-
-    setErrorContext(nullptr);
 }
 
 void Application::loadConfigurations()
 {
-    BuildConfig::load();
-    RebuildConfig::load();
+    BuildConfig::load(m_paths);
+    RebuildConfig::load(m_paths);
 }
 
 bool Application::checkForceRebuild()
@@ -241,7 +241,7 @@ void Application::saveRebuildConfig()
 {
     RebuildConfig::setBuildConfigWriteTime(BuildConfig::getLastWriteTime());
     RebuildConfig::setDefines(getDefines());
-    RebuildConfig::save();
+    RebuildConfig::save(m_paths);
 }
 
 void Application::validateToolchain()
@@ -260,12 +260,15 @@ void Application::validateToolchain()
 
 void Application::initializePaths()
 {
-    s_workPath = fs::current_path();
+    // The cwd is read exactly once, here, and is never written. Everything
+    // downstream resolves against m_paths instead.
+    m_paths.appDir = fetchAppPath();
+    m_paths.workDir = fs::current_path();
 }
 
 void Application::initializeLogging()
 {
-    Log::openLogFile(s_appPath / "log.txt");
+    Log::openLogFile(m_paths.appDir / "log.txt");
 }
 
 std::filesystem::path Application::fetchAppPath()
@@ -435,21 +438,6 @@ void Application::printHelp()
 }
 
 // Static getters
-const std::filesystem::path& Application::getAppPath() 
-{ 
-    return s_appPath; 
-}
-
-const std::filesystem::path& Application::getWorkPath() 
-{ 
-    return s_workPath; 
-}
-
-const std::filesystem::path& Application::getRomPath() 
-{ 
-    return s_romPath; 
-}
-
 bool Application::isVerbose(VerboseTag tag)
 {
     return s_verboseTags.count(VerboseTag::All) > 0 || s_verboseTags.count(tag) > 0;
@@ -458,11 +446,6 @@ bool Application::isVerbose(VerboseTag tag)
 const std::vector<std::string>& Application::getDefines() 
 { 
     return s_defines; 
-}
-
-void Application::setErrorContext(const char* errorContext) 
-{ 
-    s_errorContext = errorContext; 
 }
 
 } // namespace ncp

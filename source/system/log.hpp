@@ -109,6 +109,12 @@ void warn(const std::string& str);
 void error(const std::string& str);
 
 void setMode(LogMode mode);
+[[nodiscard]] LogMode getMode();
+
+// Whether the console can address the cursor. False when stdout is a pipe or a
+// dumb terminal, in which case the progress display is skipped and the settled
+// record is printed instead.
+[[nodiscard]] bool terminalSupportsCursor();
 
 // Gets the cursor position on the console.
 Coords getXY();

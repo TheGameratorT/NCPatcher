@@ -6,6 +6,7 @@
 #include <unordered_map>
 
 #include "json.hpp"
+#include "../system/path_context.hpp"
 #include "../utils/types.hpp"
 
 class BuildTarget
@@ -64,17 +65,20 @@ public:
 	[[nodiscard]] Region* getMainRegion();
 
 	BuildTarget();
-	void load(const std::filesystem::path& targetFilePath, const std::filesystem::path& targetWorkDir, bool isArm9);
+	void load(const std::filesystem::path& targetFilePath, const ncp::PathContext& paths, bool isArm9);
 
 private:
 	const std::string& getVariable(const std::string& value);
 	void expandTemplates(std::string& val);
 	std::string getString(const JsonMember& member);
 	void getDirectoryArray(const JsonMember& member, std::vector<std::filesystem::path>& out, bool directoriesOnly = false);
+	void readLegacyPathPair(const JsonMember& entry, bool directoriesOnly, std::vector<std::string>& out);
 	static void readDestination(BuildTarget::Region& region, const JsonMember& member);
 	static void readRegionMode(BuildTarget::Region& region, const JsonMember& member);
 	void readOverwrites(BuildTarget::Region& region, const JsonMember& member);
 
+	// Points at the caller's context for the duration of load() only.
+	const ncp::PathContext* m_paths = nullptr;
 	bool m_isArm9{};
 	std::time_t m_lastWriteTime;
 	bool m_forceRebuild;

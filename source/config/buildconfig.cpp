@@ -6,7 +6,7 @@
 #include <filesystem>
 #include <sstream>
 
-#include "../app/application.hpp"
+#include "../system/diagnostics.hpp"
 #include "json.hpp"
 #include "../system/log.hpp"
 #include "../system/except.hpp"
@@ -118,17 +118,17 @@ static void readBuildCommands(const JsonMember& member, std::vector<std::string>
 		cmdsOut.emplace_back(getString(member[i]));
 }
 
-void load()
+void load(const ncp::PathContext& paths)
 {
-	ncp::Application::setErrorContext(s_loadErr);
+	ncp::ScopedContext ctx(ncp::Diag::ConfigLoad, s_loadErr);
 
 	Log::info("Loading build configuration...");
 
-	fs::path jsonPath = ncp::Application::getWorkPath() / s_jsonFileName;
+	fs::path jsonPath = paths.workDir / s_jsonFileName;
 
 	JsonReader json(jsonPath);
 
-	varmap.emplace("root", ncp::Application::getWorkPath().string());
+	varmap.emplace("root", paths.workDir.string());
 
 	std::vector<JsonMember> members = json.getMembers();
 	for (const JsonMember& member : members)
@@ -154,8 +154,6 @@ void load()
 	threadCount = json["thread-count"].getInt();
 
 	lastWriteTime = Util::toTimeT(fs::last_write_time(jsonPath));
-
-	ncp::Application::setErrorContext(nullptr);
 }
 
 const std::string& getVariable(const std::string& value)

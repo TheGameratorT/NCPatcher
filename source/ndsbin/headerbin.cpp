@@ -5,7 +5,7 @@
 #include <cstring>
 #include <sstream>
 
-#include "../app/application.hpp"
+#include "../system/diagnostics.hpp"
 #include "../system/log.hpp"
 #include "../system/except.hpp"
 
@@ -17,7 +17,7 @@ HeaderBin::HeaderBin() = default;
 
 void HeaderBin::load(const fs::path& path)
 {
-	ncp::Application::setErrorContext(LoadErr);
+	ncp::ScopedContext ctx(ncp::Diag::RomHeaderLoad, LoadErr);
 
 	Log::info("Loading header file...");
 

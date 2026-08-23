@@ -26,18 +26,28 @@ namespace rj = rapidjson;
 
 // JsonNode
 
-JsonMember::JsonMember() : value(nullptr), parent(nullptr) {}
+JsonMember::JsonMember() : value(nullptr) {}
 
-JsonMember::JsonMember(const rj::Value& value, const JsonMember* parent, std::string name) :
+JsonMember::JsonMember(const rj::Value& value, std::string path, std::string name) :
 	value(&value),
-	parent(parent),
+	path(std::move(path)),
 	name(std::move(name))
 {}
+
+std::string JsonMember::childPath(std::string_view child) const
+{
+	if (path.empty())
+		return std::string(child);
+	std::string out = path;
+	out += '/';
+	out += child;
+	return out;
+}
 
 JsonMember JsonMember::operator[](const char* member) const
 {
 	assertMember(member);
-	return JsonMember((*value)[member], this, member);
+	return JsonMember((*value)[member], childPath(member), member);
 }
 
 JsonMember JsonMember::operator[](size_t index) const
@@ -50,7 +60,7 @@ JsonMember JsonMember::operator[](size_t index) const
 		oss << "Invalid index for " << OSTR(getPathToSelf()) << ". Index " << sindex << " exceeds array size.";
 		throw ncp::exception(oss.str());
 	}
-	return JsonMember((*value)[index], this, sindex);
+	return JsonMember((*value)[index], childPath(sindex), sindex);
 }
 
 int JsonMember::getInt() const
@@ -117,7 +127,8 @@ std::vector<JsonMember> JsonMember::getObjectArray() const
 			throw ncp::exception(oss.str());
 		}
 
-		out.emplace_back(entry, this, std::to_string(i));
+		std::string sindex = std::to_string(i);
+		out.emplace_back(entry, childPath(sindex), sindex);
 	}
 
 	return out;
@@ -131,7 +142,7 @@ std::vector<JsonMember> JsonMember::getMembers() const
 
 	const auto& object = value->GetObject();
 	for (const auto& member : object)
-		nodes.emplace_back(member.value, this, member.name.GetString());
+		nodes.emplace_back(member.value, childPath(member.name.GetString()), member.name.GetString());
 
 	return nodes;
 }
@@ -210,23 +221,6 @@ void JsonMember::assertObject() const
 
 std::string JsonMember::getPathToSelf() const
 {
-	std::string path;
-	std::vector<std::string> names;
-
-	const JsonMember* node = this;
-	do {
-		if (!node->name.empty())
-			names.push_back(node->name);
-		node = node->parent;
-	} while (node != nullptr);
-
-	size_t i = names.size();
-	while (i-- != 0)
-	{
-		path += names[i];
-		if (i != 0) path += "/";
-	}
-
 	return path;
 }
 
@@ -257,7 +251,7 @@ JsonReader::JsonReader(const fs::path& path)
 
 	fclose(file);
 
-	root = JsonMember(doc, nullptr, "");
+	root = JsonMember(doc, "", "");
 }
 
 JsonMember JsonReader::operator[](const char* member) const
@@ -272,7 +266,7 @@ std::vector<JsonMember> JsonReader::getMembers() const
 
 	const auto& object = doc.GetObject();
 	for (const auto& member : object)
-		nodes.emplace_back(member.value, &root, member.name.GetString());
+		nodes.emplace_back(member.value, member.name.GetString(), member.name.GetString());
 
 	return nodes;
 }

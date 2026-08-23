@@ -22,20 +22,20 @@ Linker::~Linker() = default;
 
 void Linker::initialize(
     const BuildTarget& target,
-    const std::filesystem::path& buildDir,
+    const ncp::PathContext& paths,
     core::CompilationUnitManager& compilationUnitMgr,
     const std::unordered_map<int, u32>& newcodeAddrForDest
 )
 {
     m_target = &target;
-    m_buildDir = &buildDir;
+    m_paths = &paths;
     m_compilationUnitMgr = &compilationUnitMgr;
     m_newcodeAddrForDest = &newcodeAddrForDest;
 
     std::string armType = m_target->getArm9() ? "9" : "7";
     
-    m_ldscriptPath = *m_buildDir / ("ldscript" + armType + ".x");
-    m_elfPath = *m_buildDir / ("arm" + armType + ".elf");
+    m_ldscriptPath = m_paths->buildDir / ("ldscript" + armType + ".x");
+    m_elfPath = m_paths->buildDir / ("arm" + armType + ".elf");
 }
 
 void Linker::createLinkerScript(
@@ -63,11 +63,11 @@ void Linker::createLinkerScript(
         o += "))\n";
     };
 
-    std::filesystem::current_path(ncp::Application::getWorkPath());
-
+    // Every path written into the linker script is relative to the project dir,
+    // because that is the directory the linker itself is run from below.
     std::filesystem::path symbolsFile;
     if (!m_target->symbols.empty())
-        symbolsFile = std::filesystem::absolute(m_target->symbols);
+        symbolsFile = m_paths->work(m_target->symbols);
 
     std::vector<std::unique_ptr<LDSMemoryEntry>> memoryEntries;
     memoryEntries.emplace_back(new LDSMemoryEntry{ "bin", 0, 0x100000 });
@@ -199,7 +199,7 @@ void Linker::createLinkerScript(
     if (!symbolsFile.empty())
     {
         o += "INCLUDE \"";
-        o += Util::relativeIfSubpath(symbolsFile).string();
+        o += Util::relativeIfSubpath(symbolsFile, m_paths->workDir).string();
         o += "\"\n\n";
     }
     
@@ -207,12 +207,12 @@ void Linker::createLinkerScript(
     for (const auto* unit : m_compilationUnitMgr->getUserUnits())
     {
         o += "\t\"";
-        o += Util::relativeIfSubpath(unit->getObjectPath()).string();
+        o += Util::relativeIfSubpath(unit->getObjectPath(), m_paths->workDir).string();
         o += "\"\n";
     }
 
     o += ")\n\nOUTPUT (\"";
-    o += Util::relativeIfSubpath(m_elfPath).string();
+    o += Util::relativeIfSubpath(m_elfPath, m_paths->workDir).string();
     o += "\")\n\n";
     
     o += "MEMORY {\n";
@@ -247,7 +247,7 @@ void Linker::createLinkerScript(
 		{
 			u32 forcedAlignment = 4;
             
-            std::string objPath = Util::relativeIfSubpath(section->unit->getObjectPath()).string();
+            std::string objPath = Util::relativeIfSubpath(section->unit->getObjectPath(), m_paths->workDir).string();
 			o += "\t\t. = ALIGN(";
 			o += std::to_string(forcedAlignment);
 			o += ");\n\t\t\"";
@@ -318,7 +318,7 @@ void Linker::createLinkerScript(
             {
                 if (unit->getTargetRegion() == s->region)
                 {
-                    std::string objPath = Util::relativeIfSubpath(unit->getObjectPath()).string();
+                    std::string objPath = Util::relativeIfSubpath(unit->getObjectPath(), m_paths->workDir).string();
 					static const char* secIncs[] = {
 						"text",
 						"rodata",
@@ -365,7 +365,7 @@ void Linker::createLinkerScript(
             {
                 if (unit->getTargetRegion() == s->region)
                 {
-                    std::string objPath = Util::relativeIfSubpath(unit->getObjectPath()).string();
+                    std::string objPath = Util::relativeIfSubpath(unit->getObjectPath(), m_paths->workDir).string();
                     addSectionInclude(o, objPath, "bss");
                     addSectionInclude(o, objPath, "bss.*");
                 }
@@ -399,7 +399,7 @@ void Linker::createLinkerScript(
 			o += '\t';
 			o += info->symbol; // This is the section name like .ncp_setjump_0x02000000
 			o += " : { KEEP(\"";
-			o += Util::relativeIfSubpath(info->unit->getObjectPath()).string();
+			o += Util::relativeIfSubpath(info->unit->getObjectPath(), m_paths->workDir).string();
 			o += "\" (";
 			o += info->symbol;
 			o += ")) } > ncp_set AT > bin\n";
@@ -508,13 +508,11 @@ void Linker::linkElfFile()
 {
     Log::out << OLINK << "Linking the ARM binary..." << std::endl;
 
-    std::filesystem::current_path(ncp::Application::getWorkPath());
-
     std::string ccmd;
     ccmd.reserve(128);
     ccmd += BuildConfig::getToolchain();
     ccmd += "gcc -nostartfiles -Wl,--gc-sections,-T\"";
-    ccmd += Util::relativeIfSubpath(m_ldscriptPath).string();
+    ccmd += Util::relativeIfSubpath(m_ldscriptPath, m_paths->workDir).string();
     ccmd += '\"';
     std::string targetFlags = ldFlagsToGccFlags(m_target->ldFlags);
     if (!targetFlags.empty())
@@ -522,7 +520,7 @@ void Linker::linkElfFile()
     ccmd += targetFlags;
 
     std::ostringstream oss;
-    int retcode = Process::start(ccmd.c_str(), &oss);
+    int retcode = Process::start(ccmd.c_str(), m_paths->workDir, &oss);
     
 	// if (ncp::Application::isVerbose())
 	// {

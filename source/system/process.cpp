@@ -1,6 +1,7 @@
 #include "process.hpp"
 
 #include <string>
+#include <filesystem>
 #include <stdexcept>
 #include <thread>
 #include <vector>
@@ -12,7 +13,7 @@
 #include <windows.h>
 #include <tchar.h>
 
-int Process::start(const char* cmd, std::ostream* out)
+int Process::start(const char* cmd, const std::filesystem::path& cwd, std::ostream* out)
 {
 	HANDLE g_hChildStd_OUT_Rd = NULL;
 	HANDLE g_hChildStd_OUT_Wr = NULL;
@@ -53,8 +54,13 @@ int Process::start(const char* cmd, std::ostream* out)
 	siStartInfo.hStdOutput = g_hChildStd_OUT_Wr;
 	siStartInfo.dwFlags |= STARTF_USESTDHANDLES;
 
-	// Create the child process.
-	bSuccess = CreateProcess(NULL, szCmdline, NULL, NULL, TRUE, 0, NULL, NULL, &siStartInfo, &piProcInfo);
+	// Create the child process. An empty cwd means "inherit ours".
+	// Narrow, not native(): the cast of `cmd` above already commits this to the
+	// ANSI CreateProcess, whose lpCurrentDirectory is LPCSTR.
+	std::string cwdStr = cwd.string();
+	const char* lpCurrentDirectory = cwdStr.empty() ? NULL : cwdStr.c_str();
+
+	bSuccess = CreateProcess(NULL, szCmdline, NULL, NULL, TRUE, 0, NULL, lpCurrentDirectory, &siStartInfo, &piProcInfo);
    
 	// If an error occurs, exit the application. 
 	if (!bSuccess)
@@ -117,7 +123,7 @@ bool Process::exists(const char* app)
 #include <sys/wait.h>
 #define SHELL "/bin/sh"
 
-int Process::start(const char* cmd, std::ostream* out)
+int Process::start(const char* cmd, const std::filesystem::path& cwd, std::ostream* out)
 {
 	int pipefd[2];
 	if (pipe(pipefd) < 0)
@@ -136,6 +142,10 @@ int Process::start(const char* cmd, std::ostream* out)
 		dup2(pipefd[1], STDOUT_FILENO); // Send stdout to the pipe
 		dup2(pipefd[1], STDERR_FILENO); // Send stderr to the pipe
 		close(pipefd[1]);               // This descriptor is no longer needed
+
+		// Only the child moves; the parent's cwd is left alone.
+		if (!cwd.empty() && chdir(cwd.c_str()) != 0)
+			_exit(EXIT_FAILURE);
 
 		execl(SHELL, SHELL, "-c", cmd, NULL); // Execute the shell command
 		_exit(EXIT_FAILURE);
@@ -185,3 +195,8 @@ bool Process::exists(const char* app)
 }
 
 #endif
+
+int Process::start(const char* cmd, std::ostream* out)
+{
+	return Process::start(cmd, std::filesystem::path(), out);
+}

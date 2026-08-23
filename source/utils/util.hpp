@@ -95,6 +95,9 @@ std::string intToAddr(int in, int align, bool prefix = true);
 
 void printDataAsHex(const void* data, std::size_t size, std::size_t rowlen);
 
-std::filesystem::path relativeIfSubpath(const std::filesystem::path& path);
+// Shortens `path` for display and for command lines when it sits under `base`.
+// Anything outside `base` comes back untouched: a long "../.." chain is neither
+// shorter nor clearer than the absolute path it would replace.
+std::filesystem::path relativeIfSubpath(const std::filesystem::path& path, const std::filesystem::path& base);
 
 }

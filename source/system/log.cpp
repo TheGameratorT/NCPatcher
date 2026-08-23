@@ -1,8 +1,8 @@
 #include "log.hpp"
 
 #include <iostream>
-#include <fstream>
 #include <filesystem>
+#include <memory>
 #include <sstream>
 
 #ifdef _WIN32
@@ -19,6 +19,7 @@
 #endif
 
 #include "../utils/types.hpp"
+#include "log_sink.hpp"
 
 const char* log_OERROR = OSQRTBRKTS(ANSI_bWHITE, ANSI_bRED, "Error") " ";
 const char* log_OWARN = OSQRTBRKTS(ANSI_bWHITE, ANSI_bYELLOW, "Warn") " ";
@@ -29,199 +30,33 @@ const char* log_OREASON = "   -->  ";
 
 namespace Log {
 
-static std::ofstream logFile;
 static LogMode logMode = LogMode::Both;
 #ifndef _WIN32
 static bool xyCapabilityAvailable = true;
 #endif
 
-#ifdef _WIN32
-static int wincolors[] = {
-	0, // Black
-	4, // Red
-	2, // Green
-	6, // Yellow
-	1, // Blue
-	5, // Magenta
-	3, // Cyan
-	7  // White
-};
-#endif
-
-/*
- * This class implements partial support for
- * simple ANSI colored output to the console.
- * */
+// Collects everything streamed into Log::out until a flush, then hands the
+// whole chunk to the sinks.
+//
+// It deliberately knows nothing about ANSI, files or consoles: a message is
+// rendered once, here, and each sink decides what to do with it. Buffering to a
+// flush is what keeps a styled line whole -- a sink that has to translate
+// escapes into console attributes cannot do so if the escape and the text it
+// applies to arrive in separate calls.
 class OutputStreamBuffer : public std::stringbuf
 {
 public:
-	OutputStreamBuffer()
-	{
-#ifdef _WIN32
-		hOut = GetStdHandle(STD_OUTPUT_HANDLE);
-		resetStyles();
-#endif
-	}
-
 	~OutputStreamBuffer() override
 	{
 		pubsync();
-#ifdef _WIN32
-		SetConsoleTextAttribute(hOut, 7);
-#endif
 	}
 
 	int sync() override
 	{
-		flushBuffer(str());
+		dispatch(str());
 		str("");
-		return 0; // Always return success
+		return 0;
 	}
-
-	void flushBuffer(const std::string& buf)
-	{
-		if (buf.empty())
-			return;
-
-#ifndef _WIN32
-		if (logMode != LogMode::File && xyCapabilityAvailable)
-		{
-			std::cout << buf << std::flush;
-		}
-#endif
-
-		auto isEndChar = [](char c){ return (c < '0' || c > '9') && c != ';'; };
-
-		SizeT bufl = buf.length();
-		SizeT cpos = 0;
-		SizeT lpos = 0;
-
-		std::string_view bufView(buf);
-
-		// Process ANSI escape sequences
-		while ((cpos = buf.find('\x1b', cpos)) != std::string::npos)
-		{
-			// Prevent infinite loops with malformed escape sequences
-			if (cpos + 1 >= bufl || buf[cpos + 1] != '[')
-			{
-				cpos++;
-				continue;
-			}
-
-			// Print the section between the previous ANSI code and the newly found one
-			outputBuffer(bufView.substr(lpos, cpos - lpos));
-
-			cpos += 2; // Skip the \x1b and [
-
-			char op = '\0';
-
-			// Find the ANSI operator code
-			std::size_t ccpos = cpos;
-			while (ccpos < bufl)
-			{
-				char c = buf[ccpos];
-				if (isEndChar(c))
-				{
-					op = buf[ccpos];
-					break;
-				}
-				ccpos++;
-			}
-
-			SizeT lapos = cpos; // Set the position for the last argument
-
-			while (cpos < bufl)
-			{
-				char c = buf[cpos];
-				bool reachedEnd = isEndChar(c);
-				if (c == ';' || reachedEnd)
-				{
-					SizeT argLen = cpos - lapos;
-#ifdef _WIN32
-					if (op == 'm' && argLen < 10) // Safety check for argument length
-					{
-						int arg = argLen == 0 ? 0 : std::stoi(std::string(bufView.substr(lapos, argLen)));
-						applyCode(arg);
-					}
-#endif
-					lapos = cpos + 1;
-				}
-				cpos++;
-				if (reachedEnd)
-					break;
-			}
-			lpos = cpos;
-		}
-
-		outputBuffer(bufView.substr(lpos)); // Print the remaining text
-	}
-
-	static void outputBuffer(const std::string_view& str)
-	{
-		if (str.empty())
-			return;
-			
-#ifdef _WIN32
-		if (logMode != LogMode::File)
-			std::cout << str << std::flush;
-#endif
-		if (logMode != LogMode::Console)
-		{
-#ifndef _WIN32
-			if (!xyCapabilityAvailable)
-				std::cout << str << std::flush;
-#endif
-			if (logFile.is_open())
-				logFile << str << std::flush;
-		}
-	}
-
-#ifdef _WIN32
-	void applyCode(int value)
-	{
-		if (value == 0) // Reset
-		{
-			resetStyles();
-		}
-		else if (value == 1) // Bold
-		{
-			if (!boldEnabled)
-			{
-				int fgAttr = txtAttr & 0xF;
-				txtAttr &= ~0xF;
-				txtAttr |= fgAttr + 8;
-				SetConsoleTextAttribute(hOut, txtAttr);
-			}
-			boldEnabled = true;
-		}
-		else if (value >= 30) // Text or Background
-		{
-			if (value < 40) // Text
-			{
-				txtAttr &= ~0xF;
-				txtAttr |= wincolors[value - 30] + (int(boldEnabled) * 8);
-			}
-			else // Background
-			{
-				txtAttr &= ~0xF0;
-				txtAttr |= wincolors[value - 40];
-			}
-			SetConsoleTextAttribute(hOut, txtAttr);
-		}
-	}
-
-	void resetStyles()
-	{
-		txtAttr = 7;
-		boldEnabled = false;
-		SetConsoleTextAttribute(hOut, 7);
-	}
-
-private:
-	HANDLE hOut;
-	WORD txtAttr;
-	bool boldEnabled;
-#endif
 };
 
 OutputStream::OutputStream() :
@@ -235,10 +70,23 @@ OutputStream::~OutputStream()
 
 OutputStream out;
 
+// Which console sink applies is fixed for the run: a styling sink when the
+// terminal can render escapes and move the cursor, a plain one otherwise.
+static void installConsoleSink()
+{
+	if (hasSink(SinkKind::Terminal) || hasSink(SinkKind::Plain))
+		return;
+
+	if (terminalSupportsCursor())
+		addSink(std::make_unique<TerminalSink>());
+	else
+		addSink(std::make_unique<PlainSink>());
+}
+
 void init()
 {
 	std::ios_base::sync_with_stdio(false);
-	
+
 #ifndef _WIN32
 	// Test XY capability by attempting to query cursor position with timeout
 	struct termios term, restore;
@@ -252,6 +100,7 @@ void init()
 	{
 		xyCapabilityAvailable = false;
 		tcsetattr(0, TCSANOW, &restore);
+		installConsoleSink();
 		return;
 	}
 
@@ -268,6 +117,7 @@ void init()
 	{
 		xyCapabilityAvailable = false;
 		tcsetattr(0, TCSANOW, &restore);
+		installConsoleSink();
 		return;
 	}
 
@@ -289,6 +139,8 @@ void init()
 
 	tcsetattr(0, TCSANOW, &restore);
 #endif
+
+	installConsoleSink();
 }
 
 void destroy()
@@ -298,15 +150,13 @@ void destroy()
 
 void openLogFile(const std::filesystem::path& path)
 {
-	logFile.open(path);
-	if (!logFile.is_open())
-		throw std::runtime_error("Could not open output log file!");
+	removeSinks(SinkKind::File);
+	addSink(std::make_unique<FileSink>(path));
 }
 
 void closeLogFile()
 {
-	if (logFile.is_open())
-		logFile.close();
+	removeSinks(SinkKind::File);
 }
 
 void log(const std::string& str)
@@ -332,6 +182,20 @@ void error(const std::string& str)
 void setMode(LogMode mode)
 {
 	logMode = mode;
+}
+
+LogMode getMode()
+{
+	return logMode;
+}
+
+bool terminalSupportsCursor()
+{
+#ifdef _WIN32
+	return true;
+#else
+	return xyCapabilityAvailable;
+#endif
 }
 
 #ifdef _WIN32
@@ -386,7 +250,7 @@ void writeChar(int x, int y, char chr, int color, bool bold)
 		if (ReadConsoleOutputAttribute(hStdOut, &attr, 1, coord, &dw))
 		{
 			attr &= ~0xF;
-			attr |= wincolors[color - 30] + (int(bold) * 8);
+			attr |= ansiColorToConsole(color) + (int(bold) * 8);
 			WriteConsoleOutputAttribute(hStdOut, &attr, 1, coord, &dw);
 		}
 

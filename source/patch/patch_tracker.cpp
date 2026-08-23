@@ -17,20 +17,19 @@ PatchTracker::~PatchTracker() = default;
 
 void PatchTracker::initialize(
     const BuildTarget& target,
-    const std::filesystem::path& targetWorkDir,
+    const ncp::PathContext& paths,
     core::CompilationUnitManager& compilationUnitMgr,
 	DependencyResolver& dependencyResolver
 )
 {
     m_target = &target;
-    m_targetWorkDir = &targetWorkDir;
+    m_paths = &paths;
 	m_compilationUnitMgr = &compilationUnitMgr;
 	m_dependencyResolver = &dependencyResolver;
 }
 
 void PatchTracker::collectPatchesFromUnits()
 {
-    std::filesystem::current_path(*m_targetWorkDir);
     Log::info("Getting patches from objects...");
 
 	if (ncp::Application::isVerbose(ncp::VerboseTag::Patch))

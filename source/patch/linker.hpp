@@ -9,6 +9,7 @@
 #include "../utils/types.hpp"
 #include "../formats/elf.hpp"
 #include "../config/buildtarget.hpp"
+#include "../system/path_context.hpp"
 #include "../core/compilation_unit_manager.hpp"
 #include "overwrite_region_manager.hpp"
 
@@ -44,7 +45,7 @@ public:
 
     void initialize(
         const BuildTarget& target,
-        const std::filesystem::path& buildDir,
+        const ncp::PathContext& paths,
         core::CompilationUnitManager& compilationUnitMgr,
         const std::unordered_map<int, u32>& newcodeAddrForDest
     );
@@ -63,18 +64,13 @@ public:
 
     const Elf32* getElf() const { return m_elf.get(); }
 
-    // Path accessors
-    const std::filesystem::path& getStripElfPath() const { return m_elfStripPath; }
-
 private:
     const BuildTarget* m_target;
-    const std::filesystem::path* m_buildDir;
+    const ncp::PathContext* m_paths;
     core::CompilationUnitManager* m_compilationUnitMgr;
     const std::unordered_map<int, u32>* m_newcodeAddrForDest;
     
-    std::filesystem::path m_ldscriptStripPath;
     std::filesystem::path m_ldscriptPath;
-    std::filesystem::path m_elfStripPath;
     std::filesystem::path m_elfPath;
 
     std::unique_ptr<Elf32> m_elf;

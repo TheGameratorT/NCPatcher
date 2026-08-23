@@ -5,6 +5,7 @@
 #include <filesystem>
 
 #include "../config/buildtarget.hpp"
+#include "../system/path_context.hpp"
 #include "../core/compilation_unit_manager.hpp"
 
 class ObjMaker
@@ -14,15 +15,13 @@ public:
 
 	void makeTarget(
 		const BuildTarget& target,
-		const std::filesystem::path& targetWorkDir,
-		const std::filesystem::path& buildDir,
+		const ncp::PathContext& paths,
 		core::CompilationUnitManager& compilationUnitMgr
 	);
 
 private:
 	const BuildTarget* m_target;
-	const std::filesystem::path* m_targetWorkDir;
-	const std::filesystem::path* m_buildDir;
+	const ncp::PathContext* m_paths;
 	std::string m_includeFlags;
 	std::string m_defineFlags;
 	core::CompilationUnitManager* m_compilationUnitMgr;

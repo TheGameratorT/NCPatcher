@@ -18,19 +18,40 @@ endif()
 # Get RapidJson
 include("${CMAKE_SOURCE_DIR}/vendor/rapidjson.cmake")
 include_directories(${RAPIDJSON_INCLUDE_DIR})
-# Get thread-pool
-include("${CMAKE_SOURCE_DIR}/vendor/thread-pool.cmake")
-include_directories(${THREADPOOL_INCLUDE_DIR})
+# BS::thread_pool is vendored in-tree; see vendor/thread-pool/README.md
+include_directories("${CMAKE_SOURCE_DIR}/vendor/thread-pool/include")
 
 # Find the source files
-file(GLOB_RECURSE SOURCES "source/*.cpp")
+# CONFIGURE_DEPENDS re-runs the glob when the source tree changes; without it a
+# newly added .cpp is silently left out of the build until CMake is re-run.
+file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS "source/*.cpp")
 
 # Add the executable
 add_executable(${PROJECT_NAME} ${SOURCES} $<IF:$<BOOL:${WIN32}>,win_resources.rc,>)
-add_dependencies(${PROJECT_NAME} rapidjson thread-pool)
+add_dependencies(${PROJECT_NAME} rapidjson)
 if (NOT WIN32)
 	find_package(Threads REQUIRED)
 	target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads)
+endif()
+
+# Tests
+option(NCP_BUILD_TESTS "Build unit tests" OFF)
+if (NCP_BUILD_TESTS)
+	enable_testing()
+	add_executable(glob_test tests/glob_test.cpp source/utils/glob.cpp)
+	set_property(TARGET glob_test PROPERTY CXX_STANDARD 20)
+	set_property(TARGET glob_test PROPERTY CXX_STANDARD_REQUIRED ON)
+	add_test(NAME glob COMMAND glob_test)
+
+	add_executable(diagnostics_test tests/diagnostics_test.cpp source/system/diagnostics.cpp)
+	set_property(TARGET diagnostics_test PROPERTY CXX_STANDARD 20)
+	set_property(TARGET diagnostics_test PROPERTY CXX_STANDARD_REQUIRED ON)
+	add_test(NAME diagnostics COMMAND diagnostics_test)
+
+	add_executable(ansi_test tests/ansi_test.cpp source/system/ansi.cpp)
+	set_property(TARGET ansi_test PROPERTY CXX_STANDARD 20)
+	set_property(TARGET ansi_test PROPERTY CXX_STANDARD_REQUIRED ON)
+	add_test(NAME ansi COMMAND ansi_test)
 endif()
 
 # Specify the C++ standard

@@ -21,12 +21,12 @@ LibraryManager::~LibraryManager() = default;
 
 void LibraryManager::initialize(
     const BuildTarget& target,
-    const std::filesystem::path& buildDir,
+    const ncp::PathContext& paths,
     core::CompilationUnitManager& compilationUnitMgr
 )
 {
     m_target = &target;
-    m_buildDir = &buildDir;
+    m_paths = &paths;
     m_compilationUnitMgr = &compilationUnitMgr;
 }
 
@@ -160,7 +160,9 @@ void LibraryManager::findLibraryFiles()
         {
             for (const std::string& fileName : libFileNames)
             {
-                std::filesystem::path candidatePath = std::filesystem::path(searchPath) / fileName;
+                // A -L path may be relative, and it is written relative to the
+                // project, not to wherever ncpatcher was launched from.
+                std::filesystem::path candidatePath = m_paths->work(searchPath) / fileName;
                 if (std::filesystem::exists(candidatePath))
                 {
                     foundPath = candidatePath;
@@ -194,7 +196,7 @@ void LibraryManager::getToolchainLibraryPaths()
     try
     {
         std::ostringstream output;
-        int exitCode = Process::start(gccCommand.c_str(), &output);
+        int exitCode = Process::start(gccCommand.c_str(), m_paths->workDir, &output);
         
         if (exitCode != 0)
         {

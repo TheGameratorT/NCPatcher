@@ -6,7 +6,7 @@
 #include <algorithm>
 #include <sstream>
 
-#include "../app/application.hpp"
+#include "../system/diagnostics.hpp"
 #include "../system/log.hpp"
 #include "../system/except.hpp"
 #include "../formats/blz.hpp"
@@ -32,7 +32,7 @@ void ArmBin::load(const fs::path& path, u32 entryAddr, u32 ramAddr, u32 autoLoad
 
 	// READ FILE ================================
 
-	ncp::Application::setErrorContext(isArm9 ? LoadErr9 : LoadErr7);
+	ncp::ScopedContext ctx(ncp::Diag::ArmBinLoad, isArm9 ? LoadErr9 : LoadErr7);
 
 	if (!fs::exists(path))
 		throw ncp::file_error(path, ncp::file_error::find);
@@ -91,8 +91,6 @@ void ArmBin::load(const fs::path& path, u32 entryAddr, u32 ramAddr, u32 autoLoad
 	// AUTO LOAD ================================
 
 	refreshAutoloadData();
-
-	ncp::Application::setErrorContext(nullptr);
 }
 
 void ArmBin::readBytes(u32 address, void* out, u32 size) const

@@ -5,11 +5,12 @@
 #include <filesystem>
 
 #include "../utils/types.hpp"
+#include "../system/path_context.hpp"
 
 namespace RebuildConfig {
 
-void load();
-void save();
+void load(const ncp::PathContext& paths);
+void save(const ncp::PathContext& paths);
 
 std::time_t getBuildConfigWriteTime();
 std::time_t getArm7TargetWriteTime();

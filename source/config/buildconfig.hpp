@@ -4,9 +4,11 @@
 #include <vector>
 #include <filesystem>
 
+#include "../system/path_context.hpp"
+
 namespace BuildConfig {
 
-void load();
+void load(const ncp::PathContext& paths);
 
 const std::string& getVariable(const std::string& value);
 

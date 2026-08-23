@@ -25,7 +25,7 @@ class JsonMember
 {
 public:
 	explicit JsonMember();
-	explicit JsonMember(const rapidjson::Value& value, const JsonMember* parent, std::string name);
+	explicit JsonMember(const rapidjson::Value& value, std::string path, std::string name);
 
 	JsonMember operator[](const char* member) const;
 	JsonMember operator[](size_t index) const;
@@ -51,9 +51,13 @@ public:
 	[[nodiscard]] std::string getPathToSelf() const;
 
 private:
+	// The path is stored by value rather than walked through parent pointers:
+	// a JsonMember may outlive the temporary it was indexed from.
 	const rapidjson::Value* value;
-	const JsonMember* parent;
+	std::string path;
 	std::string name;
+
+	[[nodiscard]] std::string childPath(std::string_view child) const;
 };
 
 class JsonReader

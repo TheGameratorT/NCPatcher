@@ -41,14 +41,14 @@ void printDataAsHex(const void* data, std::size_t size, std::size_t rowlen)
 	Log::out << std::flush;
 }
 
-std::filesystem::path relativeIfSubpath(const std::filesystem::path& path)
+std::filesystem::path relativeIfSubpath(const std::filesystem::path& path, const std::filesystem::path& base)
 {
     try
 	{
-        auto relative = std::filesystem::relative(path);
-		bool notSubpath = relative.string().starts_with("..");
+        auto relative = std::filesystem::relative(path, base);
+		bool notSubpath = relative.empty() || relative.string().starts_with("..");
 
-        return notSubpath ? path : std::filesystem::relative(path);
+        return notSubpath ? path : relative;
     }
 	catch (const std::filesystem::filesystem_error&)
 	{

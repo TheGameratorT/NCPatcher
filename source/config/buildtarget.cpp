@@ -8,6 +8,7 @@
 #include "../system/log.hpp"
 #include "../system/except.hpp"
 #include "../utils/util.hpp"
+#include "../utils/glob.hpp"
 #include "buildconfig.hpp"
 
 namespace fs = std::filesystem;
@@ -19,18 +20,14 @@ static const char* s_regionModeStrs[] = { "append", "replace", "create" };
 
 BuildTarget::BuildTarget() = default;
 
-void BuildTarget::load(const fs::path& targetFilePath, const fs::path& targetWorkDir, bool isArm9)
+void BuildTarget::load(const fs::path& targetFilePath, const ncp::PathContext& paths, bool isArm9)
 {
 	m_isArm9 = isArm9;
-
-	fs::path curPath = fs::current_path();
-
-	fs::current_path(ncp::Application::getWorkPath());
-	fs::current_path(targetWorkDir);
+	m_paths = &paths;
 
 	JsonReader json(targetFilePath);
 
-	varmap.emplace("root", ncp::Application::getWorkPath().string());
+	varmap.emplace("root", paths.workDir.string());
 
 	const std::vector<JsonMember> members = json.getMembers();
 	for (const JsonMember& member : members)
@@ -78,7 +75,7 @@ void BuildTarget::load(const fs::path& targetFilePath, const fs::path& targetWor
 
 	m_lastWriteTime = Util::toTimeT(fs::last_write_time(targetFilePath));
 
-	fs::current_path(curPath);
+	m_paths = nullptr;
 }
 
 bool BuildTarget::hasOverwrites() const
@@ -190,100 +187,95 @@ std::string BuildTarget::getString(const JsonMember& member)
 	return out;
 }
 
+void BuildTarget::readLegacyPathPair(const JsonMember& entry, bool directoriesOnly,
+                                     std::vector<std::string>& out)
+{
+	// Releases before the glob syntax took [path, recursive] pairs. Six shipped
+	// projects still use that form, so translate rather than reject it.
+	if (entry.size() != 2)
+	{
+		std::ostringstream oss;
+		oss << "Invalid entry " << OSTR(entry.getPathToSelf())
+		    << ", expected a string pattern or a " ANSI_bCYAN "[path, recursive]" ANSI_RESET " pair.";
+		throw ncp::exception(oss.str());
+	}
+
+	std::string path = getString(entry[size_t(0)]);
+	const bool recursive = entry[size_t(1)].getBool();
+
+	while (path.size() > 1 && (path.back() == '/' || path.back() == '\\'))
+		path.pop_back();
+
+	if (directoriesOnly)
+	{
+		// The directory itself, plus every subdirectory when recursive.
+		out.push_back(path);
+		if (recursive)
+			out.push_back(path + "/**");
+	}
+	else
+	{
+		// Files directly inside the directory, or at any depth when recursive.
+		out.push_back(recursive ? path + "/**" : path);
+	}
+}
+
 void BuildTarget::getDirectoryArray(const JsonMember& member, std::vector<fs::path>& out, bool directoriesOnly)
 {
-    size_t size = member.size();
-    for (size_t i = 0; i < size; i++)
-    {
-        std::string pattern = getString(member[i]);
-        fs::path patternPath = pattern;
-        patternPath.make_preferred();
+	Glob::Options options;
+	options.directoriesOnly = directoriesOnly;
 
-        // Only support * and ** for globbing
-        auto hasGlob = [](const std::string& s) {
-            return s.find('*') != std::string::npos;
-        };
+	std::vector<fs::path> matched;
+	std::vector<std::string> exclusions;
 
-        if (!hasGlob(pattern))
-        {
-            // No glob: treat as literal path
-            if (!fs::exists(patternPath))
-            {
-                Log::out << OWARN << "Ignored non-existent path: " << OSTR(patternPath.string()) << std::endl;
-                continue;
-            }
-            if (directoriesOnly)
-            {
-                if (fs::is_directory(patternPath))
-                    out.push_back(patternPath);
-                else
-                    Log::out << OWARN << "Ignored non-directory path for includes: " << OSTR(patternPath.string()) << std::endl;
-            }
-            else
-            {
-                if (fs::is_regular_file(patternPath))
-                    out.push_back(patternPath);
-                else if (fs::is_directory(patternPath))
-                {
-                    for (const auto& entry : fs::directory_iterator(patternPath))
-                    {
-                        if (entry.is_regular_file())
-                            out.push_back(entry.path());
-                    }
-                }
-            }
-            continue;
-        }
+	const size_t size = member.size();
+	for (size_t i = 0; i < size; i++)
+	{
+		const JsonMember entry = member[i];
 
-        // Find base directory (up to first *)
-        size_t firstStar = pattern.find('*');
-        size_t baseSlash = pattern.rfind('/', firstStar);
-        fs::path baseDir = (baseSlash == std::string::npos) ? fs::current_path() : fs::path(pattern.substr(0, baseSlash));
-        std::string matchPattern = (baseSlash == std::string::npos) ? pattern : pattern.substr(baseSlash + 1);
+		std::vector<std::string> patterns;
+		if (entry.isArray())
+			readLegacyPathPair(entry, directoriesOnly, patterns);
+		else
+			patterns.push_back(getString(entry));
 
-        if (!fs::exists(baseDir))
-        {
-            Log::out << OWARN << "Ignored non-existent path: " << OSTR(baseDir.string()) << std::endl;
-            continue;
-        }
+		for (const std::string& pattern : patterns)
+		{
+			if (pattern.starts_with('!'))
+			{
+				exclusions.emplace_back(pattern.substr(1));
+				continue;
+			}
 
-        bool recursive = matchPattern.find("**") != std::string::npos;
+			// Searched under the target work directory, but kept relative to it:
+			// object paths are derived from these.
+			std::vector<fs::path> found = Glob::expand(pattern, m_paths->targetWorkDir, options);
+			if (found.empty())
+			{
+				Log::out << OWARN << (Glob::hasWildcard(pattern)
+					? "Pattern matched nothing: "
+					: "Ignored non-existent path: ") << OSTR(pattern) << std::endl;
+				continue;
+			}
+			matched.insert(matched.end(), found.begin(), found.end());
+		}
+	}
 
-        auto match = [](const std::string& pat, const std::string& name) {
-            // Only supports '*' wildcard
-            if (pat == "*") return true;
-            size_t star = pat.find('*');
-            if (star == std::string::npos) return pat == name;
-			std::string before = pat.substr(0, star);
-			std::string after = pat.substr(star + 1);
-			if (!before.empty() && !name.starts_with(before)) return false;
-			if (!after.empty() && !name.ends_with(after)) return false;
-			return name.size() >= before.size() + after.size();
-        };
-
-        if (recursive)
-        {
-            for (const auto& entry : fs::recursive_directory_iterator(baseDir))
-            {
-                if (directoriesOnly && !entry.is_directory()) continue;
-                if (!directoriesOnly && !entry.is_regular_file()) continue;
-                std::string fname = entry.path().filename().string();
-                if (match(matchPattern, fname))
-                    out.push_back(entry.path());
-            }
-        }
-        else
-        {
-            for (const auto& entry : fs::directory_iterator(baseDir))
-            {
-                if (directoriesOnly && !entry.is_directory()) continue;
-                if (!directoriesOnly && !entry.is_regular_file()) continue;
-                std::string fname = entry.path().filename().string();
-                if (match(matchPattern, fname))
-                    out.push_back(entry.path());
-            }
-        }
-    }
+	for (const fs::path& path : matched)
+	{
+		const std::string generic = path.generic_string();
+		bool excluded = false;
+		for (const std::string& exclusion : exclusions)
+		{
+			if (Glob::match(exclusion, generic))
+			{
+				excluded = true;
+				break;
+			}
+		}
+		if (!excluded)
+			out.push_back(path);
+	}
 }
 
 void BuildTarget::readDestination(BuildTarget::Region& region, const JsonMember& member)

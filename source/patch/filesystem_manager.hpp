@@ -10,6 +10,7 @@
 #include "../ndsbin/armbin.hpp"
 #include "../ndsbin/overlaybin.hpp"
 #include "../config/buildtarget.hpp"
+#include "../system/path_context.hpp"
 
 namespace ncp::patch {
 
@@ -21,7 +22,7 @@ public:
 
     void initialize(
         const BuildTarget& target,
-        const std::filesystem::path& buildDir,
+        const PathContext& paths,
         const HeaderBin& header
     );
 
@@ -45,8 +46,12 @@ public:
 
 private:
     const BuildTarget* m_target;
-    const std::filesystem::path* m_buildDir;
+    const PathContext* m_paths;
     const HeaderBin* m_header;
+
+    // Absolute path of a file inside the backup directory, which the project
+    // config names relative to the project root.
+    [[nodiscard]] std::filesystem::path backupPath(const std::filesystem::path& relative) const;
     
     std::unique_ptr<ArmBin> m_arm;
     std::unordered_map<std::size_t, std::unique_ptr<OverlayBin>> m_loadedOverlays;
