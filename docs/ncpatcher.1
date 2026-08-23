@@ -1,0 +1,198 @@
+.\" Manual page for ncpatcher.
+.TH NCPATCHER 1 "2026" "ncpatcher" "User Commands"
+.SH NAME
+ncpatcher \- compile code and splice it into a Nintendo DS ROM
+.SH SYNOPSIS
+.B ncpatcher
+.RI [ options ]
+.RI [ command ]
+.RI [ options ]
+.SH DESCRIPTION
+.B ncpatcher
+compiles C, C++ and assembly with a cross-toolchain and patches the result into
+a Nintendo DS ROM's ARM binaries and overlays. What it builds, and where it
+writes it, is described by
+.B ncpatcher.yaml
+in the project directory.
+.PP
+With no command it builds, which is how existing projects and the level editor
+invoke it.
+.SH COMMANDS
+.TP
+.B build
+Compile and patch. The default.
+.TP
+.BR clean " [" \-\-backups ]
+Delete the build directories. With
+.BR \-\-backups ,
+also delete the backup directory \(em which leaves the ROM binaries patched with
+no way back, so
+.B restore
+is usually what was meant.
+.TP
+.B restore
+Copy the pristine binaries out of the backup directory back into the ROM
+directory, then remove the backups.
+.TP
+.BR "config dump" " [" \-\-explain ] " [" \-\-json ]
+Print every setting after inheritance, variables and globs have been resolved:
+what the build would actually use, not what the file says.
+.B \-\-explain
+adds where each setting came from.
+.TP
+.B config validate
+Load and resolve the configuration, reporting problems, without building.
+.TP
+.B config path
+Print the path of the configuration file that would be used.
+.TP
+.BR migrate " [" \-\-write ]
+Convert a version 1
+.B ncpatcher.json
+into a commented
+.BR ncpatcher.yaml ,
+hoisting shared flags and extracting
+.B \-D
+flags into a
+.B defines
+list. Prints the result;
+.B \-\-write
+saves it.
+.TP
+.B version
+Print the version.
+.SH OPTIONS
+.TP
+.BI \-C " PATH" "\fR, \fP" \-\-project " PATH"
+Project directory, or the configuration file itself. Removes the need to launch
+the program from the project directory.
+.TP
+.BI \-\-rom " PATH"
+Extracted-ROM directory, overriding the one in the configuration.
+.TP
+.BI \-D " NAME[=VAL]" "\fR, \fP" \-\-define " NAME[=VAL]"
+Define a preprocessor macro for every translation unit.
+.TP
+.BI \-\-var " NAME=VAL"
+Set a configuration variable, overriding
+.B vars:
+in the project file. Lets one committed configuration serve a machine whose
+reference tree lives somewhere unusual.
+.TP
+.BI \-\-toolchain " PREFIX"
+Cross-compiler prefix, for example
+.BR arm-none-eabi- .
+.TP
+.BI \-j " N" "\fR, \fP" \-\-jobs " N"
+Compile jobs to run at once. 0 uses one per hardware thread.
+.TP
+.BR \-v ", " \-\-verbose
+Enable every category of verbose output.
+.TP
+.BI \-\-verbose-tag " TAG"
+Enable one category: build, section, elf, patch, library, linking, symbols,
+nolib, all.
+.TP
+.BI \-\-color " auto|always|never"
+When to style the console output.
+.B NO_COLOR
+in the environment is honoured.
+.TP
+.BI \-\-message-format " human|json"
+.B json
+emits one JSON object per line on stdout and moves the human log to stderr, so
+that a caller has exactly one thing to parse.
+.TP
+.BI \-\-result " PATH"
+Write a JSON summary of the run \(em status, counts, diagnostics and the
+artifacts written \(em to this file.
+.TP
+.BI \-\-log " PATH"
+Write the log file here instead of the default
+.IR <buildDir>/ncpatcher.log .
+.TP
+.B \-\-no\-log
+Do not write a log file.
+.TP
+.BR \-h ", " \-\-help
+Show the built-in help.
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+Internal error.
+.TP
+.B 2
+The command line was wrong.
+.TP
+.B 3
+The configuration could not be loaded or resolved.
+.TP
+.B 4
+A module could not be resolved.
+.TP
+.B 5
+The toolchain is missing or unusable.
+.TP
+.B 6
+Compilation failed.
+.TP
+.B 7
+Linking failed.
+.TP
+.B 8
+Patching failed.
+.TP
+.B 9
+The ROM could not be read or written.
+.TP
+.B 10
+A pre-build or post-build command failed.
+.TP
+.B 130
+Interrupted.
+.SH ENVIRONMENT
+.TP
+.B NCPATCHER_TOOLCHAIN
+Cross-compiler prefix, used when the command line does not say.
+.TP
+.B NCPATCHER_JOBS
+Compile jobs, used when the command line does not say.
+.TP
+.B NCPATCHER_LOG
+Log file path, used when the command line does not say.
+.TP
+.B NCPATCHER_DATA_DIR
+Directory holding
+.BR ncp.h ", " ncp_ide.h " and " ncprt.c .
+Searched before the install location, for development trees and images that
+place them somewhere of their own choosing.
+.TP
+.B NO_COLOR
+If set, the console output is not styled.
+.PP
+Precedence throughout is command line, then environment, then the project file,
+then the built-in default.
+.B ncpatcher config dump \-\-explain
+says which of them won.
+.SH FILES
+.TP
+.I ncpatcher.yaml
+The project configuration. An
+.I ncpatcher.json
+is read as the older version 1 schema, which stays supported.
+.TP
+.I <buildDir>/ncpatcher.log
+The log of the last build.
+.TP
+.I <dataDir>/ncp.h
+Force-included into every translation unit. Looked for in
+.BR $NCPATCHER_DATA_DIR ,
+then
+.I <exeDir>/../share/ncpatcher
+, then next to the executable.
+.SH SEE ALSO
+The project README, installed alongside this page, documents the configuration
+schema in full.

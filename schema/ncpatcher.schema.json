@@ -1,0 +1,202 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/TheGameratorT/NCPatcher/main/schema/ncpatcher.schema.json",
+  "title": "NCPatcher project configuration",
+  "description": "Schema for ncpatcher.yaml (configuration version 2). The older ncpatcher.json is a different schema and is not described here; run `ncpatcher migrate` to convert it.",
+  "type": "object",
+  "required": ["version", "rom", "targets"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "description": "Configuration schema version. 2 is the YAML schema; a file with no version key is read as the v1 JSON schema.",
+      "const": 2
+    },
+    "vars": {
+      "description": "Named values usable as ${vars.NAME} anywhere in this file. Resolved lazily, so declaration order does not matter, and overridable with --var NAME=VALUE.",
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "rom": { "$ref": "#/$defs/rom" },
+    "toolchain": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "prefix": {
+          "description": "Cross-toolchain prefix, e.g. arm-none-eabi-. Overridable with --toolchain or NCPATCHER_TOOLCHAIN.",
+          "type": "string"
+        }
+      }
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "threads": {
+          "description": "Compile jobs to run at once. 0 means one per hardware thread. Overridable with -j or NCPATCHER_JOBS.",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "includes": { "$ref": "#/$defs/stringList" },
+    "defines": { "$ref": "#/$defs/stringList" },
+    "flags": { "$ref": "#/$defs/flags" },
+    "pre-build": { "$ref": "#/$defs/commandList" },
+    "post-build": { "$ref": "#/$defs/commandList" },
+    "targets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "arm9": { "$ref": "#/$defs/target" },
+        "arm7": { "$ref": "#/$defs/target" }
+      }
+    }
+  },
+  "$defs": {
+    "address": {
+      "description": "A 32-bit address. Either a number or a string, so that 0x-prefixed hex reads as it does in a disassembler.",
+      "oneOf": [
+        { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        { "type": "string", "pattern": "^(0[xX][0-9a-fA-F]+|[0-9]+)$" }
+      ]
+    },
+    "stringList": {
+      "description": "A list that appends to whatever the level above contributed. The mapping form replaces or subtracts instead.",
+      "oneOf": [
+        { "type": "array", "items": { "type": "string" } },
+        { "type": "string" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "set": {
+              "description": "Replaces everything inherited. An empty list means nothing.",
+              "type": "array", "items": { "type": "string" }
+            },
+            "remove": {
+              "description": "Applied after set, before append.",
+              "type": "array", "items": { "type": "string" }
+            },
+            "append": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      ]
+    },
+    "commandList": {
+      "oneOf": [
+        { "type": "array", "items": { "type": "string" } },
+        { "type": "string" }
+      ]
+    },
+    "flags": {
+      "description": "Compiler and linker flags. common reaches all three compilers; defines reach the assembler too, since assembly is compiled through -x assembler-with-cpp.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "common": { "$ref": "#/$defs/stringList" },
+        "c": { "$ref": "#/$defs/stringList" },
+        "cpp": { "$ref": "#/$defs/stringList" },
+        "asm": { "$ref": "#/$defs/stringList" },
+        "ld": { "$ref": "#/$defs/stringList" }
+      }
+    },
+    "rom": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dir": {
+          "description": "Directory holding the extracted ROM: arm9.bin, arm7.bin, the overlay tables and the overlay binaries. Mutually exclusive with file.",
+          "type": "string"
+        },
+        "file": {
+          "description": "A .nds read and written directly. Not supported yet; use dir.",
+          "type": "string"
+        },
+        "output": {
+          "description": "Where to write the patched ROM. Omit to patch in place. Not supported yet.",
+          "type": "string"
+        },
+        "backup": {
+          "description": "Directory holding pristine copies of every binary the patcher touches. `ncpatcher restore` puts them back.",
+          "type": "string"
+        },
+        "layout": {
+          "description": "Naming convention of the extracted ROM directory. Not supported yet.",
+          "type": "string"
+        },
+        "arm9-slack": {
+          "description": "Spare room to leave after arm9 when writing a .nds. Not supported yet.",
+          "oneOf": [{ "const": "auto" }, { "$ref": "#/$defs/address" }]
+        }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "build": {
+          "description": "Directory for object files, the linker script, the ELF and the log. Relative to the project directory.",
+          "type": "string"
+        },
+        "workdir": {
+          "description": "Base directory that this target's includes and sources are resolved against. Defaults to the directory the configuration file is in.",
+          "type": "string"
+        },
+        "arena-lo": {
+          "description": "Address of the arena low pointer, which appended code is placed above.",
+          "$ref": "#/$defs/address"
+        },
+        "symbols": {
+          "description": "Linker script naming the addresses of the game's own functions.",
+          "type": "string"
+        },
+        "includes": { "$ref": "#/$defs/stringList" },
+        "defines": { "$ref": "#/$defs/stringList" },
+        "flags": { "$ref": "#/$defs/flags" },
+        "regions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/region" }
+        }
+      }
+    },
+    "region": {
+      "type": "object",
+      "required": ["dest"],
+      "additionalProperties": false,
+      "properties": {
+        "dest": {
+          "description": "Where this region's code goes: `main` for the ARM binary itself, or `ovNN` for overlay NN.",
+          "type": "string",
+          "pattern": "^(main|ov[0-9]+)$"
+        },
+        "mode": {
+          "description": "append adds code after the existing binary; replace overwrites it; create makes a new overlay.",
+          "enum": ["append", "replace", "create"]
+        },
+        "address": { "$ref": "#/$defs/address" },
+        "maxsize": {
+          "description": "Refuses to build if the region grows past this. Worth setting for an overlay that has something after it in memory.",
+          "$ref": "#/$defs/address"
+        },
+        "compress": { "type": "boolean" },
+        "sources": {
+          "description": "Glob patterns, matched against the target's workdir. Supports *, ?, [abc], {a,b}, ** as a whole segment, and !pattern to exclude.",
+          "$ref": "#/$defs/stringList"
+        },
+        "defines": { "$ref": "#/$defs/stringList" },
+        "flags": { "$ref": "#/$defs/flags" },
+        "overwrites": {
+          "description": "Address ranges of the original binary this region is allowed to write over, as [start, end] pairs.",
+          "type": "array",
+          "items": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": { "$ref": "#/$defs/address" }
+          }
+        }
+      }
+    }
+  }
+}

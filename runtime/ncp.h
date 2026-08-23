@@ -1,5 +1,10 @@
 #pragma once
 
+// Contract version between this header and ncpatcher, which refuses to build
+// against a copy whose number is not the one it expects. Keep NCP_RUNTIME_VERSION
+// in CMakeLists.txt in step.
+#define __ncp_runtime_version 1
+
 // NCP Common
 
 #if defined __ncp_lang_c || defined __ncp_lang_cpp

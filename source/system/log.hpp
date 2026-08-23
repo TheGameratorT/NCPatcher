@@ -128,8 +128,18 @@ void destroy();
 // before the command line has even been parsed still reach a console.
 void configureConsole(ColorMode color, bool toStderr);
 
+// Collects file-destined output in memory until openLogFile() is called, which
+// writes it out as the log's first lines. See BufferSink for why the path is
+// not known yet at the point the first messages are written.
+void beginBufferedLogFile();
+
+// Replaces whatever file destination is installed, buffer included, with the
+// named file. Throws if it cannot be opened.
 void openLogFile(const std::filesystem::path& path);
 void closeLogFile();
+
+// Whether a real log file is open, as opposed to a buffer or nothing.
+[[nodiscard]] bool logFileOpen();
 
 void log(const std::string& str);
 void info(const std::string& str);

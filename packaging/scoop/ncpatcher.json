@@ -1,0 +1,34 @@
+{
+    "version": "1.0.4",
+    "description": "Compiles code and splices it into a Nintendo DS ROM",
+    "homepage": "https://github.com/TheGameratorT/NCPatcher",
+    "license": "GPL-3.0-or-later",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/TheGameratorT/NCPatcher/releases/download/v1.0.4/ncpatcher_v1.0.4_Windows-64bit.zip",
+            "hash": "0000000000000000000000000000000000000000000000000000000000000000",
+            "extract_dir": "ncpatcher_v1.0.4_Windows-64bit"
+        },
+        "arm64": {
+            "url": "https://github.com/TheGameratorT/NCPatcher/releases/download/v1.0.4/ncpatcher_v1.0.4_Windows-ARM64.zip",
+            "hash": "0000000000000000000000000000000000000000000000000000000000000000",
+            "extract_dir": "ncpatcher_v1.0.4_Windows-ARM64"
+        }
+    },
+    "bin": "ncpatcher.exe",
+    "checkver": {
+        "github": "https://github.com/TheGameratorT/NCPatcher"
+    },
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/TheGameratorT/NCPatcher/releases/download/v$version/ncpatcher_v$version_Windows-64bit.zip",
+                "extract_dir": "ncpatcher_v$version_Windows-64bit"
+            },
+            "arm64": {
+                "url": "https://github.com/TheGameratorT/NCPatcher/releases/download/v$version/ncpatcher_v$version_Windows-ARM64.zip",
+                "extract_dir": "ncpatcher_v$version_Windows-ARM64"
+            }
+        }
+    }
+}

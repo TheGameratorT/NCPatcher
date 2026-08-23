@@ -26,6 +26,7 @@ enum class Diag : unsigned
 	ToolchainMissing     = 6,   // the configured cross-compiler is not installed
 	CleanFailed          = 7,
 	RestoreFailed        = 8,
+	RuntimeHeaderMissing = 9,   // ncp.h absent, or from a different version
 
 	TargetCompile        = 1001,
 

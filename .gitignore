@@ -2,3 +2,5 @@
 /.vscode
 /build
 /other
+/dist
+/stage

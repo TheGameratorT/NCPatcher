@@ -11,7 +11,12 @@ ExitCode exitCodeFor(Diag code)
 	case Diag::ConfigMigrate:
 		return ExitCode::Config;
 
+	// The runtime header ships with the program, so a missing or mismatched
+	// one is the installation being wrong rather than the code being wrong --
+	// the same kind of answer as a missing compiler, and not something a caller
+	// should be tempted to treat as a compile error and show a source line for.
 	case Diag::ToolchainMissing:
+	case Diag::RuntimeHeaderMissing:
 		return ExitCode::Toolchain;
 
 	case Diag::PreBuildCommand:

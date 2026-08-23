@@ -11,6 +11,7 @@
 #include "../system/diagnostics.hpp"
 #include "../system/exit_code.hpp"
 #include "../system/message.hpp"
+#include "../system/paths.hpp"
 #include "../utils/types.hpp"
 #include "../utils/json.hpp"
 #include "../config/buildtarget.hpp"
@@ -23,20 +24,6 @@
 #include "../build/objmaker.hpp"
 #include "../patch/patch_maker.hpp"
 #include "../core/compilation_unit_manager.hpp"
-
-#ifdef _WIN32
-#ifndef NOMINMAX
-#define NOMINMAX 1
-#endif
-#include <windows.h>
-#elif __linux__
-#include <unistd.h>
-#elif __APPLE__
-#include <mach-o/dyld.h>
-#include <limits.h>
-#else
-#error Unsupported operating system
-#endif
 
 namespace fs = std::filesystem;
 
@@ -338,6 +325,7 @@ void Application::runBuild()
     Log::out << ANSI_bWHITE " ----- Nitro Code Patcher -----" ANSI_RESET << std::endl;
 
     loadConfigurations();
+    openDefaultLogFile();
     validateToolchain();
 
     resolveRomDir();
@@ -355,6 +343,7 @@ void Application::runBuild()
         ScopedContext ctx(Diag::TargetConfigLoad, "Could not load the target configuration.");
         config::loadTargets(m_config);
     }
+    openDefaultLogFile();
 
     if (m_config.arm7.enabled) {
         processTarget(header, false); // ARM7
@@ -563,13 +552,10 @@ void Application::validateToolchain()
 
 void Application::initializePaths()
 {
-    // The cwd is read exactly once, here, and is never written. Everything
-    // downstream resolves against m_ctx.paths instead.
-    m_ctx.paths.appDir = fetchAppPath();
-
-    // -C is what removes the "must be launched from the project directory"
-    // constraint that the level editor and CTGPNitro's build script each work
-    // around by chdir-ing first.
+    // The cwd is read exactly once, here, and is never written; everything
+    // downstream resolves against m_ctx.paths instead. -C is what removes the
+    // "must be launched from the project directory" constraint that the level
+    // editor and CTGPNitro's build script each work around by chdir-ing first.
     if (m_cli.projectPath.empty()) {
         m_ctx.paths.workDir = fs::current_path();
     } else if (fs::is_regular_file(m_cli.projectPath)) {
@@ -584,83 +570,58 @@ void Application::initializeLogging()
     if (m_cli.noLog)
         return;
 
-    Log::openLogFile(m_cli.logPathSet ? m_cli.logPath : m_ctx.paths.appDir / "log.txt");
+    // An explicit path is a path; it can be opened now. The default one cannot:
+    // it lives in the build directory, which is something the configuration
+    // answers, so until then the log is held in memory. Commands other than a
+    // build get no log file unless one was asked for -- `config dump` and
+    // `clean` have no build directory of their own to write into, and creating
+    // one as a side effect of printing is not a trade worth making.
+    if (m_cli.logPathSet)
+        Log::openLogFile(m_cli.logPath);
+    else if (m_cli.command == Command::Build)
+        Log::beginBufferedLogFile();
 }
 
-std::filesystem::path Application::fetchAppPath()
+// Where <buildDir>/ncpatcher.log goes when nothing named a path.
+//
+// The ARM9 target's build directory, or the only enabled target's. Not the
+// directory the two share: nsmb-coop builds into code/build and code/build7,
+// whose common parent is code/ -- the source tree. A log is a build artifact,
+// so it belongs somewhere `clean` will take it away again.
+std::filesystem::path Application::logDirectory() const
 {
-    // Copied from arclight.filesystem
+    for (bool arm9 : { true, false })
+    {
+        const config::TargetConfig& targetConfig = m_config.target(arm9);
+        if (targetConfig.enabled && targetConfig.buildDir.configured())
+            return m_ctx.paths.work(targetConfig.buildDir.value);
+    }
+    return {};
+}
 
-#ifdef _WIN32
+// Called once the build directory is known, and again after a v1 project's
+// target files have been read, since those may not have existed until a
+// pre-build command wrote them. Doing nothing when a log is already open is
+// what makes calling it twice correct.
+void Application::openDefaultLogFile()
+{
+    if (m_cli.noLog || m_cli.logPathSet || Log::logFileOpen())
+        return;
 
-    u32 length = 0x200;
-    std::vector<wchar_t> filename;
+    const fs::path dir = logDirectory();
+    if (dir.empty())
+        return;
 
     try {
-        filename.resize(length);
-        while (GetModuleFileNameW(nullptr, filename.data(), length) == length) {
-            if (length < 0x8000) {
-                length *= 2;
-                filename.resize(length);
-            } else {
-                /*
-                    Ideally, this cannot happen because the windows path limit is specified to be 0x7FFF (excl. null terminator byte)
-                    If this changes in future windows versions, long path names could fail since it would require to allocate fairly large buffers
-                    This is why we stop here with an error.
-                */
-                throw std::runtime_error("Could not query application directory path: Path too long");
-            }
-        }
-
-        std::wstring str(filename.data());
-        return std::filesystem::path(str).parent_path();
-    } catch (std::exception& e) {
-        throw std::runtime_error(std::string("Could not query application directory path: ") + e.what());
+        std::error_code error;
+        fs::create_directories(dir, error);
+        Log::openLogFile(dir / "ncpatcher.log");
+    } catch (const std::exception& ex) {
+        // Not fatal: the console still has everything, and failing a build
+        // because its log file could not be opened would be a poor trade.
+        Log::out << OWARN << "Could not open the log file in " << OSTR(dir.string())
+                 << "." << OREASONNL << ex.what() << std::endl;
     }
-
-#elif __linux__
-
-    constexpr const char* symlinkName = "/proc/self/exe";
-    SizeT length = 0x200;
-
-    std::vector<char> filename(length);
-
-    try {
-        while(true) {
-            ssize_t readLength = readlink(symlinkName, filename.data(), filename.size());
-
-            if (readLength == length) {
-                //If length exceeds 0x10000 bytes, cancel
-                if(length >= 0x10000) {
-                    throw std::runtime_error("Could not query application directory path: Path name exceeds 0x10000 bytes");
-                }
-
-                //Double buffer and retry
-                length *= 2;
-                filename.resize(length);
-            } else if (readLength == -1) {
-                //Error occured while reading the symlink
-                throw std::runtime_error("Could not query application directory path: Cannot read symbolic link");
-            } else {
-                //Read was successful, return filename
-                std::string str(filename.data(), readLength);
-                return std::filesystem::path(str).parent_path();
-            }
-        }
-    } catch (std::exception& e) {
-        throw std::runtime_error(std::string("Could not query application directory path: ") + e.what());
-    }
-
-#elif __APPLE__
-
-    char buf[PATH_MAX];
-    uint32_t bufsize = PATH_MAX;
-    if (_NSGetExecutablePath(buf, &bufsize) != 0) {
-        throw std::runtime_error("Could not query application directory path.");
-    }
-    return std::filesystem::path(buf).parent_path();
-
-#endif
 }
 
 } // namespace ncp

@@ -65,9 +65,10 @@ private:
                        const char* errorContext);
 
     // Initialization helpers
-    static std::filesystem::path fetchAppPath();
     void initializePaths();
     void initializeLogging();
+    [[nodiscard]] std::filesystem::path logDirectory() const;
+    void openDefaultLogFile();
     void validateToolchain();
 
     // Configuration management

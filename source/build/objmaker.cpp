@@ -16,6 +16,8 @@
 #include "../system/ansi.hpp"
 #include "../system/message.hpp"
 #include "../system/process.hpp"
+#include "../system/paths.hpp"
+#include "../system/diagnostics.hpp"
 #include "../core/compilation_unit_manager.hpp"
 #include "../utils/base32.hpp"
 #include "../utils/util.hpp"
@@ -59,9 +61,15 @@ void ObjMaker::makeTarget(
 	m_paths = &ctx.paths;
 	m_compilationUnitMgr = &compilationUnitMgr;
 
-	fs::path ncpInclude = m_paths->appDir / "ncp.h";
-	if (!fs::exists(ncpInclude))
-		throw ncp::file_error(ncpInclude, ncp::file_error::find);
+	// Not m_paths->appDir any more: the header is a data file with an install
+	// location of its own, and it is checked for version agreement before a
+	// single translation unit is compiled against it.
+	fs::path ncpInclude;
+	{
+		ncp::ScopedContext headerContext(ncp::Diag::RuntimeHeaderMissing,
+			"The NCPatcher runtime header is not usable.");
+		ncpInclude = ncp::paths::runtimeHeader();
+	}
 
 	m_includeFlags.reserve(256);
 	m_includeFlags += "-include\"" + ncpInclude.string() + "\" ";

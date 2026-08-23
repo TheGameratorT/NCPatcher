@@ -45,6 +45,10 @@ static bool xyCapabilityAvailable = true;
 // which is what --color never and --message-format json rely on.
 static bool cursorDisabled = false;
 
+// True only for a real file, so that a caller can tell "the log went nowhere"
+// from "the log is still in the buffer".
+static bool fileOpen = false;
+
 static std::size_t warningsEmitted = 0;
 static std::size_t errorsEmitted = 0;
 
@@ -220,15 +224,36 @@ void destroy()
 	closeLogFile();
 }
 
-void openLogFile(const std::filesystem::path& path)
+void beginBufferedLogFile()
 {
 	removeSinks(SinkKind::File);
-	addSink(std::make_unique<FileSink>(path));
+	addSink(std::make_unique<BufferSink>());
+}
+
+void openLogFile(const std::filesystem::path& path)
+{
+	// Taken before the sink is built, so that a file that cannot be opened
+	// leaves the buffer emptied rather than replayed into the next attempt.
+	const std::string pending = takeBufferedLog();
+
+	auto sink = std::make_unique<FileSink>(path);
+	if (!pending.empty())
+		sink->write(pending);
+
+	removeSinks(SinkKind::File);
+	addSink(std::move(sink));
+	fileOpen = true;
+}
+
+bool logFileOpen()
+{
+	return fileOpen;
 }
 
 void closeLogFile()
 {
 	removeSinks(SinkKind::File);
+	fileOpen = false;
 }
 
 void log(const std::string& str)

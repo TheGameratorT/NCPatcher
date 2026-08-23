@@ -13,9 +13,6 @@ namespace ncp {
 // survive running phases concurrently. Resolve against one of these instead.
 struct PathContext
 {
-	// Directory the ncpatcher binary lives in; the runtime headers sit beside it.
-	std::filesystem::path appDir;
-
 	// Project directory, holding ncpatcher.json. The project config's relative
 	// paths -- backup dir, filesystem dir, build dirs -- are relative to this.
 	std::filesystem::path workDir;

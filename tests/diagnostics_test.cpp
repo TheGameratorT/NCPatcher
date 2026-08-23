@@ -167,6 +167,8 @@ static void testExitCodes()
 	check(ncp::exitCodeFor(Diag::TargetConfigLoad) == ExitCode::Config, "resolving a target is a config error");
 	check(ncp::exitCodeFor(Diag::ConfigMigrate) == ExitCode::Config, "migration is a config error");
 	check(ncp::exitCodeFor(Diag::ToolchainMissing) == ExitCode::Toolchain, "a missing compiler is its own category");
+	check(ncp::exitCodeFor(Diag::RuntimeHeaderMissing) == ExitCode::Toolchain,
+		"a missing or stale ncp.h is the installation, not the code");
 	check(ncp::exitCodeFor(Diag::PreBuildCommand) == ExitCode::Hook, "a pre-build command is a hook");
 	check(ncp::exitCodeFor(Diag::PostBuildCommand) == ExitCode::Hook, "a post-build command is a hook");
 	check(ncp::exitCodeFor(Diag::TargetCompile) == ExitCode::Compile, "compiling is a compile error");

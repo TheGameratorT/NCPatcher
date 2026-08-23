@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <iosfwd>
 #include <memory>
+#include <string>
 #include <string_view>
 
 #include "log.hpp"
@@ -76,6 +77,29 @@ public:
 private:
 	std::ostream* m_stream;
 };
+
+// Holds output in memory until a log file path is known.
+//
+// The log belongs in the project's build directory, and where that is only
+// becomes clear once the configuration has been read -- which for a v1 project
+// is after the pre-build commands have run, since those are allowed to generate
+// the target files. Everything logged before that point is kept here and
+// written to the file as its first lines, so the log still starts at the
+// beginning. A run that never gets far enough to have a build directory drops
+// the buffer; its output was on the console regardless.
+//
+// Reported as SinkKind::File, because that is what it stands in for.
+class BufferSink final : public Sink
+{
+public:
+	void write(std::string_view text) override;
+	[[nodiscard]] SinkKind kind() const override { return SinkKind::File; }
+	[[nodiscard]] bool accepts(LogMode mode) const override { return mode != LogMode::Console; }
+};
+
+// Everything a BufferSink has collected so far, clearing it. Empty when none
+// was installed.
+[[nodiscard]] std::string takeBufferedLog();
 
 class FileSink final : public Sink
 {

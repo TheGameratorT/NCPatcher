@@ -8,40 +8,80 @@ It was created because of the need to have more flexible patching features that 
 This program was made with the help of the [Mamma Mia Team](https://github.com/MammaMiaTeam) members. \
 NCPatcher was heavily inspired by Fireflower.
 
+## Installing
+
+Grab a release, or build from source. Either way the binary can live anywhere:
+it locates `ncp.h` and its companions relative to itself, so there is no longer
+anything to add to `PATH` beyond the binary, and nothing to reboot for.
+
+**Windows** — run the installer and tick *Add NCPatcher to the system PATH*, or
+unzip the portable archive anywhere and put that directory on `PATH` yourself.
+With [Scoop](https://scoop.sh): `scoop install ncpatcher`.
+
+**Linux and macOS** — unpack the release archive, or install from source:
+
+```sh
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+sudo cmake --install build              # /usr/local/bin + /usr/local/share/ncpatcher
+```
+
+`--prefix` puts it somewhere else; the lookup is relative, so a prefix under
+`$HOME` works without any further configuration. Packagers will want
+`-DNCP_USE_SYSTEM_DEPS=ON`, which turns a missing yaml-cpp into a configure
+error rather than a download. See [packaging/README.md](packaging/README.md).
+
+### Where its data files go
+
+`ncp.h`, `ncp_ide.h` and `ncprt.c` are compiled into your ARM code, not into
+ncpatcher, so they are installed as program data rather than as host headers —
+`/usr/share/ncpatcher`, or beside the binary on Windows. They are looked for in:
+
+1. `$NCPATCHER_DATA_DIR`, if set
+2. `<directory of the binary>/../share/ncpatcher`
+3. the directory of the binary, and its `include` subdirectory
+
+The version of `ncp.h` found is checked against the one the binary expects. A
+mismatch is an error rather than a warning: a stale header compiles perfectly
+well, emits sections nothing is looking for any more, and hands you a ROM with
+the patches silently missing.
+
 ## Building
 
-### Windows
-Make sure that CMake and a compatible compiler (MSVC, GCC or Clang) is installed. MSVC is recommended. \
-Then run the following commands:
+CMake 3.20 and a C++20 compiler. yaml-cpp is used if the system has it and
+fetched if not.
 
-Example for MSVC (2022):
-```bat
-git clone https://github.com/TheGameratorT/NCPatcher.git
-cd NCPatcher
-mkdir build && cd build
-cmake ../ -G "Visual Studio 17 2022" -A x64
-cmake --build . --config Release
-```
-Note: You might need to change the version or the architecture used in the example. \
-The output files can be found in the `build` directory.
-
-### Linux and MacOS
-Make sure that the following packages `cmake` and `build-essential` are installed on the system and run these commands:
 ```sh
 git clone https://github.com/TheGameratorT/NCPatcher.git
 cd NCPatcher
-mkdir build && cd build
-cmake ../ -DCMAKE_BUILD_TYPE=Release
-make
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
 ```
-The output files can be found in the `build` directory.
+
+On Windows, name the generator instead of the build type:
+`cmake -B build -G "Visual Studio 17 2022" -A x64`, then
+`cmake --build build --config Release`. The binary lands in `build`, with the
+runtime files copied beside it so it can be run from there without installing.
+
+Useful switches:
+
+| Switch | Meaning |
+|---|---|
+| `-DNCP_BUILD_TESTS=ON` | Build the unit tests; run them with `ctest --test-dir build` |
+| `-DNCP_PORTABLE_LAYOUT=ON` | Install everything into one flat directory (the default on Windows) |
+| `-DNCP_USE_SYSTEM_DEPS=ON` | Require yaml-cpp from the system rather than fetching it |
 
 ## Running
 
-Follow the steps on how to configure, after that execute NCPatcher in your current directory which contains the ncpatcher.json file. \
-NCPatcher does NOT build the ROM, it requires an extracted ROM to work with, you can use these tools to pack and unpack ROMs: \
-`nds-build` and `nds-extract` included with Fireflower: https://github.com/MammaMiaTeam/Fireflower/releases/latest \
-This design choice was made to allow modders to choose how they want to pack their ROMs.
+Configure the project as described below, then run `ncpatcher` in the directory
+holding its configuration file — or from anywhere with `ncpatcher -C <that
+directory>`.
+
+NCPatcher does not build the ROM. It works on an extracted one, which is a
+deliberate choice: it leaves you free to pack the result however you like.
+`nds-build` and `nds-extract`, included with
+[Fireflower](https://github.com/MammaMiaTeam/Fireflower/releases/latest), are
+one way to do it.
 
 ## Command line
 
@@ -82,7 +122,15 @@ Three settings also read the environment, which the command line still beats:
 `NCPATCHER_TOOLCHAIN`, `NCPATCHER_JOBS` and `NCPATCHER_LOG`. The precedence is
 command line, then environment, then the project file, then the built-in
 default, and `ncpatcher config dump --explain` says which of them won for each
-setting.
+setting. `NCPATCHER_DATA_DIR` is separate from that chain: it says where
+`ncp.h` lives, which is a property of the installation rather than of the
+project.
+
+The log goes to `<buildDir>/ncpatcher.log` — the ARM9 target's build directory,
+or the only enabled one's — so `clean` takes it away with everything else it
+made. Only a build writes one; `config dump` and friends have no build
+directory to write into and are not worth creating one for. `--log` puts it
+somewhere else, `--no-log` turns it off.
 
 ### Machine-readable output
 
@@ -107,7 +155,8 @@ diagnostic and artifact. Both work with or without `--message-format json`.
 | 1 | Internal error |
 | 2 | The command line did not parse |
 | 3 | Configuration |
-| 5 | Toolchain not found |
+| 4 | Module resolution |
+| 5 | Toolchain or runtime header not found |
 | 6 | Compilation |
 | 7 | Linking |
 | 8 | Patching |

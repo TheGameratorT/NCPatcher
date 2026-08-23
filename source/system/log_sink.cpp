@@ -4,6 +4,7 @@
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 #ifdef _WIN32
@@ -156,6 +157,24 @@ PlainSink::PlainSink(bool useStderr) :
 void PlainSink::write(std::string_view text)
 {
 	*m_stream << Ansi::strip(text) << std::flush;
+}
+
+// BufferSink ============================================================
+
+namespace {
+
+std::string s_buffered;
+
+} // namespace
+
+void BufferSink::write(std::string_view text)
+{
+	s_buffered.append(text);
+}
+
+std::string takeBufferedLog()
+{
+	return std::exchange(s_buffered, std::string{});
 }
 
 // FileSink ==============================================================

@@ -12,6 +12,13 @@
 
 namespace fs = std::filesystem;
 
+// The published copy of schema/ncpatcher.schema.json, which is also installed
+// next to ncp.h. The URL rather than the local path, because a configuration
+// file is committed and shared, and a path into one machine's install prefix
+// would mean nothing on anybody else's.
+constexpr std::string_view SCHEMA_URL =
+	"https://raw.githubusercontent.com/TheGameratorT/NCPatcher/main/schema/ncpatcher.schema.json";
+
 namespace ncp::config {
 
 namespace {
@@ -580,6 +587,12 @@ std::string emitDocument(const ProjectConfig& config, const LanguageFlags& proje
                          const fs::path& projectFile)
 {
 	Emitter emitter;
+
+	// Read by the YAML Language Server, which every editor with YAML support
+	// speaks: completion and inline validation for a schema nobody has learned
+	// yet is most of what makes migrating cheap. It is a comment, so any other
+	// tool ignores it.
+	emitter.comment(0, "yaml-language-server: $schema=" + std::string(SCHEMA_URL));
 
 	emitter.comment(0, "Converted from " + projectFile.filename().string()
 		+ " by `ncpatcher migrate`.");
