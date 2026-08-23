@@ -15,9 +15,32 @@ if (CMAKE_C_COMPILER MATCHES "mingw")
 	set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--gc-sections")	
 endif()
 
-# Get RapidJson
-include("${CMAKE_SOURCE_DIR}/vendor/rapidjson.cmake")
-include_directories(${RAPIDJSON_INCLUDE_DIR})
+# yaml-cpp reads both configuration schemas: v2 is YAML, and JSON is a subset of
+# YAML 1.2, so v1 comes through the same parser. Preferred from the system,
+# because a build-time download is unusable offline and unusable for distro
+# packaging; the fetch is the fallback for machines that do not have it.
+find_package(yaml-cpp QUIET)
+if (NOT yaml-cpp_FOUND)
+	message(STATUS "yaml-cpp not found on the system, fetching it")
+	include(FetchContent)
+	set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+	set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+	set(YAML_CPP_FORMAT_SOURCE OFF CACHE BOOL "" FORCE)
+	FetchContent_Declare(yaml-cpp
+		GIT_REPOSITORY "https://github.com/jbeder/yaml-cpp.git"
+		GIT_TAG 0.8.0
+		GIT_SHALLOW ON
+	)
+	FetchContent_MakeAvailable(yaml-cpp)
+endif()
+
+# 0.8 exports yaml-cpp::yaml-cpp; older packages export a bare yaml-cpp.
+if (TARGET yaml-cpp::yaml-cpp)
+	set(YAML_CPP_TARGET yaml-cpp::yaml-cpp)
+else()
+	set(YAML_CPP_TARGET yaml-cpp)
+endif()
+
 # BS::thread_pool is vendored in-tree; see vendor/thread-pool/README.md
 include_directories("${CMAKE_SOURCE_DIR}/vendor/thread-pool/include")
 
@@ -28,7 +51,7 @@ file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS "source/*.cpp")
 
 # Add the executable
 add_executable(${PROJECT_NAME} ${SOURCES} $<IF:$<BOOL:${WIN32}>,win_resources.rc,>)
-add_dependencies(${PROJECT_NAME} rapidjson)
+target_link_libraries(${PROJECT_NAME} PRIVATE ${YAML_CPP_TARGET})
 if (NOT WIN32)
 	find_package(Threads REQUIRED)
 	target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads)
@@ -52,6 +75,38 @@ if (NCP_BUILD_TESTS)
 	set_property(TARGET ansi_test PROPERTY CXX_STANDARD 20)
 	set_property(TARGET ansi_test PROPERTY CXX_STANDARD_REQUIRED ON)
 	add_test(NAME ansi COMMAND ansi_test)
+
+	# The config test exercises the whole reader stack -- both schemas, the
+	# expander, inheritance and migration -- so it needs the same sources the
+	# program does, minus everything that would drag in the build and patch
+	# phases.
+	add_executable(config_test
+		tests/config_test.cpp
+		source/config/node.cpp
+		source/config/project_config.cpp
+		source/config/expander.cpp
+		source/config/config_loader.cpp
+		source/config/config_v1.cpp
+		source/config/config_v2.cpp
+		source/config/target_resolver.cpp
+		source/config/buildtarget.cpp
+		source/config/migrate.cpp
+		source/config/rebuild_store.cpp
+		source/utils/glob.cpp
+		source/utils/util.cpp
+		source/system/log.cpp
+		source/system/log_sink.cpp
+		source/system/ansi.cpp
+		source/system/except.cpp
+	)
+	target_link_libraries(config_test PRIVATE ${YAML_CPP_TARGET})
+	if (NOT WIN32)
+		find_package(Threads REQUIRED)
+		target_link_libraries(config_test PRIVATE Threads::Threads)
+	endif()
+	set_property(TARGET config_test PROPERTY CXX_STANDARD 20)
+	set_property(TARGET config_test PROPERTY CXX_STANDARD_REQUIRED ON)
+	add_test(NAME config COMMAND config_test)
 endif()
 
 # Specify the C++ standard

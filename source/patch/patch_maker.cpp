@@ -12,11 +12,9 @@
 #include "asm_generator.hpp"
 #include "arenalo_finder.hpp"
 
-#include "../app/application.hpp"
 #include "../system/diagnostics.hpp"
 #include "../system/log.hpp"
 #include "../system/except.hpp"
-#include "../config/rebuildconfig.hpp"
 #include "../utils/util.hpp"
 #include "../ndsbin/icodebin.hpp"
 
@@ -34,14 +32,15 @@ PatchMaker::~PatchMaker() = default;
 
 void PatchMaker::makeTarget(
 	const BuildTarget& target,
-	const ncp::PathContext& paths,
+	const ncp::Context& ctx,
 	const HeaderBin& header,
 	core::CompilationUnitManager& compilationUnitMgr
 	)
 {
 	// Store core data references
 	m_target = &target;
-	m_paths = &paths;
+	m_ctx = &ctx;
+	m_paths = &ctx.paths;
 	m_header = &header;
 	m_compilationUnitMgr = &compilationUnitMgr;
 
@@ -78,12 +77,12 @@ void PatchMaker::initializeComponents()
 	m_dependencyResolver = std::make_unique<DependencyResolver>();
 
 	// Initialize all components
-	m_fileSystemManager->initialize(*m_target, *m_paths, *m_header);
-	m_dependencyResolver->initialize(*m_compilationUnitMgr);
-	m_patchTracker->initialize(*m_target, *m_paths, *m_compilationUnitMgr, *m_dependencyResolver);
-	m_libraryManager->initialize(*m_target, *m_paths, *m_compilationUnitMgr);
-	m_overwriteRegionManager->initialize(*m_target, *m_dependencyResolver);
-	m_linker->initialize(*m_target, *m_paths, *m_compilationUnitMgr, m_newcodeAddrForDest);
+	m_fileSystemManager->initialize(*m_target, *m_ctx, *m_header);
+	m_dependencyResolver->initialize(*m_ctx, *m_compilationUnitMgr);
+	m_patchTracker->initialize(*m_target, *m_ctx, *m_compilationUnitMgr, *m_dependencyResolver);
+	m_libraryManager->initialize(*m_target, *m_ctx, *m_compilationUnitMgr);
+	m_overwriteRegionManager->initialize(*m_ctx, *m_target, *m_dependencyResolver);
+	m_linker->initialize(*m_target, *m_ctx, *m_compilationUnitMgr, m_newcodeAddrForDest);
 }
 
 void PatchMaker::setupFileSystem()
@@ -105,13 +104,35 @@ void PatchMaker::prepareBuildEnvironment()
 	m_fileSystemManager->loadArmBin();
 	m_fileSystemManager->loadOverlayTableBin();
 
-	// Load overlay files that will be patched
-	std::vector<u32>& patchedOverlays = m_target->getArm9() ?
-		RebuildConfig::getArm9PatchedOvs() :
-		RebuildConfig::getArm7PatchedOvs();
+	// Reload the overlays the previous build patched, so that any this build no
+	// longer touches get restored from their backups.
+	//
+	// The list is a record of a previous run, not a fact about this ROM, and an
+	// entry naming an overlay this processor does not have is therefore stale
+	// rather than fatal -- a build whose arm7 and arm9 lists were once written
+	// to the wrong slots left exactly that behind, and indexing on it read off
+	// the end of an empty overlay table.
+	std::vector<u32>& patchedOverlays = m_ctx->rebuild->patchedOverlays(m_target->getArm9());
+	const std::size_t overlayCount = m_fileSystemManager->getOvtEntries().size();
 
+	std::size_t stale = 0;
 	for (u32 ovID : patchedOverlays)
+	{
+		if (ovID >= overlayCount)
+		{
+			stale++;
+			continue;
+		}
 		m_fileSystemManager->loadOverlayBin(ovID);
+	}
+
+	if (stale != 0)
+	{
+		Log::out << OWARN << "Ignored " << stale << " previously patched overlay(s) that this "
+		         << (m_target->getArm9() ? "ARM9" : "ARM7") << " overlay table does not have."
+		         << std::endl;
+		std::erase_if(patchedOverlays, [overlayCount](u32 ovID) { return ovID >= overlayCount; });
+	}
 
 	// Determine newcode addresses
 	fetchNewcodeAddr();
@@ -216,7 +237,7 @@ std::vector<std::unique_ptr<DependencyResolver::UnitEntryPoints>> PatchMaker::cr
 		}
 	}
 	
-	if (ncp::Application::isVerbose(ncp::VerboseTag::Section))
+	if (m_ctx->isVerbose(ncp::VerboseTag::Section))
 	{
 		Log::out << OINFO << "Created " << entryPoints.size() << " entry points from patches and sections." << std::endl;
 		for (const auto& ep : entryPoints)
@@ -266,9 +287,7 @@ void PatchMaker::finalizeBuild()
 		"Failed to finalize build for ARM7 target.");
 
 	// Update patched overlays list
-	std::vector<u32>& patchedOverlays = m_target->getArm9() ?
-		RebuildConfig::getArm9PatchedOvs() :
-		RebuildConfig::getArm7PatchedOvs();
+	std::vector<u32>& patchedOverlays = m_ctx->rebuild->patchedOverlays(m_target->getArm9());
 
 	patchedOverlays.clear();
 	for (const auto& [id, ov] : m_fileSystemManager->getLoadedOverlays())
@@ -510,7 +529,7 @@ void PatchMaker::createArm2ThumbJumpBridge(const std::unique_ptr<PatchInfo>& pat
 
 	u32 bridgeAddr = info->curAddress;
 
-	if (ncp::Application::isVerbose(ncp::VerboseTag::Patch))
+	if (m_ctx->isVerbose(ncp::VerboseTag::Patch))
 	{
 		Log::out << "ARM->THUMB BRIDGE: " << Util::intToAddr(bridgeAddr, 8) 
 		         << " for " << patch->getPrettyName()
@@ -527,7 +546,7 @@ void PatchMaker::createArm2ThumbJumpBridge(const std::unique_ptr<PatchInfo>& pat
 	Util::write<u32>(bridgeDataPtr, 0xE51FF004);            // LDR PC, [PC,#-4]
 	Util::write<u32>(bridgeDataPtr + 4, patch->srcAddress | 1); // int value to jump to
 
-	if (ncp::Application::isVerbose(ncp::VerboseTag::Patch))
+	if (m_ctx->isVerbose(ncp::VerboseTag::Patch))
 		Util::printDataAsHex(bridgeData.data() + offset, SizeOfArm2ThumbJumpBridge, 32);
 
 	info->curAddress += SizeOfArm2ThumbJumpBridge;
@@ -559,7 +578,7 @@ void PatchMaker::createHookBridge(const std::unique_ptr<PatchInfo>& patch, const
 
 	u32 hookBridgeAddr = info->curAddress;
 
-	if (ncp::Application::isVerbose(ncp::VerboseTag::Patch))
+	if (m_ctx->isVerbose(ncp::VerboseTag::Patch))
 	{
 		Log::out << "HOOK BRIDGE: " << Util::intToAddr(hookBridgeAddr, 8) 
 		         << " for " << patch->getPrettyName()
@@ -588,7 +607,7 @@ void PatchMaker::createHookBridge(const std::unique_ptr<PatchInfo>& patch, const
 		return AsmGenerator::makeJumpOpCode(AsmGenerator::armOpcodeB, hookBridgeAddr + 16, patch->destAddress + 4);
 	}));
 
-	if (ncp::Application::isVerbose(ncp::VerboseTag::Patch))
+	if (m_ctx->isVerbose(ncp::VerboseTag::Patch))
 		Util::printDataAsHex(hookData.data() + offset, SizeOfHookBridge, 32);
 
 	info->curAddress += SizeOfHookBridge;
@@ -606,7 +625,7 @@ void PatchMaker::applyOverwriteRegions(const PatchOperationContext& context)
 
 		bin->writeBytes(overwrite->startAddress, sectionData, overwrite->sectionSize);
 		
-		if (ncp::Application::isVerbose(ncp::VerboseTag::Patch))
+		if (m_ctx->isVerbose(ncp::VerboseTag::Patch))
 		{
 			Log::out << OINFO << "Applied overwrite region " << OSTR(overwrite->name) 
 				<< " at 0x" << std::hex << std::uppercase << overwrite->startAddress

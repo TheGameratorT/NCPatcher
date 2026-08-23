@@ -1,14 +1,21 @@
 #pragma once
 
+#include <filesystem>
 #include <string>
 #include <vector>
-#include <filesystem>
-#include <unordered_map>
 
-#include "json.hpp"
-#include "../system/path_context.hpp"
 #include "../utils/types.hpp"
 
+// One target, resolved: inheritance applied, variables expanded, globs matched,
+// flag lists joined into the strings that go on a command line.
+//
+// This is the boundary between configuration and building. Everything upstream
+// of it knows about YAML, v1 JSON, inheritance and merge policy; everything
+// downstream -- all of source/build and source/patch -- knows only this. That
+// is why the config rewrite could replace both readers without touching either.
+//
+// It is built by config::TargetResolver and is read-only afterwards, apart from
+// the rebuild flag.
 class BuildTarget
 {
 public:
@@ -36,11 +43,9 @@ public:
 		std::string cFlags;
 		std::string cppFlags;
 		std::string asmFlags;
-		//std::string ldFlags;
 		std::vector<Overwrites> overwrites;
 	};
 
-	std::unordered_map<std::string, std::string> varmap;
 	int arenaLo{};
 	std::vector<std::filesystem::path> includes;
 	std::vector<Region> regions;
@@ -51,8 +56,12 @@ public:
 	std::string ldFlags;
 
 	[[nodiscard]] constexpr bool getArm9() const { return m_isArm9; }
-	[[nodiscard]] constexpr std::time_t getLastWriteTime() { return m_lastWriteTime; }
 	[[nodiscard]] constexpr bool getForceRebuild() const { return m_forceRebuild; }
+
+	// Identifies this target's resolved configuration. A build compares it
+	// against the one recorded by the previous build to decide whether the
+	// objects on disk were compiled under the same rules.
+	[[nodiscard]] const std::string& getConfigHash() const { return m_configHash; }
 
 	constexpr void setForceRebuild(bool forceRebuild) { m_forceRebuild = forceRebuild; }
 
@@ -65,21 +74,20 @@ public:
 	[[nodiscard]] Region* getMainRegion();
 
 	BuildTarget();
-	void load(const std::filesystem::path& targetFilePath, const ncp::PathContext& paths, bool isArm9);
 
 private:
-	const std::string& getVariable(const std::string& value);
-	void expandTemplates(std::string& val);
-	std::string getString(const JsonMember& member);
-	void getDirectoryArray(const JsonMember& member, std::vector<std::filesystem::path>& out, bool directoriesOnly = false);
-	void readLegacyPathPair(const JsonMember& entry, bool directoriesOnly, std::vector<std::string>& out);
-	static void readDestination(BuildTarget::Region& region, const JsonMember& member);
-	static void readRegionMode(BuildTarget::Region& region, const JsonMember& member);
-	void readOverwrites(BuildTarget::Region& region, const JsonMember& member);
+	friend struct BuildTargetBuilder;
 
-	// Points at the caller's context for the duration of load() only.
-	const ncp::PathContext* m_paths = nullptr;
 	bool m_isArm9{};
-	std::time_t m_lastWriteTime;
-	bool m_forceRebuild;
+	bool m_forceRebuild{};
+	std::string m_configHash;
+};
+
+// Grants the resolver write access to the fields a built target must not change
+// afterwards. Declared here rather than making them public so that "who is
+// allowed to set this" is answered by the type system instead of by convention.
+struct BuildTargetBuilder
+{
+	static void setArm9(BuildTarget& target, bool arm9) { target.m_isArm9 = arm9; }
+	static void setConfigHash(BuildTarget& target, std::string hash) { target.m_configHash = std::move(hash); }
 };

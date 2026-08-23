@@ -7,6 +7,7 @@
 #include "../utils/types.hpp"
 #include "../formats/elf.hpp"
 #include "../config/buildtarget.hpp"
+#include "../app/context.hpp"
 #include "dependency_resolver.hpp"
 #include "types.hpp"
 
@@ -18,7 +19,7 @@ public:
     OverwriteRegionManager();
     ~OverwriteRegionManager();
 
-    void initialize(const BuildTarget& target, const DependencyResolver& dependencyResolver);
+    void initialize(const ncp::Context& ctx, const BuildTarget& target, const DependencyResolver& dependencyResolver);
     
     void setupOverwriteRegions();
     void assignSectionsToOverwrites(std::vector<std::unique_ptr<SectionInfo>>& candidateSections);
@@ -30,6 +31,7 @@ public:
     std::vector<std::unique_ptr<OverwriteRegionInfo>>& getOverwriteRegions() { return m_overwriteRegions; }
 
 private:
+    const ncp::Context* m_ctx;
     const BuildTarget* m_target;
 	const DependencyResolver* m_dependencyResolver;
     std::vector<std::unique_ptr<OverwriteRegionInfo>> m_overwriteRegions;

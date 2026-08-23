@@ -4,14 +4,12 @@
 #include <sstream>
 #include <regex>
 
-#include "../app/application.hpp"
 #include "../system/log.hpp"
 #include "../system/except.hpp"
 #include "../system/cache.hpp"
 #include "../utils/util.hpp"
 #include "../formats/elf.hpp"
 #include "../formats/archive.hpp"
-#include "../config/buildconfig.hpp"
 #include "../system/process.hpp"
 
 namespace ncp::patch {
@@ -21,12 +19,13 @@ LibraryManager::~LibraryManager() = default;
 
 void LibraryManager::initialize(
     const BuildTarget& target,
-    const ncp::PathContext& paths,
+    const ncp::Context& ctx,
     core::CompilationUnitManager& compilationUnitMgr
 )
 {
     m_target = &target;
-    m_paths = &paths;
+    m_ctx = &ctx;
+    m_paths = &ctx.paths;
     m_compilationUnitMgr = &compilationUnitMgr;
 }
 
@@ -50,7 +49,7 @@ void LibraryManager::analyzeLibraryDependencies()
     // Find actual library files
     findLibraryFiles();
 
-    if (ncp::Application::isVerbose(ncp::VerboseTag::Library))
+    if (m_ctx->isVerbose(ncp::VerboseTag::Library))
     {
         Log::out << OINFO << "Library search paths:" << std::endl;
         for (const auto& path : m_librarySearchPaths)
@@ -76,7 +75,7 @@ void LibraryManager::generateLibraryUnits()
         createUnitsFromLibrary(libraryPath);
     }
 
-    if (ncp::Application::isVerbose(ncp::VerboseTag::Library))
+    if (m_ctx->isVerbose(ncp::VerboseTag::Library))
     {
         Log::out << OINFO << "Generated " << m_compilationUnitMgr->getLibraryUnits().size() 
                  << " compilation units from library analysis" << std::endl;
@@ -177,7 +176,7 @@ void LibraryManager::findLibraryFiles()
         {
             m_libraryPaths.push_back(foundPath);
         }
-        else if (ncp::Application::isVerbose(ncp::VerboseTag::Library))
+        else if (m_ctx->isVerbose(ncp::VerboseTag::Library))
         {
             Log::out << OWARN << "Library not found: -l" << libName << std::endl;
         }
@@ -190,7 +189,7 @@ void LibraryManager::getToolchainLibraryPaths()
     m_librarySearchPaths.clear();
     
     // Build the command to get library search directories
-    std::string toolchain = BuildConfig::getToolchain();
+    std::string toolchain = m_ctx->toolchain();
     std::string gccCommand = toolchain + "gcc -print-search-dirs";
     
     try
@@ -200,7 +199,7 @@ void LibraryManager::getToolchainLibraryPaths()
         
         if (exitCode != 0)
         {
-            if (ncp::Application::isVerbose(ncp::VerboseTag::Library))
+            if (m_ctx->isVerbose(ncp::VerboseTag::Library))
             {
                 Log::out << OWARN << "Failed to get library paths from gcc (exit code: " 
                          << exitCode << ")" << std::endl;
@@ -240,7 +239,7 @@ void LibraryManager::getToolchainLibraryPaths()
             }
         }
         
-        if (ncp::Application::isVerbose(ncp::VerboseTag::Library))
+        if (m_ctx->isVerbose(ncp::VerboseTag::Library))
         {
             Log::out << OINFO << "Found " << m_librarySearchPaths.size() 
                      << " toolchain library paths" << std::endl;
@@ -248,7 +247,7 @@ void LibraryManager::getToolchainLibraryPaths()
     }
     catch (const std::exception& e)
     {
-        if (ncp::Application::isVerbose(ncp::VerboseTag::Library))
+        if (m_ctx->isVerbose(ncp::VerboseTag::Library))
         {
             Log::out << OWARN << "Error getting library paths from gcc: " << e.what() << std::endl;
         }
@@ -313,7 +312,7 @@ void LibraryManager::createUnitFromELF(Elf32& elf, const std::filesystem::path& 
 
 void LibraryManager::createUnitsFromArchive(const std::filesystem::path& archivePath)
 {
-	if (ncp::Application::isVerbose(ncp::VerboseTag::Library))
+	if (m_ctx->isVerbose(ncp::VerboseTag::Library))
 	{
     	Log::out << OINFO << ANSI_bYELLOW << "Analyzing archive: " << archivePath.filename().string() << ANSI_RESET << std::endl;
 	}
@@ -322,7 +321,7 @@ void LibraryManager::createUnitsFromArchive(const std::filesystem::path& archive
     {
         auto* archive = ncp::cache::CacheManager::getInstance().getOrLoadArchive(archivePath);
         const auto& members = archive->getMembers();
-        if (ncp::Application::isVerbose(ncp::VerboseTag::Library))
+        if (m_ctx->isVerbose(ncp::VerboseTag::Library))
         {
             Log::out << OINFO << "Archive contains " << members.size() << " total members" << std::endl;
         }
@@ -348,7 +347,7 @@ void LibraryManager::createUnitsFromArchive(const std::filesystem::path& archive
                 auto elf = std::make_unique<Elf32>();
                 if (!elf->loadFromMemory(member.data, member.size))
                 {
-                    if (ncp::Application::isVerbose(ncp::VerboseTag::Elf))
+                    if (m_ctx->isVerbose(ncp::VerboseTag::Elf))
                     {
                         Log::out << OWARN << "Failed to load ELF from archive member " << member.name << std::endl;
                     }
@@ -367,7 +366,7 @@ void LibraryManager::createUnitsFromArchive(const std::filesystem::path& archive
             }
             catch (const std::exception& e)
             {
-                if (ncp::Application::isVerbose(ncp::VerboseTag::Library))
+                if (m_ctx->isVerbose(ncp::VerboseTag::Library))
                 {
                     Log::out << OWARN << "Error processing archive member " << member.name 
                              << ": " << e.what() << std::endl;

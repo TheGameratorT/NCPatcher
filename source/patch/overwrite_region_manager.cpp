@@ -4,7 +4,6 @@
 #include <iomanip>
 #include <unordered_map>
 
-#include "../app/application.hpp"
 #include "../system/log.hpp"
 #include "../system/except.hpp"
 #include "../utils/util.hpp"
@@ -14,8 +13,9 @@ namespace ncp::patch {
 OverwriteRegionManager::OverwriteRegionManager() = default;
 OverwriteRegionManager::~OverwriteRegionManager() = default;
 
-void OverwriteRegionManager::initialize(const BuildTarget& target, const DependencyResolver& dependencyResolver)
+void OverwriteRegionManager::initialize(const ncp::Context& ctx, const BuildTarget& target, const DependencyResolver& dependencyResolver)
 {
+    m_ctx = &ctx;
     m_target = &target;
 	m_dependencyResolver = &dependencyResolver;
 }
@@ -45,7 +45,7 @@ void OverwriteRegionManager::setupOverwriteRegions()
             overwriteRegion->name = name;
             m_overwriteRegions.push_back(std::move(overwriteRegion));
 
-            if (ncp::Application::isVerbose(ncp::VerboseTag::Section))
+            if (m_ctx->isVerbose(ncp::VerboseTag::Section))
             {
                 Log::out << OINFO << "Configured overwrite region: 0x" << std::hex << std::uppercase 
                     << overwrite.startAddress << "-0x" << overwrite.endAddress 
@@ -130,7 +130,7 @@ void OverwriteRegionManager::assignSectionsToOverwrites(std::vector<std::unique_
                     assigned = true;
 
                     // Store assignment info for table printing
-                    if (ncp::Application::isVerbose(ncp::VerboseTag::Section))
+                    if (m_ctx->isVerbose(ncp::VerboseTag::Section))
                     {
                         assignments.push_back({
                             .sectionName = section->name,
@@ -145,7 +145,7 @@ void OverwriteRegionManager::assignSectionsToOverwrites(std::vector<std::unique_
                 }
             }
 
-            if (!assigned && ncp::Application::isVerbose(ncp::VerboseTag::Section))
+            if (!assigned && m_ctx->isVerbose(ncp::VerboseTag::Section))
             {
                 assignments.push_back({
                     .sectionName = section->name,
@@ -171,7 +171,7 @@ void OverwriteRegionManager::assignSectionsToOverwrites(std::vector<std::unique_
     }
 
     // Print assignment table if verbose mode is enabled
-    if (ncp::Application::isVerbose(ncp::VerboseTag::Section) && !assignments.empty())
+    if (m_ctx->isVerbose(ncp::VerboseTag::Section) && !assignments.empty())
     {
         Log::out << ANSI_bCYAN "Assigned sections:" ANSI_RESET "\n" 
             << ANSI_bWHITE "SECTION_NAME" ANSI_RESET "                     " 
@@ -276,7 +276,7 @@ void OverwriteRegionManager::finalizeOverwritesWithElfData(const Elf32& elf)
                     throw ncp::exception(oss.str());
                 }
                 
-                if (ncp::Application::isVerbose(ncp::VerboseTag::Patch))
+                if (m_ctx->isVerbose(ncp::VerboseTag::Patch))
                 {
                     Log::out << OINFO << "Found overwrite region " << OSTR(overwrite->name) 
                         << " at 0x" << std::hex << std::uppercase << overwrite->startAddress

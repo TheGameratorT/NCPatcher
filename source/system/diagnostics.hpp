@@ -18,10 +18,11 @@ enum class Diag : unsigned
 {
 	None = 0,
 
-	ConfigLoad           = 1,   // reading ncpatcher.json
-	TargetConfigLoad     = 2,   // reading a target's json
+	ConfigLoad           = 1,   // reading the project configuration
+	TargetConfigLoad     = 2,   // resolving a target's configuration
 	PreBuildCommand      = 3,
 	PostBuildCommand     = 4,
+	ConfigMigrate        = 5,   // converting a v1 config to v2
 
 	TargetCompile        = 1001,
 

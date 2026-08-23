@@ -2,7 +2,6 @@
 
 #include "../system/log.hpp"
 #include "../system/except.hpp"
-#include "../app/application.hpp"
 
 #include <stdexcept>
 

@@ -5,12 +5,10 @@
 #include <algorithm>
 #include <map>
 
-#include "../app/application.hpp"
 #include "../system/log.hpp"
 #include "../system/except.hpp"
 #include "../utils/util.hpp"
 #include "../system/process.hpp"
-#include "../config/buildconfig.hpp"
 
 namespace ncp::patch {
 
@@ -22,13 +20,14 @@ Linker::~Linker() = default;
 
 void Linker::initialize(
     const BuildTarget& target,
-    const ncp::PathContext& paths,
+    const ncp::Context& ctx,
     core::CompilationUnitManager& compilationUnitMgr,
     const std::unordered_map<int, u32>& newcodeAddrForDest
 )
 {
     m_target = &target;
-    m_paths = &paths;
+    m_ctx = &ctx;
+    m_paths = &ctx.paths;
     m_compilationUnitMgr = &compilationUnitMgr;
     m_newcodeAddrForDest = &newcodeAddrForDest;
 
@@ -510,7 +509,7 @@ void Linker::linkElfFile()
 
     std::string ccmd;
     ccmd.reserve(128);
-    ccmd += BuildConfig::getToolchain();
+    ccmd += m_ctx->toolchain();
     ccmd += "gcc -nostartfiles -Wl,--gc-sections,-T\"";
     ccmd += Util::relativeIfSubpath(m_ldscriptPath, m_paths->workDir).string();
     ccmd += '\"';
@@ -522,7 +521,7 @@ void Linker::linkElfFile()
     std::ostringstream oss;
     int retcode = Process::start(ccmd.c_str(), m_paths->workDir, &oss);
     
-	// if (ncp::Application::isVerbose())
+	// if (m_ctx->isVerbose())
 	// {
 	// 	// Parse the linker output to extract discarded sections
 	// 	parseLinkerOutput(oss.str());

@@ -9,7 +9,8 @@
 #include "../utils/types.hpp"
 #include "../core/compilation_unit_manager.hpp"
 #include "../config/buildtarget.hpp"
-#include "../system/path_context.hpp"
+#include "../config/rebuild_store.hpp"
+#include "../app/context.hpp"
 #include "../ndsbin/headerbin.hpp"
 #include "../ndsbin/armbin.hpp"
 #include "../ndsbin/overlaybin.hpp"
@@ -36,7 +37,7 @@ public:
 
 	void makeTarget(
 		const BuildTarget& target,
-		const ncp::PathContext& paths,
+		const ncp::Context& ctx,
 		const HeaderBin& header,
 		core::CompilationUnitManager& compilationUnitMgr
 	);
@@ -44,6 +45,7 @@ public:
 private:
 	// Core data
 	const BuildTarget* m_target;
+	const ncp::Context* m_ctx;
 	const ncp::PathContext* m_paths;
 	const HeaderBin* m_header;
 	core::CompilationUnitManager* m_compilationUnitMgr;

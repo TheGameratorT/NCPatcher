@@ -10,7 +10,7 @@
 #include "../ndsbin/armbin.hpp"
 #include "../ndsbin/overlaybin.hpp"
 #include "../config/buildtarget.hpp"
-#include "../system/path_context.hpp"
+#include "../app/context.hpp"
 
 namespace ncp::patch {
 
@@ -22,7 +22,7 @@ public:
 
     void initialize(
         const BuildTarget& target,
-        const PathContext& paths,
+        const ncp::Context& ctx,
         const HeaderBin& header
     );
 
@@ -46,6 +46,7 @@ public:
 
 private:
     const BuildTarget* m_target;
+    const ncp::Context* m_ctx;
     const PathContext* m_paths;
     const HeaderBin* m_header;
 

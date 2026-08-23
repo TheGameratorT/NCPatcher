@@ -11,9 +11,11 @@
 #include "../system/cache.hpp"
 #include "../system/diagnostics.hpp"
 #include "../utils/types.hpp"
-#include "../config/buildconfig.hpp"
 #include "../config/buildtarget.hpp"
-#include "../config/rebuildconfig.hpp"
+#include "../config/config_loader.hpp"
+#include "../config/migrate.hpp"
+#include "../config/target_resolver.hpp"
+#include "../utils/hash.hpp"
 #include "../ndsbin/headerbin.hpp"
 #include "../build/objmaker.hpp"
 #include "../patch/patch_maker.hpp"
@@ -36,10 +38,6 @@
 namespace fs = std::filesystem;
 
 namespace ncp {
-
-// Static member definitions
-std::vector<std::string> Application::s_defines;
-std::unordered_set<VerboseTag> Application::s_verboseTags;
 
 Application::Application() = default;
 Application::~Application() = default;
@@ -69,12 +67,20 @@ int Application::initialize(int argc, char* argv[])
         return 1;
     }
 
+    // The context is assembled once and then only ever copied: the per-target
+    // copies adjust their path anchors and share everything else.
+    m_ctx.config = &m_config;
+    m_ctx.options = &m_options;
+    m_ctx.rebuild = &m_rebuild;
+
     return 0;
 }
 
 int Application::run()
 {
     try {
+        if (m_command == Command::Migrate)
+            return runMigrate();
         runMainLogic();
     } catch (std::exception& e) {
         reportFailure(e);
@@ -82,6 +88,14 @@ int Application::run()
     }
 
     return 0;
+}
+
+int Application::runMigrate()
+{
+    ScopedContext ctx(Diag::ConfigMigrate, "Could not migrate the configuration.");
+
+    const fs::path file = projectFile();
+    return config::migrate(file, m_ctx.paths.workDir, m_migrateWrite) ? 0 : 1;
 }
 
 // Renders a failure as the phase it happened in, the reason, and then any
@@ -109,29 +123,40 @@ void Application::runMainLogic()
     loadConfigurations();
     validateToolchain();
 
-    m_paths.romDir = m_paths.work(BuildConfig::getFilesystemDir());
+    if (m_config.romFile.configured()) {
+        std::ostringstream oss;
+        oss << "Reading a ROM file directly is not supported by this version of NCPatcher."
+            << OREASONNL << "Extract the ROM and point " << OSTRa("rom.dir") << " at the result.";
+        throw ncp::exception(oss.str());
+    }
+
+    m_ctx.paths.romDir = m_ctx.paths.work(m_config.filesystemDir.value);
 
     HeaderBin header;
-    header.load(m_paths.romDir / "header.bin");
+    header.load(m_ctx.paths.romDir / "header.bin");
 
-    bool forceRebuild = checkForceRebuild();
-
-    runCommandList(BuildConfig::getPreBuildCmds(),
+    runCommandList(m_config.preBuild,
                    "Running pre-build commands...",
                    Diag::PreBuildCommand,
                    "Not all pre-build commands succeeded.");
 
-    if (BuildConfig::getBuildArm7()) {
+    // Only now: a v1 project may have just generated its target files.
+    {
+        ScopedContext ctx(Diag::TargetConfigLoad, "Could not load the target configuration.");
+        config::loadTargets(m_config);
+    }
+
+    if (m_config.arm7.enabled) {
         processTarget(header, false); // ARM7
     }
 
-    if (BuildConfig::getBuildArm9()) {
+    if (m_config.arm9.enabled) {
         processTarget(header, true);  // ARM9
     }
 
     saveRebuildConfig();
 
-    runCommandList(BuildConfig::getPostBuildCmds(),
+    runCommandList(m_config.postBuild,
                    "Running post-build commands...",
                    Diag::PostBuildCommand,
                    "Not all post-build commands succeeded.");
@@ -141,42 +166,36 @@ void Application::runMainLogic()
 
 void Application::processTarget(HeaderBin& header, bool isArm9)
 {
-    Log::info(isArm9 ? 
-        "Loading ARM9 target configuration..." :
-        "Loading ARM7 target configuration...");
+    Log::info(isArm9 ?
+        "Resolving ARM9 target configuration..." :
+        "Resolving ARM7 target configuration...");
 
-    const fs::path targetPath = m_paths.work(isArm9 ?
-        BuildConfig::getArm9Target() :
-        BuildConfig::getArm7Target());
-
-    const fs::path& targetWorkDirCfg = isArm9 ?
-		BuildConfig::getArm9WorkDir() :
-		BuildConfig::getArm7WorkDir();
+    const config::TargetConfig& targetConfig = m_config.target(isArm9);
 
     // Per-target anchors. A copy, so the two targets cannot see each other's.
-    PathContext targetPaths = m_paths;
-    targetPaths.targetWorkDir = targetWorkDirCfg.empty() ?
-		targetPath.parent_path() :
-		m_paths.work(targetWorkDirCfg);
-    targetPaths.buildDir = m_paths.work(isArm9 ?
-        BuildConfig::getArm9BuildDir() :
-        BuildConfig::getArm7BuildDir());
+    Context targetCtx = m_ctx;
+    targetCtx.paths.targetWorkDir = targetConfig.workDir.configured() ?
+        m_ctx.paths.work(targetConfig.workDir.value) :
+        targetConfig.file.parent_path();
+    targetCtx.paths.buildDir = m_ctx.paths.work(targetConfig.buildDir.value);
 
     BuildTarget buildTarget;
     {
         ScopedContext ctx(Diag::TargetConfigLoad, isArm9 ?
-            "Could not load the ARM9 target configuration." :
-            "Could not load the ARM7 target configuration.");
-        buildTarget.load(targetPath, targetPaths, isArm9);
+            "Could not resolve the ARM9 target configuration." :
+            "Could not resolve the ARM7 target configuration.");
+        buildTarget = config::TargetResolver::resolve(m_config, targetConfig, targetCtx.paths);
     }
 
-    std::time_t lastTargetWriteTimeNew = buildTarget.getLastWriteTime();
-    std::time_t lastTargetWriteTimeOld = isArm9 ?
-        RebuildConfig::getArm9TargetWriteTime() :
-        RebuildConfig::getArm7TargetWriteTime();
-    
-    bool forceRebuild = checkForceRebuild();
-    buildTarget.setForceRebuild(forceRebuild || (lastTargetWriteTimeNew > lastTargetWriteTimeOld));
+    // Staleness is a question about the resolved configuration, not about when
+    // a file was last touched: what matters is whether the objects on disk were
+    // compiled under the rules this build is using.
+    const std::string configHash = Hash::of(config::TargetResolver::describe(m_config, buildTarget));
+    BuildTargetBuilder::setConfigHash(buildTarget, configHash);
+
+    const bool projectChanged = m_rebuild.projectChanged(
+        Hash::of(config::TargetResolver::describeProject(m_config, m_options.defines)));
+    buildTarget.setForceRebuild(projectChanged || m_rebuild.targetChanged(isArm9, configHash));
 
     ScopedContext ctx(Diag::TargetCompile, isArm9 ?
         "Could not compile the ARM9 target." :
@@ -185,17 +204,12 @@ void Application::processTarget(HeaderBin& header, bool isArm9)
     core::CompilationUnitManager compilationUnitsMgr;
 
     ObjMaker objMaker;
-    objMaker.makeTarget(buildTarget, targetPaths, compilationUnitsMgr);
+    objMaker.makeTarget(buildTarget, targetCtx, compilationUnitsMgr);
 
     ncp::patch::PatchMaker patchMaker;
-    patchMaker.makeTarget(buildTarget, targetPaths, header, compilationUnitsMgr);
+    patchMaker.makeTarget(buildTarget, targetCtx, header, compilationUnitsMgr);
 
-    // Update rebuild config
-    if (isArm9) {
-        RebuildConfig::setArm9TargetWriteTime(lastTargetWriteTimeNew);
-    } else {
-        RebuildConfig::setArm7TargetWriteTime(lastTargetWriteTimeNew);
-    }
+    m_rebuild.setTargetHash(isArm9, configHash);
 }
 
 void Application::runCommandList(const std::vector<std::string>& commands,
@@ -216,7 +230,7 @@ void Application::runCommandList(const std::vector<std::string>& commands,
         oss << ANSI_bWHITE "[#" << commandIndex << "] " ANSI_bYELLOW << command << ANSI_RESET;
         Log::info(oss.str());
 
-        int retcode = Process::start(command.c_str(), m_paths.workDir, &std::cout);
+        int retcode = Process::start(command.c_str(), m_ctx.paths.workDir, &std::cout);
         if (retcode != 0) {
             throw ncp::exception("Process returned: " + std::to_string(retcode));
         }
@@ -225,35 +239,46 @@ void Application::runCommandList(const std::vector<std::string>& commands,
     }
 }
 
-void Application::loadConfigurations()
+std::filesystem::path Application::projectFile() const
 {
-    BuildConfig::load(m_paths);
-    RebuildConfig::load(m_paths);
+    const fs::path file = config::findProjectFile(m_ctx.paths.workDir);
+    if (file.empty()) {
+        std::ostringstream oss;
+        oss << "No NCPatcher configuration was found in " << OSTR(m_ctx.paths.workDir.string()) << "."
+            << OREASONNL << "Expected " << OSTRa("ncpatcher.yaml") << " or " << OSTRa("ncpatcher.json") << ".";
+        throw ncp::exception(oss.str());
+    }
+    return file;
 }
 
-bool Application::checkForceRebuild()
+void Application::loadConfigurations()
 {
-    return BuildConfig::getLastWriteTime() > RebuildConfig::getBuildConfigWriteTime() ||
-           getDefines() != RebuildConfig::getDefines();
+    ScopedContext ctx(Diag::ConfigLoad, "Could not load the build configuration.");
+
+    Log::info("Loading build configuration...");
+    m_config = config::load(projectFile(), m_ctx.paths.workDir);
+
+    m_rebuild.load(m_ctx.backupDir() / "rebuild.json");
 }
 
 void Application::saveRebuildConfig()
 {
-    RebuildConfig::setBuildConfigWriteTime(BuildConfig::getLastWriteTime());
-    RebuildConfig::setDefines(getDefines());
-    RebuildConfig::save(m_paths);
+    m_rebuild.setProjectHash(
+        Hash::of(config::TargetResolver::describeProject(m_config, m_options.defines)));
+    m_rebuild.save(m_ctx.backupDir() / "rebuild.json");
 }
 
 void Application::validateToolchain()
 {
-    const std::string& toolchain = BuildConfig::getToolchain();
+    const std::string& toolchain = m_ctx.toolchain();
     std::string gccPath = toolchain + "gcc";
-    
+
     if (!Process::exists(gccPath.c_str())) {
         std::ostringstream oss;
         oss << "The building toolchain " << OSTR(toolchain) << " was not found." << OREASONNL;
-        oss << "Make sure that it is correctly specified in the " << OSTR("ncpatcher.json") 
-            << " file and that it is present on your system.";
+        oss << "Make sure that it is correctly specified in "
+            << OSTR(m_config.file.filename().string())
+            << " and that it is present on your system.";
         throw ncp::exception(oss.str());
     }
 }
@@ -261,14 +286,14 @@ void Application::validateToolchain()
 void Application::initializePaths()
 {
     // The cwd is read exactly once, here, and is never written. Everything
-    // downstream resolves against m_paths instead.
-    m_paths.appDir = fetchAppPath();
-    m_paths.workDir = fs::current_path();
+    // downstream resolves against m_ctx.paths instead.
+    m_ctx.paths.appDir = fetchAppPath();
+    m_ctx.paths.workDir = fs::current_path();
 }
 
 void Application::initializeLogging()
 {
-    Log::openLogFile(m_paths.appDir / "log.txt");
+    Log::openLogFile(m_ctx.paths.appDir / "log.txt");
 }
 
 std::filesystem::path Application::fetchAppPath()
@@ -349,19 +374,28 @@ std::filesystem::path Application::fetchAppPath()
 
 bool Application::parseCommandLineArgs(int argc, char* argv[])
 {
-    for (int i = 1; i < argc; i++) {
+    int first = 1;
+
+    // One subcommand, recognised only in first position, so that a project with
+    // a source directory called "migrate" cannot be mistaken for one.
+    if (argc > 1 && strcmp(argv[1], "migrate") == 0) {
+        m_command = Command::Migrate;
+        first = 2;
+    }
+
+    for (int i = first; i < argc; i++) {
         if ((strcmp(argv[i], "--help") == 0) || (strcmp(argv[i], "-h") == 0)) {
             printHelp();
             return false; // Exit successfully after showing help
         } else if ((strcmp(argv[i], "--verbose") == 0) || (strcmp(argv[i], "-v") == 0)) {
             // Enables all verbose output
-            s_verboseTags.insert(VerboseTag::All);
+            m_options.verboseTags.insert(VerboseTag::All);
         } else if (strcmp(argv[i], "--verbose-tag") == 0) {
             if (i + 1 < argc) {
                 std::string tagName = argv[i + 1];
                 VerboseTag tag = parseVerboseTag(tagName);
                 if (tag != static_cast<VerboseTag>(-1)) {
-                    s_verboseTags.insert(tag);
+                    m_options.verboseTags.insert(tag);
                 } else {
                     std::ostringstream oss;
                     oss << "Unknown verbose tag: " << tagName;
@@ -375,12 +409,14 @@ bool Application::parseCommandLineArgs(int argc, char* argv[])
             }
         } else if (strcmp(argv[i], "--define") == 0) {
             if (i + 1 < argc) {
-                s_defines.push_back(argv[i + 1]);
+                m_options.defines.push_back(argv[i + 1]);
                 i++; // Skip the next argument since we consumed it
             } else {
                 Log::error("--define option requires a value");
                 return false;
             }
+        } else if (m_command == Command::Migrate && strcmp(argv[i], "--write") == 0) {
+            m_migrateWrite = true;
         } else {
             std::ostringstream oss;
             oss << "Unknown argument: " << argv[i];
@@ -413,6 +449,11 @@ void Application::printHelp()
     Log::out << ANSI_bWHITE " ----- Nitro Code Patcher -----" ANSI_RESET << std::endl;
     Log::out << std::endl;
     Log::out << "Usage: ncpatcher [options]" << std::endl;
+    Log::out << "       ncpatcher migrate [--write]" << std::endl;
+    Log::out << std::endl;
+    Log::out << "Commands:" << std::endl;
+    Log::out << "  migrate          Convert a version 1 ncpatcher.json to ncpatcher.yaml" << std::endl;
+    Log::out << "                   Prints the result; --write saves it" << std::endl;
     Log::out << std::endl;
     Log::out << "Options:" << std::endl;
     Log::out << "  -h, --help       Show this help message and exit" << std::endl;
@@ -433,19 +474,9 @@ void Application::printHelp()
     Log::out << "  NCPatcher is a tool for patching Nintendo DS ROMs by compiling" << std::endl;
     Log::out << "  and injecting custom ARM7/ARM9 code into the ROM filesystem." << std::endl;
     Log::out << std::endl;
-    Log::out << "  The tool reads configuration from 'ncpatcher.json' in the current" << std::endl;
-    Log::out << "  directory and processes ARM7/ARM9 targets as specified." << std::endl;
-}
-
-// Static getters
-bool Application::isVerbose(VerboseTag tag)
-{
-    return s_verboseTags.count(VerboseTag::All) > 0 || s_verboseTags.count(tag) > 0;
-}
-
-const std::vector<std::string>& Application::getDefines() 
-{ 
-    return s_defines; 
+    Log::out << "  The tool reads 'ncpatcher.yaml' from the current directory, falling" << std::endl;
+    Log::out << "  back to the version 1 'ncpatcher.json', and processes the ARM7 and" << std::endl;
+    Log::out << "  ARM9 targets it specifies." << std::endl;
 }
 
 } // namespace ncp

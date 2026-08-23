@@ -9,7 +9,7 @@
 #include "../utils/types.hpp"
 #include "../formats/elf.hpp"
 #include "../config/buildtarget.hpp"
-#include "../system/path_context.hpp"
+#include "../app/context.hpp"
 #include "../core/compilation_unit_manager.hpp"
 #include "overwrite_region_manager.hpp"
 
@@ -45,7 +45,7 @@ public:
 
     void initialize(
         const BuildTarget& target,
-        const ncp::PathContext& paths,
+        const ncp::Context& ctx,
         core::CompilationUnitManager& compilationUnitMgr,
         const std::unordered_map<int, u32>& newcodeAddrForDest
     );
@@ -66,6 +66,7 @@ public:
 
 private:
     const BuildTarget* m_target;
+    const ncp::Context* m_ctx;
     const ncp::PathContext* m_paths;
     core::CompilationUnitManager* m_compilationUnitMgr;
     const std::unordered_map<int, u32>* m_newcodeAddrForDest;

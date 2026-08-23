@@ -7,6 +7,7 @@
 #include <unordered_map>
 
 #include "../utils/types.hpp"
+#include "../app/context.hpp"
 #include "../system/cache.hpp"
 #include "../formats/elf.hpp"
 #include "../formats/archive.hpp"
@@ -40,6 +41,7 @@ public:
     ~DependencyResolver();
 
     void initialize(
+		const ncp::Context& ctx,
 		const core::CompilationUnitManager& compilationUnitMgr
 	);
 
@@ -119,6 +121,7 @@ private:
 	};
 
     const std::vector<std::unique_ptr<UnitEntryPoints>>* m_entryPoints;
+	const ncp::Context* m_ctx;
 	const core::CompilationUnitManager* m_compilationUnitMgr;
 
     std::vector<std::unique_ptr<Section>> m_sectionInfo;

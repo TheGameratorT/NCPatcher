@@ -4,7 +4,6 @@
 #include <iomanip>
 #include <sstream>
 
-#include "../app/application.hpp"
 #include "../system/log.hpp"
 #include "../system/except.hpp"
 #include "../utils/util.hpp"
@@ -17,13 +16,14 @@ PatchTracker::~PatchTracker() = default;
 
 void PatchTracker::initialize(
     const BuildTarget& target,
-    const ncp::PathContext& paths,
+    const ncp::Context& ctx,
     core::CompilationUnitManager& compilationUnitMgr,
 	DependencyResolver& dependencyResolver
 )
 {
     m_target = &target;
-    m_paths = &paths;
+    m_ctx = &ctx;
+    m_paths = &ctx.paths;
 	m_compilationUnitMgr = &compilationUnitMgr;
 	m_dependencyResolver = &dependencyResolver;
 }
@@ -32,7 +32,7 @@ void PatchTracker::collectPatchesFromUnits()
 {
     Log::info("Getting patches from objects...");
 
-	if (ncp::Application::isVerbose(ncp::VerboseTag::Patch))
+	if (m_ctx->isVerbose(ncp::VerboseTag::Patch))
 	{
 		Log::out << ANSI_bCYAN "Object patches (pre-ELF analysis):" ANSI_RESET "\n"
 			<< ANSI_bYELLOW "Note: Fields marked with ? will be determined during ELF analysis" ANSI_RESET << std::endl;
@@ -781,7 +781,7 @@ void PatchTracker::finalizePatchesWithElfData(const Elf32& elf)
         return false;
     });
     
-    if (ncp::Application::isVerbose(ncp::VerboseTag::Patch))
+    if (m_ctx->isVerbose(ncp::VerboseTag::Patch))
     {
         Log::out << ANSI_bCYAN "Patches (post-ELF analysis):" ANSI_RESET "\n"
         	<< ANSI_bYELLOW "Note: Fields marked with * are populated/updated during ELF analysis phase" ANSI_RESET << std::endl;
@@ -800,7 +800,7 @@ void PatchTracker::finalizePatchesWithElfData(const Elf32& elf)
             << ANSI_bWHITE "SYMBOL" ANSI_RESET << std::endl;
         for (const auto& p : m_patchInfo)
         {
-			if (ncp::Application::isVerbose(ncp::VerboseTag::NoLib) && p->unit->getType() == core::CompilationUnitType::LibraryFile)
+			if (m_ctx->isVerbose(ncp::VerboseTag::NoLib) && p->unit->getType() == core::CompilationUnitType::LibraryFile)
 				continue;
 
 			// TODO: marks
@@ -885,7 +885,7 @@ void PatchTracker::fetchNewcodeInfo(const Elf32& elf, const Elf32_Ehdr& eh, cons
         return false;
     });
 
-    if (ncp::Application::isVerbose(ncp::VerboseTag::Elf))
+    if (m_ctx->isVerbose(ncp::VerboseTag::Elf))
     {
         Log::out << ANSI_bCYAN "New Code Info:" ANSI_RESET "\n"
             << ANSI_bWHITE "NAME" ANSI_RESET "    "
@@ -947,7 +947,7 @@ void PatchTracker::printObjectPatchInfo(const std::vector<PatchInfo*>& objPatchI
 
 void PatchTracker::printExternSymbols() const
 {
-    if (ncp::Application::isVerbose(ncp::VerboseTag::Patch))
+    if (m_ctx->isVerbose(ncp::VerboseTag::Patch))
     {
         if (m_externSymbols.empty())
         {
@@ -965,8 +965,8 @@ void PatchTracker::printExternSymbols() const
 
 bool PatchTracker::canPrintVerboseInfo(core::CompilationUnit* unit) const
 {
-    if (!ncp::Application::isVerbose(ncp::VerboseTag::Patch) ||
-		(ncp::Application::isVerbose(ncp::VerboseTag::NoLib) && unit->getType() == core::CompilationUnitType::LibraryFile))
+    if (!m_ctx->isVerbose(ncp::VerboseTag::Patch) ||
+		(m_ctx->isVerbose(ncp::VerboseTag::NoLib) && unit->getType() == core::CompilationUnitType::LibraryFile))
 		return false;
 	return true;
 }

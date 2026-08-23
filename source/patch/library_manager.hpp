@@ -9,7 +9,7 @@
 #include "../utils/types.hpp"
 #include "../core/compilation_unit_manager.hpp"
 #include "../config/buildtarget.hpp"
-#include "../system/path_context.hpp"
+#include "../app/context.hpp"
 #include "../formats/elf.hpp"
 #include "../formats/archive.hpp"
 #include "types.hpp"
@@ -31,7 +31,7 @@ public:
 
     void initialize(
         const BuildTarget& target,
-        const ncp::PathContext& paths,
+        const ncp::Context& ctx,
         core::CompilationUnitManager& compilationUnitMgr
     );
 
@@ -51,6 +51,7 @@ private:
     void createUnitFromELF(Elf32& elf, const std::filesystem::path& libraryPath, const std::string& objectName = "");
 
     const BuildTarget* m_target;
+    const ncp::Context* m_ctx;
     const ncp::PathContext* m_paths;
     core::CompilationUnitManager* m_compilationUnitMgr;
 

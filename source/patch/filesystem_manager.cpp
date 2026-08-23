@@ -4,10 +4,8 @@
 #include <sstream>
 #include <cstring>
 
-#include "../app/application.hpp"
 #include "../system/log.hpp"
 #include "../system/except.hpp"
-#include "../config/buildconfig.hpp"
 #include "../ndsbin/overlaybin.hpp"
 
 namespace fs = std::filesystem;
@@ -19,18 +17,19 @@ FileSystemManager::~FileSystemManager() = default;
 
 void FileSystemManager::initialize(
     const BuildTarget& target,
-    const PathContext& paths,
+    const ncp::Context& ctx,
     const HeaderBin& header
 )
 {
     m_target = &target;
-    m_paths = &paths;
+    m_ctx = &ctx;
+    m_paths = &ctx.paths;
     m_header = &header;
 }
 
 fs::path FileSystemManager::backupPath(const fs::path& relative) const
 {
-    return m_paths->work(BuildConfig::getBackupDir()) / relative;
+    return m_ctx->backupDir() / relative;
 }
 
 void FileSystemManager::createBuildDirectory()
@@ -49,7 +48,7 @@ void FileSystemManager::createBuildDirectory()
 
 void FileSystemManager::createBackupDirectory()
 {
-    const fs::path bakDir = m_paths->work(BuildConfig::getBackupDir());
+    const fs::path bakDir = m_ctx->backupDir();
     if (!fs::exists(bakDir))
     {
         if (!fs::create_directories(bakDir))

@@ -9,8 +9,6 @@
 
 #include <BS_thread_pool.hpp>
 
-#include "../app/application.hpp"
-#include "../config/buildconfig.hpp"
 #include "../config/buildtarget.hpp"
 #include "../system/except.hpp"
 #include "../system/log.hpp"
@@ -49,15 +47,16 @@ ObjMaker::ObjMaker() = default;
 
 void ObjMaker::makeTarget(
 	const BuildTarget& target,
-	const ncp::PathContext& paths,
+	const ncp::Context& ctx,
 	core::CompilationUnitManager& compilationUnitMgr
 	)
 {
 	m_target = &target;
-	m_paths = &paths;
+	m_ctx = &ctx;
+	m_paths = &ctx.paths;
 	m_compilationUnitMgr = &compilationUnitMgr;
 
-	fs::path ncpInclude = paths.appDir / "ncp.h";
+	fs::path ncpInclude = m_paths->appDir / "ncp.h";
 	if (!fs::exists(ncpInclude))
 		throw ncp::file_error(ncpInclude, ncp::file_error::find);
 
@@ -68,7 +67,7 @@ void ObjMaker::makeTarget(
 
 	// Build define flags from command line arguments
 	m_defineFlags.clear();
-	const std::vector<std::string>& defines = ncp::Application::getDefines();
+	const std::vector<std::string>& defines = m_ctx->defines();
 	for (const std::string& define : defines) {
 		m_defineFlags += "-D";
 		m_defineFlags += define;
@@ -260,7 +259,7 @@ void ObjMaker::checkIfSourcesNeedRebuild()
 
 void ObjMaker::compileSources()
 {
-	BS::thread_pool pool(BuildConfig::getThreadCount());
+	BS::thread_pool pool(m_ctx->threadCount());
 
 	BuildLogger logger;
 	logger.setUnits(m_compilationUnitMgr->getUserUnits());
@@ -324,7 +323,7 @@ void ObjMaker::compileSources()
 
 				std::string ccmd;
 				ccmd.reserve(256);
-				ccmd += BuildConfig::getToolchain();
+				ccmd += m_ctx->toolchain();
 				ccmd += CompilerForSourceFileType[fileType];
 				ccmd += flags;
 				if (fileType != SourceFileType::ASM)

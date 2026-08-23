@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <filesystem>
 
-#include "../app/application.hpp"
 #include "../system/log.hpp"
 #include "../system/except.hpp"
 #include "../utils/util.hpp"
@@ -15,9 +14,11 @@ DependencyResolver::DependencyResolver() = default;
 DependencyResolver::~DependencyResolver() = default;
 
 void DependencyResolver::initialize(
+	const ncp::Context& ctx,
 	const core::CompilationUnitManager& compilationUnitMgr
 )
 {
+	m_ctx = &ctx;
 	m_compilationUnitMgr = &compilationUnitMgr;
 }
 
@@ -30,7 +31,7 @@ void DependencyResolver::analyzeObjectFiles()
 
     collectSymbolsAndSectionsWithRelocations();
 
-    if (ncp::Application::isVerbose(ncp::VerboseTag::Section))
+    if (m_ctx->isVerbose(ncp::VerboseTag::Section))
     {
         Log::out << OINFO << "Section usage analysis results:" << std::endl;
         Log::out << "  Total sections found: " << m_sectionInfo.size() << std::endl;
@@ -49,7 +50,7 @@ void DependencyResolver::propagateUsage(const std::vector<std::unique_ptr<UnitEn
 	markEntryPoints();
 	propagateUsage();
         
-    if (ncp::Application::isVerbose(ncp::VerboseTag::Section))
+    if (m_ctx->isVerbose(ncp::VerboseTag::Section))
     {
 		// Print the dependency tree
 		printDependencyTree();
@@ -67,7 +68,7 @@ void DependencyResolver::collectSymbolsAndSectionsWithRelocations()
         auto sh_tbl = elf->getSectionHeaderTable();
         auto str_tbl = elf->getSection<char>(sh_tbl[eh.e_shstrndx]);
 
-        if (ncp::Application::isVerbose(ncp::VerboseTag::Section))
+        if (m_ctx->isVerbose(ncp::VerboseTag::Section))
             Log::out << "  Analyzing " << unit->getObjectPath().string() << std::endl;
 
         // Collect sections
@@ -129,7 +130,7 @@ void DependencyResolver::collectSymbolsAndSectionsWithRelocations()
                 // If new symbol is strong and existing is weak, replace it
                 if (symbolInfo->isGlobal && existing.isWeak)
                 {
-                    if (ncp::Application::isVerbose(ncp::VerboseTag::Symbols))
+                    if (m_ctx->isVerbose(ncp::VerboseTag::Symbols))
                     {
                         Log::out << "    Strong symbol " << symbolInfo->name 
                                  << " overriding weak symbol from " 
@@ -140,7 +141,7 @@ void DependencyResolver::collectSymbolsAndSectionsWithRelocations()
                 // If new symbol is weak and existing is strong, keep existing
                 else if (symbolInfo->isWeak && existing.isGlobal)
                 {
-                    if (ncp::Application::isVerbose(ncp::VerboseTag::Symbols))
+                    if (m_ctx->isVerbose(ncp::VerboseTag::Symbols))
                     {
                         Log::out << "    Weak symbol " << symbolInfo->name 
                                  << " not overriding strong symbol from " 
@@ -151,7 +152,7 @@ void DependencyResolver::collectSymbolsAndSectionsWithRelocations()
                 // If both are weak, keep the first one (standard linker behavior)
                 else if (symbolInfo->isWeak && existing.isWeak)
                 {
-                    if (ncp::Application::isVerbose(ncp::VerboseTag::Symbols))
+                    if (m_ctx->isVerbose(ncp::VerboseTag::Symbols))
                     {
                         Log::out << "    Weak symbol " << symbolInfo->name 
                                  << " not overriding first weak symbol from " 
@@ -162,7 +163,7 @@ void DependencyResolver::collectSymbolsAndSectionsWithRelocations()
                 // If both are global, this is a multiple definition error, but we'll keep the first
                 else if (symbolInfo->isGlobal && existing.isGlobal)
                 {
-                    if (ncp::Application::isVerbose(ncp::VerboseTag::Symbols))
+                    if (m_ctx->isVerbose(ncp::VerboseTag::Symbols))
                     {
                         Log::out << OWARN << "Multiple definition of global symbol " << symbolInfo->name 
                                  << ": keeping definition from " 
@@ -236,7 +237,7 @@ void DependencyResolver::collectSymbolsAndSectionsWithRelocations()
                     ReferencedSymbol refSymbol(referencedSymbolName, isSection);
                     sectionInfo->referencedSymbols.insert(refSymbol);
 
-					// if (ncp::Application::isVerbose())
+					// if (m_ctx->isVerbose())
                     // {
                     //     Log::out << "    Section " << targetSectionName << " references " 
                     //              << (isSection ? "section " : "symbol ") << referencedSymbolName << std::endl;
@@ -532,7 +533,7 @@ void DependencyResolver::excludeUnusedSections(std::vector<std::unique_ptr<Secti
 		candidateSections.end()
 	);
 	
-	if (ncp::Application::isVerbose(ncp::VerboseTag::Section))
+	if (m_ctx->isVerbose(ncp::VerboseTag::Section))
 	{
 		Log::out << OINFO << "Filtered to " << candidateSections.size() 
 		         << " used sections for overwrite regions." << std::endl;
