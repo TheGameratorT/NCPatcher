@@ -51,6 +51,7 @@ private:
 	// Subcommands
 	void runBuild();
 	void runConfiguredBuild();
+	int runInit();
 	int runClean();
 	int runRestore();
 	int runConfigDump();

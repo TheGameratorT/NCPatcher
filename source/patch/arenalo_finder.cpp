@@ -44,6 +44,45 @@ static struct PatternMatches patternMatchesThumb = {
 	},
 };
 
+static constexpr u32 Arm7WramStart = 0x037F8000;
+static constexpr u32 Arm7PrivateWramStart = 0x03800000;
+static constexpr u32 Arm7WramEnd = 0x03810000;
+
+// ARM7's private-WRAM case returns max(SDK_WRAM_ARENA_LO, 0x03800000).
+// Match that case directly so the identical literal used by ArenaHi is not
+// mistaken for the value PatchMaker needs to relocate.
+static bool processArm7Matches(
+	const std::vector<u8>& data,
+	u32 ramAddress,
+	int& arenaLoOut,
+	u32& pointerValueOut
+)
+{
+	for (std::size_t offset = 0; offset + 20 <= data.size(); offset += 4)
+	{
+		const u32 ldr = Util::read<u32>(&data[offset + 4]);
+		if (Util::read<u32>(&data[offset]) != 0xE3A0050E ||
+			(ldr & 0xFFFFF000) != 0xE59F1000 ||
+			Util::read<u32>(&data[offset + 8]) != 0xE351050E ||
+			Util::read<u32>(&data[offset + 12]) != 0x81A00001 ||
+			Util::read<u32>(&data[offset + 16]) != 0xE12FFF1E)
+			continue;
+
+		const std::size_t literalOffset = offset + 12 + (ldr & 0xFFF);
+		if (literalOffset + sizeof(u32) > data.size())
+			continue;
+
+		const u32 pointerValue = Util::read<u32>(&data[literalOffset]);
+		if (pointerValue < Arm7WramStart || pointerValue >= Arm7WramEnd)
+			continue;
+
+		arenaLoOut = int(ramAddress + literalOffset);
+		pointerValueOut = std::max(pointerValue, Arm7PrivateWramStart);
+		return true;
+	}
+	return false;
+}
+
 static const std::vector<int> findPattern(const std::vector<u8>& data, const std::vector<u8>& pattern, u32 start, s32 end)
 {
 	std::vector<int> matches;
@@ -124,19 +163,23 @@ static bool processMatches(ArmBin* arm, const std::vector<u8>& data, u32 ramAddr
 void findArenaLo(ArmBin* arm, int& arenaLoOut, u32& newcodeDestOut)
 {
 	std::vector<u8>& data = arm->data();
+	auto process = [&](const std::vector<u8>& subset, u32 address) {
+		if (!arm->isArm9())
+			return processArm7Matches(subset, address, arenaLoOut, newcodeDestOut);
+		return processMatches(arm, subset, address, &patternMatchesArm, arenaLoOut, newcodeDestOut) ||
+			processMatches(arm, subset, address, &patternMatchesThumb, arenaLoOut, newcodeDestOut);
+	};
 
 	u32 armRamAddress = arm->getRamAddress();
 	u32 autoloadStart = arm->getModuleParams()->autoloadStart;
 	std::vector<u8> subset(data.begin(), data.begin() + (autoloadStart - armRamAddress));
-	if (ArenaLoFinder::processMatches(arm, subset, armRamAddress, &ArenaLoFinder::patternMatchesArm, arenaLoOut, newcodeDestOut) ||
-		ArenaLoFinder::processMatches(arm, subset, armRamAddress, &ArenaLoFinder::patternMatchesThumb, arenaLoOut, newcodeDestOut))
+	if (process(subset, armRamAddress))
 		return;
 
 	for (const ArmBin::AutoLoadEntry& autoload : arm->getAutoloadList())
 	{
 		std::vector<u8> subset(data.begin() + autoload.dataOff, data.begin() + autoload.dataOff + autoload.size);
-		if (ArenaLoFinder::processMatches(arm, subset, autoload.address, &ArenaLoFinder::patternMatchesArm, arenaLoOut, newcodeDestOut) ||
-			ArenaLoFinder::processMatches(arm, subset, autoload.address, &ArenaLoFinder::patternMatchesThumb, arenaLoOut, newcodeDestOut))
+		if (process(subset, autoload.address))
 			return;
 	}
 

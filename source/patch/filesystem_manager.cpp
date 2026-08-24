@@ -1,5 +1,6 @@
 #include "filesystem_manager.hpp"
 
+#include <algorithm>
 #include <sstream>
 
 #include "../system/log.hpp"
@@ -162,14 +163,56 @@ OverlayBin* FileSystemManager::getOverlay(std::size_t ovID)
 	return loadOverlayBin(ovID);
 }
 
+OverlayBin* FileSystemManager::createOverlayBin(OverlayEntry entry, std::vector<u8> data)
+{
+	const std::size_t ovID = entry.overlayId;
+	if (ovID != m_ovt.size())
+	{
+		std::ostringstream oss;
+		oss << "Cannot create overlay " << ovID << ": the next available overlay id is "
+			<< m_ovt.size() << ".";
+		throw ncp::exception(oss.str());
+	}
+
+	// A previous build may already have created this row while the backup
+	// table deliberately remains pristine. Reuse its file id instead of
+	// appending another FAT entry on every rebuild.
+	const OverlayTable current = m_rom->readOverlayTable(isArm9());
+	const bool existed = ovID < current.size()
+		&& current.entries()[ovID].overlayId == ovID
+		&& m_rom->hasOverlay(isArm9(), u32(ovID));
+	if (existed)
+		entry.fileId = current.entries()[ovID].fileId;
+	else
+		m_createdOverlays.insert(ovID);
+
+	m_ovt.entries().push_back(entry);
+	m_bakOvtChanged = true;
+
+	auto overlay = std::make_unique<OverlayBin>();
+	overlay->load(std::move(data), entry.ramAddress, false, int(ovID));
+	overlay->setDirty(true);
+
+	OverlayBin* result = overlay.get();
+	m_loadedOverlays.emplace(ovID, std::move(overlay));
+	return result;
+}
+
 void FileSystemManager::saveOverlayBins()
 {
 	const bool arm9 = isArm9();
 
-	for (auto& [ovID, ov] : m_loadedOverlays)
+	std::vector<std::size_t> overlayIds;
+	overlayIds.reserve(m_loadedOverlays.size());
+	for (const auto& [ovID, ov] : m_loadedOverlays)
+		overlayIds.push_back(ovID);
+	std::sort(overlayIds.begin(), overlayIds.end());
+
+	for (std::size_t ovID : overlayIds)
 	{
+		OverlayBin* ov = m_loadedOverlays.at(ovID).get();
 		const std::string name = m_rom->nameOfOverlay(arm9, u32(ovID));
-		const bool existed = m_rom->hasOverlay(arm9, u32(ovID));
+		const bool created = m_createdOverlays.contains(ovID);
 
 		OverlayEntry& entry = m_ovt.entries()[ovID];
 
@@ -199,9 +242,16 @@ void FileSystemManager::saveOverlayBins()
 			entry.setCompressed(false);
 		}
 
-		reportWrite("overlay", name, int(ovID), stored.size(), existed, &entry);
-
-		m_rom->writeOverlay(arm9, u32(ovID), stored);
+		if (created)
+		{
+			entry.fileId = m_rom->createOverlay(arm9, u32(ovID), stored);
+			reportWrite("overlay", name, int(ovID), stored.size(), false, &entry);
+		}
+		else
+		{
+			reportWrite("overlay", name, int(ovID), stored.size(), true, &entry);
+			m_rom->writeOverlay(arm9, u32(ovID), stored);
+		}
 
 		if (!ov->backupData().empty())
 			m_backup->write(BackupStore::overlayKey(arm9, u32(ovID)), ov->backupData());
@@ -210,9 +260,9 @@ void FileSystemManager::saveOverlayBins()
 
 // Announces a ROM file this build is about to write.
 //
-// Called before the write so that `action` can still tell an overlay this build
-// invented from one it edited -- afterwards every file exists and the question
-// can no longer be answered. That distinction is the one NSMB-Editor needs:
+// `existed` is captured before the write so that `action` can still tell an
+// overlay this build invented from one it edited. That distinction is the one
+// NSMB-Editor needs:
 // re-importing a patched directory currently throws when it looks up an overlay
 // by a name its own filesystem has never been told about.
 void FileSystemManager::reportWrite(

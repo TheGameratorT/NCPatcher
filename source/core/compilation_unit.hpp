@@ -42,6 +42,7 @@ struct BuildInfo
 	bool logFinished = false;
 	bool buildComplete = false;
 	bool buildFailed = false;
+	bool compilerDiagnosticsParsed = false;
 	std::string buildOutput;
 };
 

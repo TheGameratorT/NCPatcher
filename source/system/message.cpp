@@ -102,6 +102,14 @@ long long elapsedMs()
 	return std::chrono::duration_cast<std::chrono::milliseconds>(now - s_start).count();
 }
 
+std::size_t diagnosticCount(Level level)
+{
+	std::size_t count = 0;
+	for (const RecordedDiagnostic& diagnostic : s_diagnostics)
+		count += diagnostic.level == level ? 1 : 0;
+	return count;
+}
+
 void writeResultFile(std::string_view status, int exitCode, long long duration)
 {
 	std::ofstream file(s_resultFile);
@@ -124,8 +132,8 @@ void writeResultFile(std::string_view status, int exitCode, long long duration)
 	writer.field("status", status);
 	writer.key("exit-code").value(exitCode);
 	writer.key("duration-ms").value(duration);
-	writer.key("errors").value(Log::errorCount());
-	writer.key("warnings").value(Log::warningCount());
+	writer.key("errors").value(diagnosticCount(Level::Error));
+	writer.key("warnings").value(diagnosticCount(Level::Warning));
 
 	writer.key("diagnostics").beginArray();
 	for (const RecordedDiagnostic& entry : s_diagnostics)
@@ -246,8 +254,8 @@ void finish(std::string_view status, int exitCode)
 			writer.field("status", status);
 			writer.key("exit-code").value(exitCode);
 			writer.key("duration-ms").value(duration);
-			writer.key("errors").value(Log::errorCount());
-			writer.key("warnings").value(Log::warningCount());
+			writer.key("errors").value(diagnosticCount(Level::Error));
+			writer.key("warnings").value(diagnosticCount(Level::Warning));
 		});
 	}
 

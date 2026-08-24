@@ -46,6 +46,7 @@ static void testCodeFormatting()
 	check(ncp::diagCode(Diag::None).empty(), "Diag::None renders as nothing");
 	check(ncp::diagCode(Diag::ConfigLoad) == "NCP0001", "single digit is zero padded to four");
 	check(ncp::diagCode(Diag::PostBuildCommand) == "NCP0004", "NCP0004");
+	check(ncp::diagCode(Diag::ProjectInit) == "NCP0011", "NCP0011");
 	check(ncp::diagCode(Diag::TargetCompile) == "NCP1001", "four digits are not padded");
 	check(ncp::diagCode(Diag::RomHeaderLoad) == "NCP3001", "NCP3001");
 	check(ncp::diagCode(Diag::NitroFsInsert) == "NCP3004", "NCP3004");
@@ -167,6 +168,7 @@ static void testExitCodes()
 	check(ncp::exitCodeFor(Diag::ConfigLoad) == ExitCode::Config, "a config load failure is a config error");
 	check(ncp::exitCodeFor(Diag::TargetConfigLoad) == ExitCode::Config, "resolving a target is a config error");
 	check(ncp::exitCodeFor(Diag::ConfigMigrate) == ExitCode::Config, "migration is a config error");
+	check(ncp::exitCodeFor(Diag::ProjectInit) == ExitCode::Config, "project initialization is a config error");
 	check(ncp::exitCodeFor(Diag::ToolchainMissing) == ExitCode::Toolchain, "a missing compiler is its own category");
 	check(ncp::exitCodeFor(Diag::RomAccess) == ExitCode::RomIo,
 		"a ROM that cannot be opened or written is ROM I/O, not a patch failure");

@@ -42,6 +42,7 @@ public:
 	void refreshAutoloadData();
 
 	[[nodiscard]] constexpr u32 getRamAddress() const { return m_ramAddr; }
+	[[nodiscard]] constexpr bool isArm9() const { return m_isArm9; }
 	[[nodiscard]] inline ModuleParams* getModuleParams() { return reinterpret_cast<ModuleParams*>(&((m_bytes.data())[m_moduleParamsOff])); }
 	[[nodiscard]] inline const ModuleParams* getModuleParams() const { return reinterpret_cast<const ModuleParams*>(&((m_bytes.data())[m_moduleParamsOff])); }
 	[[nodiscard]] constexpr std::vector<AutoLoadEntry>& getAutoloadList() { return m_autoloadList; }

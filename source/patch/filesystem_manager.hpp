@@ -4,6 +4,7 @@
 #include <vector>
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "../utils/types.hpp"
 #include "../ndsbin/armbin.hpp"
@@ -44,6 +45,7 @@ public:
 	void saveOverlayTableBin();
     
 	OverlayBin* loadOverlayBin(std::size_t ovID);
+	OverlayBin* createOverlayBin(ncp::rom::OverlayEntry entry, std::vector<u8> data);
 	OverlayBin* getOverlay(std::size_t ovID);
 	void saveOverlayBins();
 
@@ -68,6 +70,7 @@ private:
     
 	std::unique_ptr<ArmBin> m_arm;
 	std::unordered_map<std::size_t, std::unique_ptr<OverlayBin>> m_loadedOverlays;
+	std::unordered_set<std::size_t> m_createdOverlays;
 	ncp::rom::OverlayTable m_ovt;
 	ncp::rom::OverlayTable m_bakOvt;
 	bool m_bakOvtChanged = false;

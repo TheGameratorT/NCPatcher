@@ -25,6 +25,7 @@ namespace ncp {
 enum class Command
 {
 	Build,
+	Init,
 	Clean,
 	Restore,
 	ConfigDump,
@@ -68,6 +69,7 @@ struct CommandLine
 	std::vector<std::string> vars;      // --var NAME=VALUE
 	std::string variant;                // build --variant NAME
 	bool allVariants = false;           // build --all-variants
+	std::string initTemplate = "default"; // init --template NAME
 
 	std::string toolchain;              // --toolchain / NCPATCHER_TOOLCHAIN
 	config::Source toolchainSource = config::Source::Default;

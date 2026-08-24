@@ -42,6 +42,13 @@ int main()
 		g_failures++;
 	}
 
+	const CommandLine init = parse({ "ncpatcher", "init", "--template", "nsmb", "-C", "new-project" });
+	if (init.command != Command::Init || init.initTemplate != "nsmb" || init.projectPath != "new-project")
+	{
+		std::cout << "FAIL: init selects a named template and destination\n";
+		g_failures++;
+	}
+
 	if (g_failures == 0)
 		std::cout << "cli_test: all checks passed\n";
 	return g_failures == 0 ? 0 : 1;

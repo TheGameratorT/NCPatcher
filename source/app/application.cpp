@@ -29,6 +29,7 @@
 #include "../rom/nds_accessor.hpp"
 #include "../rom/backup_store.hpp"
 #include "rom_command.hpp"
+#include "project_init.hpp"
 #include "../build/objmaker.hpp"
 #include "../patch/patch_maker.hpp"
 #include "../core/compilation_unit_manager.hpp"
@@ -98,6 +99,7 @@ int Application::run()
 	try {
 		switch (m_cli.command)
 		{
+		case Command::Init:           code = runInit(); break;
 		case Command::Clean:          code = runClean(); break;
 		case Command::Restore:        code = runRestore(); break;
 		case Command::ConfigDump:     code = runConfigDump(); break;
@@ -118,6 +120,14 @@ int Application::run()
 
 	msg::finish(code == 0 ? "ok" : "error", code);
 	return code;
+}
+
+int Application::runInit()
+{
+	ScopedContext ctx(Diag::ProjectInit, "Could not initialize the project.");
+	project::initialize(m_ctx.paths.workDir, m_cli.initTemplate);
+	Log::info("Initialized the " + m_cli.initTemplate + " project in " + m_ctx.paths.workDir.string() + ".");
+	return exitValue(ExitCode::Ok);
 }
 
 int Application::runMigrate()

@@ -23,6 +23,20 @@ invoke it.
 Compile and patch. The default. Select one configured variant, or build every
 variant in declaration order.
 .TP
+.BR init " [" \-\-template " " \fINAME\fP "]"
+Create a version 2 project in the directory selected by
+.BR \-C ,
+or in the current directory when it is omitted. The templates are
+.B default
+and
+.BR nsmb .
+Both create
+.BR ncpatcher.yaml ,
+.B source/
+and
+.BR include/ ,
+and refuse to overwrite an existing configuration.
+.TP
 .BR clean " [" \-\-backups ]
 Delete the build directories. With
 .BR \-\-backups ,

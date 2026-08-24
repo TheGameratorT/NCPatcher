@@ -86,10 +86,11 @@ rom:
   backup: backup
 ```
 
-It only ever touches the header, the two ARM binaries, the two overlay tables
-and the overlay files, and it edits the ROM rather than rebuilding it — so
-levels, textures, sounds, the banner, the secure area and anything else in
-there come out exactly as they went in.
+Without a `files:` section it changes only the header, ARM binaries, overlay
+tables and overlay files. A `files:` section may deliberately replace or add
+NitroFS files. The ROM is edited in place when its existing layout has room;
+when an ARM binary or table outgrows that room, NCPatcher lays the container out
+again without changing unrelated file contents.
 
 An extracted directory works too, and is what a level editor hands it:
 
@@ -146,6 +147,7 @@ directory, which is how it has always been invoked and still is.
 ```
 ncpatcher build [--variant NAME | --all-variants]
                                       compile and patch
+          init [--template NAME]      create a v2 project (default or nsmb)
           clean [--backups]          delete the build directories
           restore                    put the ROM binaries back and drop the backups
           config dump [--explain] [--json]
@@ -211,6 +213,8 @@ human log to stderr, so a caller never has to match on English:
 
 `--result PATH` writes the same run as a single JSON object, including every
 diagnostic and artifact. Both work with or without `--message-format json`.
+In JSON message mode GCC diagnostics are emitted individually with their
+severity and source location; the human rendering remains on stderr.
 
 ### Exit codes
 
@@ -231,111 +235,117 @@ diagnostic and artifact. Both work with or without `--message-format json`.
 
 ## Configuration
 
-For the program to run at least one configuration file must exist with at least one target specified.
-This configuration file must be named "ncpatcher.json" and looks somewhat like this:
-```json
-{
-  "$arm_flags": "-masm-syntax-unified -mno-unaligned-access -mfloat-abi=soft -mabi=aapcs",
-  "$c_flags": "-Os -fomit-frame-pointer -ffast-math -fno-builtin -nostdlib -nodefaultlibs -nostartfiles -DSDK_GCC -DSDK_FINALROM",
-  "$cpp_flags": "-fno-rtti -fno-exceptions -std=c++20",
-  "$asm_flags": "-Os -x assembler-with-cpp -fomit-frame-pointer",
-  "$ld_flags": "-lgcc -lc -lstdc++ --use-blx",
-  
-  "backup": "backup",
-  "filesystem": "fs-data",
-  "toolchain": "arm-none-eabi-",
-  
-  "arm7": {},
-  "arm9": {
-  	"target": "arm9.json",
-  	"build": "build"
-  },
-  
-  "pre-build": [],
-  "post-build": [],
-  
-  "thread-count": 0
-}
+New projects use one `ncpatcher.yaml` with `version: 2`. At least one ARM target
+must be enabled. Existing version 1 `ncpatcher.json` projects remain supported;
+`ncpatcher migrate` prints their v2 equivalent and `ncpatcher migrate --write`
+saves it after verifying that the resolved build is unchanged.
+
+Create a project in a new directory with the portable default or the built-in
+New Super Mario Bros. setup:
+
+```sh
+ncpatcher -C my-project init
+ncpatcher -C my-nsmb-mod init --template nsmb
 ```
 
-Structure:
- - backup - The folder to where files needed to re-patch are stored.
- - filesystem - The folder that contains the ROM data to patch.
- - toolchain - The location/prefix of your GCC toolchain executable.
- - arm7 - The ARM7 target.
-   - target - The location of the target configuration.
-   - build - The folder to where files generated from the build are stored.
- - arm9 - The ARM9 target.
-   - target - The location of the target configuration.
-   - build - The folder to where files generated from the build are stored.
- - pre-build - An array of commands to run before building.
- - post-build - An array of commands to run after building.
- - thread-count - The amount of jobs to use simultaneously while building. (Use 0 for maximum)
+Both create `ncpatcher.yaml`, `source/`, and `include/`. The generated config
+uses direct ROM input and carries the published schema URL for editor
+completion. The default expects `game.nds`; `nsmb` expects `NSMB.nds` and the
+usual converted SDK/reference headers plus `symbols9.x`. Existing project
+configuration files are never overwritten; use `migrate` for a v1 project.
 
-The target configuration file, which is specified in the ncpatcher.json looks somewhat like this:
-```json
-{
-  "$arm_flags": "-march=armv5te -mtune=arm946e-s $${arm_flags}",
-  "$c_flags": "${arm_flags} $${c_flags} -DSDK_ARM9 -Darm9_start=0x021901E0",
-  "$cpp_flags": "${c_flags} $${cpp_flags}",
-  "$asm_flags": "${arm_flags} $${asm_flags}",
-  "$ld_flags": "$${ld_flags}",
-  
-  "c_flags": "${c_flags}",
-  "cpp_flags": "${cpp_flags}",
-  "asm_flags": "${asm_flags}",
-  "ld_flags": "${ld_flags}",
+This project builds ARM9 code from `code/`, patches a direct ROM, and appends
+code to both the main binary and overlay 9:
 
-  "includes": [
-    "include",
-    "source"
-  ],
-  "regions": [{
-    "dest": "main",
-    "compress": false,
-    "sources": [
-      "source/*"
-    ]
-  }, {
-    "dest": "ov9",
-    "mode": "append",
-    "compress": false,
-    "sources": [
-      "source/ov9/**"
-    ],
-    "c_flags": "${c_flags} -DOVERLAY_ID=9",
-    "cpp_flags": "${cpp_flags} -DOVERLAY_ID=9",
-    "asm_flags": "${asm_flags} -DOVERLAY_ID=9"
-  }],
-  
-  "arenaLo": "0x02065F10",
-  "symbols": "symbols9.x"
-}
+```yaml
+version: 2
+
+rom:
+  file: roms/game.nds
+  output: build/game.nds
+  backup: backup
+
+toolchain: arm-none-eabi-
+build:
+  threads: 0
+
+defines: [SDK_GCC, SDK_FINALROM]
+flags:
+  common: [-mno-unaligned-access, -mfloat-abi=soft, -mabi=aapcs, -fno-builtin]
+  c: [-Os, -fomit-frame-pointer]
+  cpp: [-Os, -fomit-frame-pointer, -fno-rtti, -fno-exceptions, -std=c++20]
+  asm: [-Os, "-x assembler-with-cpp"]
+  ld: [-lgcc, -lc, -lstdc++, --use-blx]
+
+targets:
+  arm9:
+    build: build/arm9
+    workdir: code
+    symbols: code/symbols9.x
+    includes: [include]
+    defines: [SDK_ARM9]
+    flags:
+      common: [-march=armv5te, -mtune=arm946e-s, -marm]
+    # arena-lo: 0x02065F10  # optional override; normally detected
+    regions:
+      - dest: main
+        sources: ["source/**", "!source/overlays/**"]
+      - dest: ov9
+        mode: append
+        maxsize: 0x56400
+        compress: true
+        defines: [OVERLAY_ID=9]
+        sources: source/overlays/ov9/**
 ```
 
-Structure:
- - c_flags - The flags used when building C source files. (Can be overwritten per region)
- - cpp_flags - The flags used when building C++ source files. (Can be overwritten per region)
- - asm_flags - The flags used when building Assembly files. (Can be overwritten per region)
- - ld_flags - The flags used when linking.
- - includes - Array of paths or glob patterns that resolve to directories containing headers/includes.
- - regions - An array of sections to build separately.
-   - dest - "main" if the code should go in the main binary, "ovX" if the code should go in overlay X.
-   - mode - The mode that specifies how code should be inserted.
-     - "append" adds code to the end of an existing overlay (Only option for "main").
-     - "replace" deletes all the contents of an existing overlay and places your code instead.
-     - "create" creates a new overlay with your code.
-   - address - The address in memory for this overlay. (Optional, except for "create" mode. In "replace" mode it can be used to set a new address for the overlay)
-   - length - The max length that this overlay can have. (Optional)
-   - compress - If the overlay should be Backwards LZ compressed. Overlays only; a main region asking for it is warned about and written uncompressed. An overlay whose data does not get smaller is stored as it is, rather than "compressed" into something bigger.
-   - sources - Array of paths or glob patterns that resolve to source files.
-   - c_flags, cpp_flags, asm_flags - Region overwriteable flags. (Optional)
- - arenaLo - The address of the value holding the address end of the main binary code in memory. (Usually the value being loaded in the first LDR of OS_GetInitArenaLo)
- - symbols - A file containing symbol definitions to include when linking. (Optional)
+Relative ROM, backup, build and symbols paths start at the project directory.
+`workdir` changes the compiler working directory and the base for that target's
+source and include globs; it defaults to the project directory. In the example,
+`include` and `source/**` therefore mean `code/include` and `code/source/**`,
+while `build/arm9` and `code/symbols9.x` remain project-relative.
 
-The "$" symbol allows to define or access a variable that is for its own file scope. \
-The "$$" symbol allows a target to access a variable that is defined in the ncpatcher.json file scope. \
-The "${env:ENV_VARIABLE}" syntax allows to access a variable that is defined in the system's environment variable list.
+Project settings are inherited by each target, and target settings by each
+region. A scalar or list appends to an inherited `includes`, `defines`,
+`sources`, or flag list. Use the mapping form when a level must replace or
+subtract entries:
+
+```yaml
+flags:
+  cpp:
+    remove: [-Os]
+    append: [-O2]
+```
+
+The operations run in `set`, `remove`, `append` order. `flags.common` is passed
+to C, C++, and assembly; `c`, `cpp`, and `asm` add language-specific options;
+`ld` is target-wide linker input.
+
+### Regions
+
+| Key | Meaning |
+|---|---|
+| `dest` | Required: `main` or `ovNN`. |
+| `mode` | `append` (default), `replace`, or `create`. `replace` and `create` apply to overlays. |
+| `address` | Required for `create`; optional for `replace` when relocating the overlay. |
+| `maxsize` | Refuse a region that grows beyond this size. The default is 1 MiB. |
+| `compress` | BLZ-compress an overlay when that makes it smaller. A main region is written uncompressed. |
+| `sources` | Source paths and globs. `*`, `?`, character classes, `{a,b}`, whole-segment `**`, and leading `!` exclusions are supported. |
+| `defines`, `flags` | Compile settings inherited from the target and optionally adjusted here. |
+| `overwrites` | Original-binary address ranges this region may reuse, written as `[start, end]` pairs. |
+
+ARM7 and ARM9 normally locate their ArenaLo pointer automatically. Set the
+target's `arena-lo` only when using a game or binary whose initialization code
+the finder does not recognize. A `create` region must use the next contiguous
+overlay ID and provide its load address.
+
+### Variables
+
+`vars:` declares lazily expanded project values. Use `${vars.NAME}` to read
+one and `--var NAME=VALUE` to override it. `${env.NAME}` reads the environment;
+`${env.NAME:-fallback}` supplies a default. Built-in references include
+`${project.root}`, `${config.dir}`, `${rom.dir}`, `${target.name}` and
+`${target.build}`. `${ncp.moduleDump}` is available when `modules.dump` is set.
+Write `$$` for a literal dollar sign.
 
 ## Build hooks
 

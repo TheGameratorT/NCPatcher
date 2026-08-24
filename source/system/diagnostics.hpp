@@ -28,6 +28,7 @@ enum class Diag : unsigned
 	RestoreFailed        = 8,
 	RuntimeHeaderMissing = 9,   // ncp.h absent, or from a different version
 	ModuleResolve        = 10,  // reading module.yaml files and folding them together
+	ProjectInit          = 11,  // creating a new v2 project skeleton
 
 	TargetCompile        = 1001,
 

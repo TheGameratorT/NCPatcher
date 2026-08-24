@@ -18,7 +18,7 @@ _ncpatcher()
 	local globals='-C --project --rom --out -D --define --var --toolchain -j --jobs
 		-v --verbose --verbose-tag --color --message-format --result
 		--log --no-log -h --help --version'
-	local commands='build clean restore config migrate modules rom version'
+	local commands='build init clean restore config migrate modules rom version'
 
 	# Options taking a value are completed from the value, not the option list.
 	case "$prev" in
@@ -47,6 +47,10 @@ _ncpatcher()
 			COMPREPLY=($(compgen -W 'human json' -- "$cur"))
 			return
 			;;
+		--template)
+			COMPREPLY=($(compgen -W 'default nsmb' -- "$cur"))
+			return
+			;;
 		--verbose-tag)
 			COMPREPLY=($(compgen -W 'build section elf patch library linking symbols nolib all' -- "$cur"))
 			return
@@ -63,7 +67,7 @@ _ncpatcher()
 	local command='' sub='' i
 	for ((i = 1; i < cword; i++)); do
 		case "${words[i]}" in
-			build|clean|restore|config|migrate|modules|rom|version)
+			build|init|clean|restore|config|migrate|modules|rom|version)
 				command="${words[i]}"
 				;;
 			dump)
@@ -85,6 +89,7 @@ _ncpatcher()
 	local extra=''
 	case "$command" in
 		build)   extra='--variant --all-variants' ;;
+		init)    extra='--template' ;;
 		clean)   extra='--backups' ;;
 		migrate) extra='--write' ;;
 		config)

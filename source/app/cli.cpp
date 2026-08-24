@@ -154,6 +154,13 @@ std::optional<int> parseCommandLine(int argc, char* argv[], CommandLine& out)
 	variant->excludes(allVariants);
 	allVariants->excludes(variant);
 
+	CLI::App* init = app.add_subcommand("init", "Create a version 2 project in the project directory");
+	init->add_option("--template", out.initTemplate,
+		"Project template: default or nsmb")
+		->type_name("NAME")
+		->check(CLI::IsMember({ "default", "nsmb" }))
+		->default_val("default");
+
 	CLI::App* clean = app.add_subcommand("clean", "Delete the build directories");
 	clean->add_flag("--backups", out.cleanBackups,
 		"Also delete the backup directory. The ROM binaries stay patched and "
@@ -225,7 +232,7 @@ std::optional<int> parseCommandLine(int argc, char* argv[], CommandLine& out)
 
 	// Every subcommand accepts the global options too, so that both
 	// `ncpatcher -v build` and `ncpatcher build -v` work.
-	for (CLI::App* sub : { build, clean, restore, configDump, configValidate, configPath, migrate,
+	for (CLI::App* sub : { build, init, clean, restore, configDump, configValidate, configPath, migrate,
 	                       modulesList, modulesDump, modulesExplain,
 	                       romInfo, romExtract, romPack })
 		sub->fallthrough();
@@ -254,7 +261,8 @@ std::optional<int> parseCommandLine(int argc, char* argv[], CommandLine& out)
 		out.verboseTags.insert(it->second);
 	}
 
-	if (*clean)              out.command = Command::Clean;
+	if (*init)               out.command = Command::Init;
+	else if (*clean)         out.command = Command::Clean;
 	else if (*restore)       out.command = Command::Restore;
 	else if (*configDump)    out.command = Command::ConfigDump;
 	else if (*configValidate) out.command = Command::ConfigValidate;

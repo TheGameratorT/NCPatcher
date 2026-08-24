@@ -1,5 +1,6 @@
 #include "patch_maker.hpp"
 
+#include <algorithm>
 #include <sstream>
 #include <cstring>
 
@@ -120,6 +121,9 @@ void PatchMaker::prepareBuildEnvironment()
 	{
 		if (ovID >= overlayCount)
 		{
+			const BuildTarget::Region* region = m_target->getRegionByDestination(int(ovID));
+			if (region != nullptr && region->mode == BuildTarget::Mode::Create)
+				continue;
 			stale++;
 			continue;
 		}
@@ -314,13 +318,6 @@ void PatchMaker::fetchNewcodeAddr()
 
 	if (m_arenalo == 0)
 	{
-		if (!m_target->getArm9())
-		{
-			std::ostringstream oss;
-			oss << OSTR("arenaLo") << " was not set and finding it automatically for ARM7 is not yet supported.";
-			throw ncp::exception(oss.str());
-		}
-
 		Log::out << OINFO << OSTR("arenaLo") << " not specified, searching..." << std::endl;
 		newcodeAddrFromMissingArenaLo();
 	}
@@ -642,8 +639,15 @@ void PatchMaker::applyOverwriteRegions(const PatchOperationContext& context)
 
 void PatchMaker::applyNewcodeToDestinations(const PatchOperationContext& context)
 {
+	std::vector<int> destinations;
+	destinations.reserve(context.newcodeInfoForDest->size());
 	for (const auto& [dest, newcodeInfo] : *context.newcodeInfoForDest)
+		destinations.push_back(dest);
+	std::sort(destinations.begin(), destinations.end());
+
+	for (int dest : destinations)
 	{
+		const std::unique_ptr<NewcodeInfo>& newcodeInfo = context.newcodeInfoForDest->at(dest);
 		if (dest == -1)
 		{
 			applyNewcodeToMainArm(dest, newcodeInfo, context);
@@ -826,8 +830,23 @@ void PatchMaker::handleReplaceModeOverlay(int dest, const std::unique_ptr<Newcod
 
 void PatchMaker::handleCreateModeOverlay(int dest, const std::unique_ptr<NewcodeInfo>& newcodeInfo)
 {
-	// TO BE DESIGNED.
-	throw ncp::exception("Creating new overlays is not yet supported.");
+	const BuildTarget::Region* region = m_target->getRegionByDestination(dest);
+	if (region == nullptr)
+		throw ncp::exception("region of overlay " + std::to_string(dest) + " set to create could not be found!");
+
+	validateOverlaySize(dest, newcodeInfo->binSize + newcodeInfo->bssSize, *region);
+
+	ncp::rom::OverlayEntry entry;
+	entry.overlayId = u32(dest);
+	entry.ramAddress = m_newcodeAddrForDest[dest];
+	entry.ramSize = u32(newcodeInfo->binSize);
+	entry.bssSize = u32(newcodeInfo->bssSize);
+
+	std::vector<u8> data(newcodeInfo->binSize);
+	if (!data.empty())
+		writeNewcodeData(data.data(), newcodeInfo, nullptr);
+
+	m_fileSystemManager->createOverlayBin(entry, std::move(data));
 }
 
 // Helper methods implementation

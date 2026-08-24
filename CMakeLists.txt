@@ -115,9 +115,11 @@ set(SOURCES
 	source/app/application.cpp
 	source/app/cli.cpp
 	source/app/config_dump.cpp
+	source/app/project_init.cpp
 	source/app/rom_command.cpp
 	source/app/context.cpp
 	source/build/buildlogger.cpp
+	source/build/gcc_diagnostics.cpp
 	source/build/objmaker.cpp
 	source/config/buildtarget.cpp
 	source/config/config_loader.cpp
@@ -280,6 +282,7 @@ if (NCP_BUILD_TESTS)
 	if (NOT WIN32)
 		target_link_libraries(process_test PRIVATE Threads::Threads)
 	endif()
+	ncp_add_test(project_init_test tests/project_init_test.cpp source/app/project_init.cpp)
 
 	# The ROM tests reach into the container, which reports failures the same
 	# way the rest of the program does, so they need the diagnostics and log
@@ -299,6 +302,45 @@ if (NCP_BUILD_TESTS)
 		source/system/except.cpp
 		source/system/log.cpp
 		source/system/log_sink.cpp)
+
+	ncp_add_test(overlay_create_test
+		tests/overlay_create_test.cpp
+		source/app/context.cpp
+		source/config/buildtarget.cpp
+		source/formats/blz.cpp
+		source/ndsbin/armbin.cpp
+		source/ndsbin/overlaybin.cpp
+		source/patch/filesystem_manager.cpp
+		source/rom/backup_store.cpp
+		source/rom/endian.cpp
+		source/rom/header.cpp
+		source/rom/overlay_table.cpp
+		source/system/ansi.cpp
+		source/system/diagnostics.cpp
+		source/system/except.cpp
+		source/system/log.cpp
+		source/system/log_sink.cpp
+		source/system/message.cpp
+		source/utils/json.cpp
+		source/utils/util.cpp)
+	target_link_libraries(overlay_create_test PRIVATE ${YAML_CPP_TARGET})
+
+	ncp_add_test(arenalo_finder_test
+		tests/arenalo_finder_test.cpp
+		source/formats/blz.cpp
+		source/ndsbin/armbin.cpp
+		source/patch/arenalo_finder.cpp
+		source/system/ansi.cpp
+		source/system/diagnostics.cpp
+		source/system/except.cpp
+		source/system/log.cpp
+		source/system/log_sink.cpp
+		source/utils/util.cpp)
+
+	ncp_add_test(gcc_diagnostics_test
+		tests/gcc_diagnostics_test.cpp
+		source/build/gcc_diagnostics.cpp)
+	target_link_libraries(gcc_diagnostics_test PRIVATE ${YAML_CPP_TARGET})
 
 	# The config test exercises the whole reader stack -- both schemas, the
 	# expander, inheritance and migration -- so it needs the same sources the

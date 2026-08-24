@@ -22,6 +22,7 @@
 #include "../utils/base32.hpp"
 #include "../utils/util.hpp"
 #include "buildlogger.hpp"
+#include "gcc_diagnostics.hpp"
 
 #include <functional>
 
@@ -308,6 +309,7 @@ void ObjMaker::compileSources()
 		buildInfo.logFinished = false;
 		buildInfo.buildComplete = false;
 		buildInfo.buildFailed = false;
+		buildInfo.compilerDiagnosticsParsed = ncp::msg::isJson();
 
 		pool.push_task([unit, this, completed, pendingCount](){
 			core::BuildInfo& buildInfo = unit->getBuildInfo();
@@ -315,6 +317,30 @@ void ObjMaker::compileSources()
 			buildInfo.buildStarted = true;
 
 			std::ostringstream out;
+			auto runCompiler = [&](const std::string& command) {
+				std::ostringstream commandOut;
+				const int retcode = Process::start(command.c_str(), m_paths->targetWorkDir, &commandOut);
+				if (!ncp::msg::isJson())
+				{
+					out << commandOut.str();
+					return retcode;
+				}
+
+				const auto diagnostics = ncp::build::parseGccDiagnostics(
+					commandOut.str(), unit->getSourcePath().string());
+				if (!diagnostics.has_value())
+				{
+					buildInfo.compilerDiagnosticsParsed = false;
+					out << commandOut.str();
+					return retcode;
+				}
+
+				for (const ncp::build::GccDiagnostic& diagnostic : *diagnostics)
+					ncp::msg::diagnostic(diagnostic.level, ncp::Diag::TargetCompile,
+						diagnostic.message, diagnostic.location);
+				out << ncp::build::formatGccDiagnostics(*diagnostics);
+				return retcode;
+			};
 
 			std::string srcS = unit->getSourcePath().string();
 			std::string objS = unit->getObjectPath().string();
@@ -360,7 +386,9 @@ void ObjMaker::compileSources()
 				}
 				ccmd += m_defineFlags;
 				ccmd += m_includeFlags;
-				ccmd += "-c -fdiagnostics-color -fdata-sections -ffunction-sections ";
+				ccmd += ncp::msg::isJson()
+					? "-c -fdiagnostics-format=json -fdiagnostics-color=never -fdata-sections -ffunction-sections "
+					: "-c -fdiagnostics-color -fdata-sections -ffunction-sections ";
 				if (outputDeps)
 				{
 					ccmd += "-MMD -MF \"";
@@ -388,7 +416,7 @@ void ObjMaker::compileSources()
 
 				std::string ccmd = makeBuildCmd(true, buildInfo.fileType, srcS, asmS);
 
-				int retcode = Process::start(ccmd.c_str(), m_paths->targetWorkDir, &out);
+				int retcode = runCompiler(ccmd);
 				if (retcode != 0)
 				{
 					buildInfo.buildFailed = true;
@@ -404,7 +432,7 @@ void ObjMaker::compileSources()
 
 			std::string ccmd = makeBuildCmd(buildInfo.fileType == SourceFileType::ASM, SourceFileType::ASM, srcS, objS);
 
-			int retcode = Process::start(ccmd.c_str(), m_paths->targetWorkDir, &out);
+			int retcode = runCompiler(ccmd);
 			if (retcode != 0)
 			{
 				buildInfo.buildFailed = true;
@@ -440,6 +468,8 @@ void ObjMaker::compileSources()
 		{
 			const core::BuildInfo& buildInfo = unit->getBuildInfo();
 			if (!buildInfo.buildFailed)
+				continue;
+			if (buildInfo.compilerDiagnosticsParsed)
 				continue;
 
 			ncp::msg::Location location;

@@ -9,6 +9,7 @@ ExitCode exitCodeFor(Diag code)
 	case Diag::ConfigLoad:
 	case Diag::TargetConfigLoad:
 	case Diag::ConfigMigrate:
+	case Diag::ProjectInit:
 		return ExitCode::Config;
 
 	// The runtime header ships with the program, so a missing or mismatched
