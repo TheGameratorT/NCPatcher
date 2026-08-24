@@ -72,6 +72,16 @@ void addGlobalOptions(CLI::App& app, CommandLine& out, std::vector<std::string>&
 		"Write the patched ROM here instead of patching it in place")
 		->type_name("PATH");
 
+	CLI::Option* variant = app.add_option("--variant", out.variant,
+		"Build one named variant")
+		->type_name("NAME");
+
+	CLI::Option* allVariants = app.add_flag("--all-variants", out.allVariants,
+		"Build every configured variant");
+
+	variant->excludes(allVariants);
+	allVariants->excludes(variant);
+
 	app.add_option("-D,--define", out.defines,
 		"Define a preprocessor macro, as NAME or NAME=VALUE")
 		->type_name("NAME[=VAL]");
@@ -135,8 +145,9 @@ std::optional<int> parseCommandLine(int argc, char* argv[], CommandLine& out)
 	app.set_help_flag("-h,--help", "Show this help message and exit");
 	app.set_version_flag("--version", versionString(), "Show the version and exit");
 
-	// No subcommand means build, which is how every existing project and the
-	// level editor invoke this program.
+	// A bare invocation is answered with a summary rather than a build. Starting
+	// one is a decision with side effects -- it writes into the ROM -- and it
+	// should be asked for by name.
 	app.require_subcommand(0, 1);
 
 	// Lets a global option written after the subcommand reach the parent.
@@ -145,14 +156,7 @@ std::optional<int> parseCommandLine(int argc, char* argv[], CommandLine& out)
 	std::vector<std::string> verboseTagNames;
 	addGlobalOptions(app, out, verboseTagNames);
 
-	CLI::App* build = app.add_subcommand("build", "Compile and patch (the default)");
-	CLI::Option* variant = build->add_option("--variant", out.variant,
-		"Build one named variant")
-		->type_name("NAME");
-	CLI::Option* allVariants = build->add_flag("--all-variants", out.allVariants,
-		"Build every configured variant");
-	variant->excludes(allVariants);
-	allVariants->excludes(variant);
+	CLI::App* build = app.add_subcommand("build", "Compile and patch");
 
 	CLI::App* init = app.add_subcommand("init", "Create a version 2 project in the project directory");
 	init->add_option("--template", out.initTemplate,
@@ -275,7 +279,16 @@ std::optional<int> parseCommandLine(int argc, char* argv[], CommandLine& out)
 	else if (*romExtract)    out.command = Command::RomExtract;
 	else if (*romPack)       out.command = Command::RomPack;
 	else if (*version)       out.command = Command::Version;
-	else                     out.command = Command::Build;
+	else if (*build)         out.command = Command::Build;
+	else
+	{
+		std::cout << "ncpatcher " << versionString() << "\n"
+		          << "Compiles C, C++ and assembly and splices the result into a "
+		             "Nintendo DS ROM.\n\n"
+		          << "  ncpatcher build     compile and patch the ROM\n"
+		          << "  ncpatcher --help    every command and option\n";
+		return 0;
+	}
 
 	if (out.command == Command::Version)
 	{

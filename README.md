@@ -73,7 +73,7 @@ Useful switches:
 
 ## Running
 
-Configure the project as described below, then run `ncpatcher` in the directory
+Configure the project as described below, then run `ncpatcher build` in the directory
 holding its configuration file — or from anywhere with `ncpatcher -C <that
 directory>`.
 
@@ -141,8 +141,8 @@ in place and produce a byte-identical ROM.
 
 ## Command line
 
-Running `ncpatcher` with no subcommand builds the project in the current
-directory, which is how it has always been invoked and still is.
+Running `ncpatcher` with no subcommand prints its version and points at the
+help. Building writes into the ROM, so it is asked for by name.
 
 ```
 ncpatcher build [--variant NAME | --all-variants]

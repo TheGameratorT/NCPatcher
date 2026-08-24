@@ -35,6 +35,15 @@ int main()
 		g_failures++;
 	}
 
+	// A global, not a build-subcommand option: the form the level editor and
+	// every script use puts it before the command.
+	const CommandLine before = parse({ "ncpatcher", "--variant", "fr", "build" });
+	if (before.command != Command::Build || before.variant != "fr")
+	{
+		std::cout << "FAIL: --variant is accepted before the command\n";
+		g_failures++;
+	}
+
 	const CommandLine all = parse({ "ncpatcher", "build", "--all-variants" });
 	if (all.command != Command::Build || !all.allVariants || !all.variant.empty())
 	{

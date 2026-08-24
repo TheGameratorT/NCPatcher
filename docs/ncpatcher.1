@@ -15,13 +15,13 @@ writes it, is described by
 .B ncpatcher.yaml
 in the project directory.
 .PP
-With no command it builds, which is how existing projects and the level editor
-invoke it.
+With no command it prints its version and where to find the help, and does
+nothing else. Building is asked for by name.
 .SH COMMANDS
 .TP
 .BR build " [" \-\-variant " " \fINAME\fP " | " \-\-all\-variants "]"
-Compile and patch. The default. Select one configured variant, or build every
-variant in declaration order.
+Compile and patch. Select one configured variant, or build every variant in
+declaration order.
 .TP
 .BR init " [" \-\-template " " \fINAME\fP "]"
 Create a version 2 project in the directory selected by
