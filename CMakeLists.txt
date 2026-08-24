@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(ncpatcher VERSION 1.0.4 LANGUAGES CXX)
+project(ncpatcher VERSION 2.0.0 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 
