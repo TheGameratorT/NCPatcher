@@ -52,6 +52,11 @@ if (NOT header)
 	message(FATAL_ERROR "ncp.h was not installed under ${staging}")
 endif()
 
+file(GLOB_RECURSE module_schema "${staging}/module.schema.json")
+if (NOT module_schema)
+	message(FATAL_ERROR "module.schema.json was not installed under ${staging}")
+endif()
+
 # The failure message has to name every directory it searched, or the person
 # reading it has no way to know where to put the file.
 execute_process(

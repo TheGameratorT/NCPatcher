@@ -16,6 +16,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "node.hpp"
@@ -191,6 +192,72 @@ struct RegionConfig
 	cfg::Mark mark;
 };
 
+// What the project says about one component of one module.
+//
+// Everything here is optional: a project that only wants a module switched on
+// writes the module's name and nothing else. The flags distinguish "said false"
+// from "said nothing", which matters because saying nothing means the module's
+// own answer stands.
+struct ComponentOverride
+{
+	std::string name;
+
+	bool hasEnabled = false;
+	bool enabled = true;
+
+	// Empty when the project did not retarget the component.
+	std::string target;
+
+	// Values for defines the component already declares, by name. Adding a
+	// define the component never had is not an override and is rejected: it
+	// would land in the build with nothing to explain where it came from.
+	std::vector<std::pair<std::string, std::string>> defines;
+
+	// cfg::Node::location(), kept rather than the node -- the project document
+	// is closed long before modules are resolved.
+	std::string location;
+};
+
+// One entry of `modules.enabled`.
+struct ModuleSelection
+{
+	std::string key;
+	bool enabled = true;
+
+	// A module that may simply not be there. Without this, a missing directory
+	// is an error: the alternative is a project that quietly builds without a
+	// feature it asked for, which is how the prototype behaved and how a
+	// mistyped module name became a mystery.
+	bool optional = false;
+
+	std::vector<ComponentOverride> components;
+
+	std::string location;
+};
+
+struct ModulesConfig
+{
+	// True once the project has a `modules:` section at all, whatever is in it.
+	// An absent section and one that enables nothing are different: only the
+	// first leaves declared-but-empty regions alone.
+	bool present = false;
+
+	Setting<std::filesystem::path> dir;
+
+	// Where to write the machine-readable graph. Written before the pre-build
+	// commands run, so a generator that consumes it is an ordinary hook.
+	Setting<std::filesystem::path> dump;
+
+	// Lets a component target an overlay the target never declared a region
+	// for. Off by default: a typo in an overlay id would otherwise produce a
+	// silently empty overlay instead of an error.
+	bool autoCreateRegions = false;
+
+	std::vector<ModuleSelection> selections;
+
+	[[nodiscard]] bool empty() const { return selections.empty(); }
+};
+
 struct TargetConfig
 {
 	std::string name;          // "arm9" or "arm7"
@@ -266,6 +333,8 @@ struct ProjectConfig
 	ListOp includes;
 	FlagOps flags;
 	ListOp defines;
+
+	ModulesConfig modules;
 
 	std::vector<std::string> preBuild;
 	std::vector<std::string> postBuild;

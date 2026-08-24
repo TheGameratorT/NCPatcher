@@ -1,5 +1,6 @@
 #include "application.hpp"
 
+#include <fstream>
 #include <iostream>
 #include <sstream>
 
@@ -18,6 +19,8 @@
 #include "../config/config_loader.hpp"
 #include "../config/migrate.hpp"
 #include "../config/target_resolver.hpp"
+#include "../modules/module_resolver.hpp"
+#include "../modules/module_dump.hpp"
 #include "config_dump.hpp"
 #include "../utils/hash.hpp"
 #include "../rom/dir_accessor.hpp"
@@ -50,7 +53,10 @@ std::optional<int> Application::initialize(int argc, char* argv[])
 	const bool logToStderr =
 		m_cli.messageFormat == msg::Format::Json ||
 		m_cli.command == Command::ConfigDump ||
-		m_cli.command == Command::ConfigPath;
+		m_cli.command == Command::ConfigPath ||
+		m_cli.command == Command::ModulesList ||
+		m_cli.command == Command::ModulesDump ||
+		m_cli.command == Command::ModulesExplain;
 	Log::configureConsole(m_cli.color, logToStderr);
 	msg::configure(m_cli.messageFormat, m_cli.resultPath);
 
@@ -96,6 +102,9 @@ int Application::run()
 		case Command::ConfigValidate: code = runConfigValidate(); break;
 		case Command::ConfigPath:     code = runConfigPath(); break;
 		case Command::Migrate:        code = runMigrate(); break;
+		case Command::ModulesList:
+		case Command::ModulesDump:
+		case Command::ModulesExplain: code = runModulesCommand(); break;
 		case Command::RomInfo:
 		case Command::RomExtract:
 		case Command::RomPack:        code = runRomCommand(); break;
@@ -116,6 +125,62 @@ int Application::runMigrate()
 	const fs::path file = projectFile();
 	return config::migrate(file, m_ctx.paths.workDir, m_cli.migrateWrite) ?
 		exitValue(ExitCode::Ok) : exitValue(ExitCode::Config);
+}
+
+int Application::runModulesCommand()
+{
+	ScopedContext ctx(Diag::ModuleResolve, "Could not inspect the modules.");
+
+	loadConfigurations();
+
+	// `modules dump` is a pipe on the far end of somebody's build script, so the
+	// graph it prints must be the whole of standard output. The other two are
+	// for a person, and go there too for consistency.
+	loadModules(m_cli.command == Command::ModulesDump);
+
+	if (!m_config.modules.present)
+	{
+		std::ostringstream oss;
+		oss << "This project has no " << OSTRa("modules") << " section."
+			<< OREASONNL "Add one to " << OSTR(m_config.file.filename().string())
+			<< " to use the module system.";
+		throw ncp::exception(oss.str());
+	}
+
+	switch (m_cli.command)
+	{
+	case Command::ModulesList:
+		modules::writeList(std::cout, m_modules);
+		break;
+
+	case Command::ModulesDump:
+		if (m_cli.modulesOutPath.empty())
+		{
+			modules::writeDump(std::cout, m_modules);
+		}
+		else
+		{
+			const fs::path path = m_ctx.paths.work(m_cli.modulesOutPath);
+			std::error_code error;
+			fs::create_directories(path.parent_path(), error);
+
+			std::ofstream file(path);
+			if (!file.is_open())
+			{
+				std::ostringstream oss;
+				oss << "Could not open " << OSTR(path.string()) << " for writing.";
+				throw ncp::exception(oss.str());
+			}
+			modules::writeDump(file, m_modules);
+		}
+		break;
+
+	default:
+		modules::writeExplanation(std::cout, m_modules, m_cli.modulesTarget);
+		break;
+	}
+
+	return exitValue(ExitCode::Ok);
 }
 
 int Application::runRomCommand()
@@ -204,6 +269,7 @@ int Application::runConfigPath()
 int Application::runConfigValidate()
 {
 	loadConfigurations();
+	loadModules();
 
 	{
 		ScopedContext ctx(Diag::TargetConfigLoad, "Could not load the target configuration.");
@@ -230,6 +296,7 @@ int Application::runConfigValidate()
 int Application::runConfigDump()
 {
 	loadConfigurations();
+	loadModules(true);
 
 	{
 		ScopedContext ctx(Diag::TargetConfigLoad, "Could not load the target configuration.");
@@ -266,6 +333,7 @@ int Application::runClean()
 	ScopedContext ctx(Diag::CleanFailed, "Could not clean the project.");
 
 	loadConfigurations();
+	loadModules(true);
 	{
 		ScopedContext targetCtx(Diag::TargetConfigLoad, "Could not load the target configuration.");
 		config::loadTargets(m_config);
@@ -457,6 +525,9 @@ void Application::runBuild()
 
 	std::unique_ptr<rom::RomAccessor> rom = openRom();
 
+	loadModules();
+	writeModuleDump();
+
 	runCommandList(m_config.preBuild,
 				   "Running pre-build commands...",
 				   Diag::PreBuildCommand,
@@ -574,7 +645,7 @@ ResolvedTarget Application::resolveTarget(bool isArm9, Context& targetCtx) const
 
 	ResolvedTarget out;
 	out.config = &targetConfig;
-	out.target = config::TargetResolver::resolve(m_config, targetConfig, targetCtx.paths);
+	out.target = config::TargetResolver::resolve(m_config, targetConfig, targetCtx.paths, &m_modules);
 	return out;
 }
 
@@ -619,6 +690,47 @@ void Application::loadConfigurations()
 	applyCommandLineOverrides();
 
 	m_rebuild.load(m_ctx.backupDir() / "rebuild.json");
+}
+
+void Application::loadModules(bool quiet)
+{
+	if (!m_config.modules.present)
+		return;
+
+	ScopedContext ctx(Diag::ModuleResolve, "Could not resolve the modules.");
+
+	modules::ResolveOptions options;
+	options.quiet = quiet;
+	m_modules = modules::resolve(m_config.modules, m_ctx.paths.workDir, options);
+}
+
+// Writes the graph where the project asked for it.
+//
+// Before the pre-build commands rather than after, because the whole point of
+// the dump is that a generator which turns modules into game-specific headers
+// is an ordinary hook rather than something this program has to host.
+void Application::writeModuleDump()
+{
+	if (!m_config.modules.dump.configured() || !m_config.modules.present)
+		return;
+
+	ScopedContext ctx(Diag::ModuleResolve, "Could not write the module dump.");
+
+	const fs::path path = m_ctx.paths.work(m_config.modules.dump.value);
+
+	std::error_code error;
+	fs::create_directories(path.parent_path(), error);
+
+	std::ofstream file(path);
+	if (!file.is_open())
+	{
+		std::ostringstream oss;
+		oss << "Could not open " << OSTR(path.string()) << " for writing.";
+		throw ncp::exception(oss.str());
+	}
+
+	modules::writeDump(file, m_modules);
+	Log::info("Wrote the module dump.");
 }
 
 // Command line, then NCPATCHER_* environment, then the file. Applied after the

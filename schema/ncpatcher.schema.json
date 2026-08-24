@@ -26,14 +26,23 @@
       "$ref": "#/$defs/rom"
     },
     "toolchain": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "prefix": {
-          "description": "Cross-toolchain prefix, e.g. arm-none-eabi-. Overridable with --toolchain or NCPATCHER_TOOLCHAIN.",
-          "type": "string"
+      "description": "Cross-compiler prefix.",
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "The cross-compiler prefix, e.g. arm-none-eabi-."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "prefix": {
+              "description": "Cross-toolchain prefix, e.g. arm-none-eabi-. Overridable with --toolchain or NCPATCHER_TOOLCHAIN.",
+              "type": "string"
+            }
+          }
         }
-      }
+      ]
     },
     "build": {
       "type": "object",
@@ -45,6 +54,9 @@
           "minimum": 0
         }
       }
+    },
+    "modules": {
+      "$ref": "#/$defs/modules"
     },
     "includes": {
       "$ref": "#/$defs/stringList"
@@ -353,6 +365,109 @@
           }
         }
       }
+    },
+    "modules": {
+      "type": "object",
+      "description": "Feature modules the project enables, each a directory with a module.yaml.",
+      "additionalProperties": false,
+      "properties": {
+        "dir": {
+          "type": "string",
+          "description": "Directory holding one subdirectory per module.",
+          "default": "modules"
+        },
+        "dump": {
+          "type": "string",
+          "description": "Where to write the resolved module graph as JSON, before the pre-build commands run."
+        },
+        "auto-create-regions": {
+          "type": "boolean",
+          "default": false,
+          "description": "Let a component target an overlay the target declares no region for. Off by default, so a mistyped overlay id is an error rather than an overlay the game never loads."
+        },
+        "enabled": {
+          "type": "array",
+          "description": "Modules to use, in order.",
+          "items": {
+            "$ref": "#/$defs/moduleSelection"
+          }
+        }
+      }
+    },
+    "moduleSelection": {
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "A module directory name, enabled with nothing overridden."
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1,
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "type": "boolean",
+                "description": "Whether the module is enabled."
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "type": "boolean",
+                    "default": true
+                  },
+                  "optional": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "The module may be absent. Without this a missing module is an error."
+                  },
+                  "components": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "$ref": "#/$defs/componentOverride"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "componentOverride": {
+      "oneOf": [
+        {
+          "type": "boolean",
+          "description": "Whether the component is enabled."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "target": {
+              "type": "string",
+              "pattern": "^arm[79](\\\\([0-9]+\\\\))?$",
+              "description": "Move the component to this processor or overlay. Refused, with a warning, when the module locked its target with a leading '!'."
+            },
+            "defines": {
+              "type": "object",
+              "additionalProperties": {
+                "type": [
+                  "string",
+                  "number",
+                  "boolean"
+                ]
+              },
+              "description": "New values for defines the component already declares."
+            }
+          }
+        }
+      ]
     }
   }
 }

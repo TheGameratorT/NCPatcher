@@ -31,6 +31,9 @@ enum class Command
 	ConfigValidate,
 	ConfigPath,
 	Migrate,
+	ModulesList,
+	ModulesDump,
+	ModulesExplain,
 	RomInfo,
 	RomExtract,
 	RomPack,
@@ -87,6 +90,10 @@ struct CommandLine
 	// config dump
 	bool explain = false;
 	bool dumpJson = false;
+
+	// modules dump -o, and the Module or Module.Component `modules explain` names
+	std::filesystem::path modulesOutPath;
+	std::string modulesTarget;
 };
 
 // Parses argv, then folds in the NCPATCHER_* environment for the settings that

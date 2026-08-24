@@ -59,6 +59,21 @@ list. Prints the result;
 .B \-\-write
 saves it.
 .TP
+.B modules list
+Show which modules are enabled and what they contribute.
+.TP
+.BR "modules dump" " [" \-o " " \fIPATH\fP " ]"
+Print the resolved module graph as JSON. With
+.BR \-o ,
+write it to
+.I PATH
+instead of standard output.
+.TP
+.BI "modules explain" " NAME"
+Explain why a module or component is enabled or disabled and where its target
+came from. A component name has the form
+.IR Module.Component .
+.TP
 .B rom info
 Print what the ROM header says: the title, where each binary lives, how many
 overlays there are, and whether the header checksum matches its contents.

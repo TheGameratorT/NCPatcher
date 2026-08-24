@@ -151,6 +151,9 @@ ncpatcher [build]                    compile and patch
           config validate
           config path
           migrate [--write]          convert ncpatcher.json to ncpatcher.yaml
+          modules list               show which modules are enabled
+          modules dump [-o PATH]     print the resolved module graph as JSON
+          modules explain NAME       say why a module or component is where it is
           rom info                   print what the ROM header says
           rom extract DIR            write the ROM's code binaries into DIR
           rom pack DIR               fold a directory of code binaries into the ROM
@@ -330,6 +333,109 @@ Structure:
 The "$" symbol allows to define or access a variable that is for its own file scope. \
 The "$$" symbol allows a target to access a variable that is defined in the ncpatcher.json file scope. \
 The "${env:ENV_VARIABLE}" syntax allows to access a variable that is defined in the system's environment variable list.
+
+## Modules
+
+A module is a self-contained feature — its own sources, include directories,
+defines and filesystem entries — that a project switches on by name. It exists
+so a project stops having to say *where* every file goes: the module says that
+once, and the project says only whether it wants it.
+
+Modules live in one directory, one subdirectory each, and each carries a
+`module.yaml`:
+
+```yaml
+id: Coop                 # becomes MODULE_COOP, and names it in `requires`
+name: NSMB Co-op
+description: Adds co-op multiplayer support to the game.
+authors: [TheGameratorT, Shadey21]
+repo: https://github.com/ShaneDoyle/nsmb-coop/
+
+targets:                 # arm7, arm9, arm7(N), arm9(N)
+  - arm9:
+      includes: include
+      sources: "source9/**"
+
+components:
+  - SpikeBassFix:
+      target: arm9(58)
+      sources: "source9/fixes/SpikeBass.cpp"
+      defines:
+        - COOP_FIX_SPIKE_BASS_ADD_ZONE_ID_FIELD=1
+        - COOP_FIX_SPIKE_BASS_ZONE_ID_FIELD_OFFSET=0x4B8
+
+  - SpikeBassSpawnerFix:
+      target: arm9(58)
+      requires: SpikeBassFix
+      sources: "source9/fixes/SpikeBassSpawner.cpp"
+
+  - PauseMenuFix:        # no target: a switch, and nothing else
+      target: arm9
+      defines: COOP_FIX_PAUSE_MENU
+```
+
+`targets:` is the catch-all — a directory swept into one region. `components:`
+carve exceptions out of it: a component's sources go where *it* says, and are
+removed from whatever the catch-all would have done with them. Switch a
+component off and its sources leave the build entirely.
+
+The project side:
+
+```yaml
+modules:
+  dir: modules                        # default
+  dump: build/generated/modules.json  # optional; see below
+  auto-create-regions: false
+  enabled:
+    - coop
+    - mini-hacks
+    - dsimodewarn:
+        components:
+          DSiModeScene: { target: arm9(9) }   # move it into an overlay
+    - debug: false                             # listed, switched off
+    - nitrosdk: { optional: true }             # may simply not be installed
+```
+
+A component override takes `enabled`, `target`, and `defines` — the last being
+values for defines the component already declares, not a place to invent new
+ones. A target the module wrote with a leading `!` is locked, and an override of
+it is reported rather than quietly dropped.
+
+`MODULE_<ID>` is defined for every processor a module reaches, so code can ask
+whether a module is present without the project having to say so twice.
+
+### Regions
+
+A component targeting `arm9(58)` needs the ARM9 target to have an `ov58` region.
+It is an error if it does not — a mistyped overlay id would otherwise become an
+overlay full of code the game never loads. `modules.auto-create-regions: true`
+lifts that, creating an appending region with the target's own flags; declare
+the region yourself when you want a `maxsize` enforced, because an auto-created
+one gets the 1 MiB default.
+
+For a project that uses modules, a declared region that nothing ended up in is
+dropped rather than written as an empty overlay — but only when it does nothing
+but append. A `replace` region reserves space and an `overwrites` region blanks
+code, and both mean something with no sources at all.
+
+### The dump
+
+`ncpatcher modules dump` prints the resolved graph as JSON, and
+`modules.dump:` writes the same file before the pre-build commands run. That is
+the boundary: everything game-specific — object id allocation, profile tables,
+filesystem maps — belongs to a tool that reads this file, not to NCPatcher.
+Component keys NCPatcher does not know are kept verbatim under `extra` and
+re-emitted for exactly that reason.
+
+```
+ncpatcher modules list                     # what is on, and what each contributes
+ncpatcher modules explain Coop.SpikeBassFix
+ncpatcher modules explain coop
+```
+
+`explain` answers where a component's target came from, why it is disabled, and
+which files and defines it accounts for.
+
 
 ## Patches
 

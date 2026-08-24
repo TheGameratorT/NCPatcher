@@ -18,7 +18,7 @@ _ncpatcher()
 	local globals='-C --project --rom --out -D --define --var --toolchain -j --jobs
 		-v --verbose --verbose-tag --color --message-format --result
 		--log --no-log -h --help --version'
-	local commands='build clean restore config migrate rom version'
+	local commands='build clean restore config migrate modules rom version'
 
 	# Options taking a value are completed from the value, not the option list.
 	case "$prev" in
@@ -35,7 +35,7 @@ _ncpatcher()
 			_filedir
 			return
 			;;
-		--result|--log)
+		--result|--log|-o|--output)
 			_filedir
 			return
 			;;
@@ -60,11 +60,17 @@ _ncpatcher()
 	local command='' sub='' i
 	for ((i = 1; i < cword; i++)); do
 		case "${words[i]}" in
-			build|clean|restore|config|migrate|rom|version)
+			build|clean|restore|config|migrate|modules|rom|version)
 				command="${words[i]}"
 				;;
-			dump|validate|path)
+			dump)
+				[[ $command == config || $command == modules ]] && sub="${words[i]}"
+				;;
+			validate|path)
 				[[ $command == config ]] && sub="${words[i]}"
+				;;
+			list|explain)
+				[[ $command == modules ]] && sub="${words[i]}"
 				;;
 			info|extract|pack)
 				[[ $command == rom ]] && sub="${words[i]}"
@@ -83,6 +89,13 @@ _ncpatcher()
 				return
 			fi
 			[[ $sub == dump ]] && extra='--explain --json'
+			;;
+		modules)
+			if [[ -z $sub ]]; then
+				COMPREPLY=($(compgen -W 'list dump explain' -- "$cur"))
+				return
+			fi
+			[[ $sub == dump ]] && extra='-o --output'
 			;;
 		rom)
 			if [[ -z $sub ]]; then

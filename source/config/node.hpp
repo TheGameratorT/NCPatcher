@@ -115,6 +115,12 @@ public:
 
 	[[nodiscard]] const std::string& path() const { return m_path; }
 	[[nodiscard]] const Mark& mark() const { return m_mark; }
+
+	// "ncpatcher.yaml:88:9, in targets.arm9.regions[12]" -- the same "where"
+	// cfg_error prints, as a plain string. Diagnostics that outlive the
+	// document, or that report many problems at once rather than throwing at
+	// the first, keep this instead of the node.
+	[[nodiscard]] std::string location() const;
 	[[nodiscard]] const Document& document() const;
 
 	// The underlying handle, for the few places that need yaml-cpp directly

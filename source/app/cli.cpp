@@ -173,6 +173,28 @@ std::optional<int> parseCommandLine(int argc, char* argv[], CommandLine& out)
 	migrate->add_flag("--write", out.migrateWrite,
 		"Save the result instead of printing it");
 
+	CLI::App* modules = app.add_subcommand("modules",
+		"Inspect the module graph the enabled modules add up to");
+	modules->require_subcommand(1);
+
+	CLI::App* modulesList = modules->add_subcommand("list",
+		"Show which modules are enabled and what they contribute");
+
+	// The dump is JSON and only JSON: it exists to be read by the generator that
+	// turns a project's modules into game-specific headers, and a second format
+	// would only be a second thing to keep in step.
+	CLI::App* modulesDump = modules->add_subcommand("dump",
+		"Print the resolved module graph as JSON");
+	modulesDump->add_option("-o,--output", out.modulesOutPath,
+		"Write it to this file instead of standard output")
+		->type_name("PATH");
+
+	CLI::App* modulesExplain = modules->add_subcommand("explain",
+		"Say why one module or component is where it is");
+	modulesExplain->add_option("name", out.modulesTarget,
+		"A module, or a component as Module.Component")
+		->required()->type_name("NAME");
+
 	CLI::App* rom = app.add_subcommand("rom", "Inspect a ROM, or move its code binaries in and out");
 	rom->require_subcommand(1);
 
@@ -197,6 +219,7 @@ std::optional<int> parseCommandLine(int argc, char* argv[], CommandLine& out)
 	// Every subcommand accepts the global options too, so that both
 	// `ncpatcher -v build` and `ncpatcher build -v` work.
 	for (CLI::App* sub : { build, clean, restore, configDump, configValidate, configPath, migrate,
+	                       modulesList, modulesDump, modulesExplain,
 	                       romInfo, romExtract, romPack })
 		sub->fallthrough();
 
@@ -230,6 +253,9 @@ std::optional<int> parseCommandLine(int argc, char* argv[], CommandLine& out)
 	else if (*configValidate) out.command = Command::ConfigValidate;
 	else if (*configPath)    out.command = Command::ConfigPath;
 	else if (*migrate)       out.command = Command::Migrate;
+	else if (*modulesList)   out.command = Command::ModulesList;
+	else if (*modulesDump)   out.command = Command::ModulesDump;
+	else if (*modulesExplain) out.command = Command::ModulesExplain;
 	else if (*romInfo)       out.command = Command::RomInfo;
 	else if (*romExtract)    out.command = Command::RomExtract;
 	else if (*romPack)       out.command = Command::RomPack;

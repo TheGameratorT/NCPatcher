@@ -30,7 +30,7 @@ namespace {
 // Sections that belong to phases this build does not have yet. Naming them
 // explicitly means a config written for a later version fails with what is
 // missing rather than with "unknown key".
-constexpr std::string_view RESERVED_KEYS[] = { "modules", "files", "hooks", "variants" };
+constexpr std::string_view RESERVED_KEYS[] = { "files", "hooks", "variants" };
 
 bool isReserved(std::string_view key)
 {
@@ -255,6 +255,150 @@ void readRegion(RegionConfig& region, const cfg::Node& node, const Expander& exp
 	readOverwrites(region, node);
 }
 
+// The project's half of the module system: which modules, and what the project
+// wants changed about them.
+//
+// Nothing here reads a module.yaml -- that happens later, once the working
+// directory is settled and the graph is built, because `modules dump` has to
+// work without a toolchain and a build has to write the dump before its
+// pre-build commands run.
+void readComponentOverride(ComponentOverride& override_, const cfg::Node& node)
+{
+	override_.location = node.location();
+
+	if (node.isScalar() && !node.isNull())
+	{
+		// `SomeComponent: false` -- the short form, and by far the common one.
+		override_.hasEnabled = true;
+		override_.enabled = node.asBool();
+		return;
+	}
+
+	if (!node.isMap())
+		node.failType("a boolean or a mapping");
+
+	checkKeys(node, "a component override", { "enabled", "target", "defines" });
+
+	if (node.has("enabled"))
+	{
+		override_.hasEnabled = true;
+		override_.enabled = node["enabled"].asBool();
+	}
+
+	if (node.has("target"))
+		override_.target = node["target"].asString();
+
+	const cfg::Node defines = node["defines"];
+	if (defines.defined() && !defines.isNull())
+	{
+		if (!defines.isMap())
+			defines.failType("a mapping of define names to values");
+		for (const auto& [name, value] : defines.fields())
+			override_.defines.emplace_back(name, value.asString());
+	}
+}
+
+void readModuleSelection(ModuleSelection& selection, const cfg::Node& node)
+{
+	selection.location = node.location();
+
+	// `- coop` on its own: enabled, nothing overridden.
+	if (node.isScalar())
+	{
+		selection.key = node.asString();
+		return;
+	}
+
+	if (!node.isMap() || node.fields().size() != 1)
+	{
+		node.fail("Expected either a module name or one name with its settings under it, as "
+			ANSI_bCYAN "- coop: { components: ... }" ANSI_RESET ".");
+	}
+
+	const auto [key, body] = node.fields().front();
+	selection.key = key;
+	selection.location = body.defined() ? body.location() : node.location();
+
+	if (!body.defined() || body.isNull())
+		return;
+
+	if (body.isScalar())
+	{
+		// `- debug: false`
+		selection.enabled = body.asBool();
+		return;
+	}
+
+	if (!body.isMap())
+		body.failType("a boolean or a mapping");
+
+	checkKeys(body, "a module selection", { "enabled", "optional", "components" });
+	selection.enabled = body["enabled"].asBool(true);
+	selection.optional = body["optional"].asBool(false);
+
+	const cfg::Node components = body["components"];
+	if (!components.defined() || components.isNull())
+		return;
+
+	if (!components.isMap())
+		components.failType("a mapping of component names");
+
+	for (const auto& [name, value] : components.fields())
+	{
+		ComponentOverride override_;
+		override_.name = name;
+		readComponentOverride(override_, value);
+		selection.components.push_back(std::move(override_));
+	}
+}
+
+void readModules(ModulesConfig& modules, const cfg::Node& node, const Expander& expander)
+{
+	modules.present = true;
+
+	if (!node.isMap())
+		node.failType("a mapping");
+
+	checkKeys(node, "modules", { "dir", "dump", "auto-create-regions", "enabled" });
+
+	modules.dir.set(node.has("dir")
+		? fs::path(expander.expand(node["dir"].asString(), node["dir"]))
+		: fs::path("modules"),
+		node.has("dir") ? Source::ProjectFile : Source::Default);
+
+	if (node.has("dump"))
+		modules.dump.set(expander.expand(node["dump"].asString(), node["dump"]), Source::ProjectFile);
+
+	modules.autoCreateRegions = node["auto-create-regions"].asBool(false);
+
+	const cfg::Node enabled = node["enabled"];
+	if (!enabled.defined() || enabled.isNull())
+		return;
+
+	if (!enabled.isSequence())
+		enabled.failType("a list of module names");
+
+	for (const cfg::Node& item : enabled.items())
+	{
+		ModuleSelection selection;
+		readModuleSelection(selection, item);
+
+		if (selection.key.empty())
+			item.fail("A module entry needs a name.");
+
+		for (const ModuleSelection& previous : modules.selections)
+		{
+			if (previous.key != selection.key)
+				continue;
+			std::ostringstream oss;
+			oss << "Module " << OSTR(selection.key) << " is listed more than once.";
+			item.fail(oss.str());
+		}
+
+		modules.selections.push_back(std::move(selection));
+	}
+}
+
 // The expander is taken by value: a target adds ${target.name} and
 // ${target.build} to it, and arm9's must not be visible while arm7 is read.
 void readTarget(TargetConfig& target, const cfg::Node& node, Expander expander,
@@ -333,7 +477,7 @@ ProjectConfig loadV2(const fs::path& projectFile, const fs::path& projectRoot,
 		root.failType("a mapping");
 
 	checkKeys(root, "the project", {
-		"version", "vars", "rom", "toolchain", "build",
+		"version", "vars", "rom", "toolchain", "build", "modules",
 		"includes", "defines", "flags", "pre-build", "post-build", "targets" });
 
 	const cfg::Node version = root.require("version");
@@ -462,6 +606,10 @@ ProjectConfig loadV2(const fs::path& projectFile, const fs::path& projectRoot,
 	config.includes = readListOp(root["includes"], expander);
 	config.defines = readListOp(root["defines"], expander);
 	config.flags = readFlagOps(root["flags"], expander);
+	const cfg::Node modules = root["modules"];
+	if (modules.defined() && !modules.isNull())
+		readModules(config.modules, modules, expander);
+
 	config.preBuild = readStrings(root["pre-build"], expander);
 	config.postBuild = readStrings(root["post-build"], expander);
 

@@ -1,0 +1,223 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/TheGameratorT/NCPatcher/main/schema/module.schema.json",
+  "title": "NCPatcher module",
+  "description": "Schema for a module.yaml consumed by NCPatcher's module resolver.",
+  "type": "object",
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "description": "Stable module identifier used by MODULE_<ID> defines and cross-module requirements.",
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9]*$"
+    },
+    "name": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "authors": {
+      "$ref": "#/$defs/stringList"
+    },
+    "repo": {
+      "type": "string"
+    },
+    "defines": {
+      "$ref": "#/$defs/defines"
+    },
+    "targets": {
+      "$ref": "#/$defs/targets"
+    },
+    "components": {
+      "$ref": "#/$defs/components"
+    }
+  },
+  "$defs": {
+    "stringList": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "scalar": {
+      "type": [
+        "string",
+        "number",
+        "boolean"
+      ]
+    },
+    "defines": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/stringList"
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/scalar"
+          }
+        }
+      ]
+    },
+    "targetRef": {
+      "type": "string",
+      "pattern": "^!?arm[79](\\([0-9]+\\))?$"
+    },
+    "targetBody": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/targetBodyMap"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "minProperties": 1,
+            "maxProperties": 1,
+            "additionalProperties": false,
+            "properties": {
+              "includes": {
+                "$ref": "#/$defs/stringList"
+              },
+              "sources": {
+                "$ref": "#/$defs/stringList"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "targetBodyMap": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "includes": {
+          "$ref": "#/$defs/stringList"
+        },
+        "sources": {
+          "$ref": "#/$defs/stringList"
+        }
+      }
+    },
+    "targetEntry": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/targetRef"
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1,
+          "propertyNames": {
+            "$ref": "#/$defs/targetRef"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/targetBody"
+          }
+        }
+      ]
+    },
+    "targets": {
+      "oneOf": [
+        {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/targetRef"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/targetBody"
+          }
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/targetEntry"
+          }
+        }
+      ]
+    },
+    "componentBody": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "target": {
+              "$ref": "#/$defs/targetRef"
+            },
+            "sources": {
+              "$ref": "#/$defs/stringList"
+            },
+            "includes": {
+              "$ref": "#/$defs/stringList"
+            },
+            "defines": {
+              "$ref": "#/$defs/defines"
+            },
+            "files": {
+              "$ref": "#/$defs/stringList"
+            },
+            "requires": {
+              "$ref": "#/$defs/stringList"
+            }
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "componentEntry": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1,
+          "propertyNames": {
+            "minLength": 1
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/componentBody"
+          }
+        }
+      ]
+    },
+    "components": {
+      "oneOf": [
+        {
+          "type": "object",
+          "propertyNames": {
+            "minLength": 1
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/componentBody"
+          }
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/componentEntry"
+          }
+        }
+      ]
+    }
+  }
+}

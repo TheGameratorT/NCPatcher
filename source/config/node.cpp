@@ -139,6 +139,7 @@ cfg_error::cfg_error(const Document& doc, Mark mark, std::string nodePath, std::
 
 // Node =============================
 
+
 Node::Node(const Document& doc, YAML::Node node, std::string path, Mark mark) :
 	m_doc(&doc),
 	m_node(std::move(node)),
@@ -150,6 +151,18 @@ Node::Node(const Document& doc, YAML::Node node, std::string path, Mark mark) :
 const Document& Node::document() const
 {
 	return *m_doc;
+}
+
+std::string Node::location() const
+{
+	std::ostringstream oss;
+	if (m_doc != nullptr)
+		oss << m_doc->path().filename().string();
+	if (m_mark.valid)
+		oss << ':' << m_mark.line << ':' << m_mark.column;
+	if (!m_path.empty())
+		oss << ", in " << m_path;
+	return oss.str();
 }
 
 bool Node::defined() const { return m_defined; }

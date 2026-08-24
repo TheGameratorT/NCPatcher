@@ -90,6 +90,8 @@ if (NOT yaml-cpp_FOUND)
 		GIT_TAG 0.8.0
 		GIT_SHALLOW ON
 	)
+	# CMake 4 no longer accepts yaml-cpp 0.8's declared pre-3.5 policy set.
+	set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 	FetchContent_MakeAvailable(yaml-cpp)
 endif()
 
@@ -132,6 +134,11 @@ set(SOURCES
 	source/formats/archive.cpp
 	source/formats/blz.cpp
 	source/formats/elf.cpp
+	source/modules/module_config.cpp
+	source/modules/module_dump.cpp
+	source/modules/module_graph.cpp
+	source/modules/module_resolver.cpp
+	source/modules/problems.cpp
 	source/ndsbin/armbin.cpp
 	source/ndsbin/overlaybin.cpp
 	source/patch/arenalo_finder.cpp
@@ -205,7 +212,9 @@ endforeach()
 
 install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION "${NCP_INSTALL_BINDIR}")
 install(FILES ${RUNTIME_FILES} DESTINATION "${NCP_INSTALL_DATADIR}")
-install(FILES "${PROJECT_SOURCE_DIR}/schema/ncpatcher.schema.json"
+install(FILES
+	"${PROJECT_SOURCE_DIR}/schema/ncpatcher.schema.json"
+	"${PROJECT_SOURCE_DIR}/schema/module.schema.json"
 	DESTINATION "${NCP_INSTALL_DATADIR}")
 
 if (NOT NCP_PORTABLE_LAYOUT)
@@ -300,6 +309,11 @@ if (NCP_BUILD_TESTS)
 		source/config/buildtarget.cpp
 		source/config/migrate.cpp
 		source/config/rebuild_store.cpp
+		source/modules/module_config.cpp
+		source/modules/module_dump.cpp
+		source/modules/module_graph.cpp
+		source/modules/module_resolver.cpp
+		source/modules/problems.cpp
 		source/utils/glob.cpp
 		source/utils/json.cpp
 		source/utils/util.cpp
@@ -312,6 +326,38 @@ if (NCP_BUILD_TESTS)
 	if (NOT WIN32)
 		find_package(Threads REQUIRED)
 		target_link_libraries(config_test PRIVATE Threads::Threads)
+	endif()
+
+	# The module tests go through the project reader and the target resolver as
+	# well, because half of what they check is how a module lands in a region.
+	ncp_add_test(modules_test
+		tests/modules_test.cpp
+		source/config/node.cpp
+		source/config/project_config.cpp
+		source/config/expander.cpp
+		source/config/config_loader.cpp
+		source/config/config_v1.cpp
+		source/config/config_v2.cpp
+		source/config/target_resolver.cpp
+		source/config/buildtarget.cpp
+		source/config/migrate.cpp
+		source/config/rebuild_store.cpp
+		source/modules/module_config.cpp
+		source/modules/module_dump.cpp
+		source/modules/module_graph.cpp
+		source/modules/module_resolver.cpp
+		source/modules/problems.cpp
+		source/utils/glob.cpp
+		source/utils/json.cpp
+		source/utils/util.cpp
+		source/system/log.cpp
+		source/system/log_sink.cpp
+		source/system/ansi.cpp
+		source/system/except.cpp
+	)
+	target_link_libraries(modules_test PRIVATE ${YAML_CPP_TARGET})
+	if (NOT WIN32)
+		target_link_libraries(modules_test PRIVATE Threads::Threads)
 	endif()
 
 	# Runs the installed binary from an unrelated directory: what it proves is

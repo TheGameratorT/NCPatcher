@@ -898,9 +898,9 @@ bool migrate(const fs::path& projectFile, const fs::path& projectRoot, bool writ
 			continue;
 
 		const BuildTarget resolvedBefore =
-			TargetResolver::resolve(original, before, targetPaths(original, before), quiet);
+			TargetResolver::resolve(original, before, targetPaths(original, before), nullptr, quiet);
 		const BuildTarget resolvedAfter =
-			TargetResolver::resolve(converted, after, targetPaths(converted, after), quiet);
+			TargetResolver::resolve(converted, after, targetPaths(converted, after), nullptr, quiet);
 		compareTargets(comparison, resolvedBefore, resolvedAfter, name);
 	}
 

@@ -319,7 +319,7 @@ static void testV1Reader(const fs::path& root)
 	paths.targetWorkDir = root / "code";
 	TargetResolver::Options quiet;
 	quiet.quiet = true;
-	const BuildTarget resolved = TargetResolver::resolve(config, config.arm9, paths, quiet);
+	const BuildTarget resolved = TargetResolver::resolve(config, config.arm9, paths, nullptr, quiet);
 
 	// v1 flag strings are opaque; resolving must not reformat them.
 	checkEqual(resolved.cFlags, "-mabi=aapcs -Os -DSDK_GCC -DSDK_ARM9",
@@ -388,7 +388,7 @@ static void testV2Reader(const fs::path& root)
 	paths.targetWorkDir = root / "code";
 	TargetResolver::Options quiet;
 	quiet.quiet = true;
-	const BuildTarget resolved = TargetResolver::resolve(config, config.arm9, paths, quiet);
+	const BuildTarget resolved = TargetResolver::resolve(config, config.arm9, paths, nullptr, quiet);
 
 	check(resolved.arenaLo == 0x02065F10, "arena-lo reads as an address");
 
@@ -429,7 +429,7 @@ static void testV2RejectsTypos(const fs::path& root)
 
 	// The reserved sections belong to phases that do not exist yet; saying so
 	// beats "unknown key" when someone tries a config written for a later one.
-	write(root / "future.yaml", std::string(V2_PROJECT) + "\nmodules:\n  dir: modules\n");
+	write(root / "future.yaml", std::string(V2_PROJECT) + "\nhooks:\n  - name: gen\n");
 	const std::string reserved = errorFrom([&] { (void)loadV2(root / "future.yaml", root); });
 	check(contains(reserved, "not supported by this version"), "a reserved section says so");
 }
@@ -461,8 +461,8 @@ static void testMigrationPreservesTheBuild(const fs::path& root)
 	paths.targetWorkDir = root / "code";
 	TargetResolver::Options quiet;
 	quiet.quiet = true;
-	const BuildTarget resolvedBefore = TargetResolver::resolve(before, before.arm9, paths, quiet);
-	const BuildTarget resolvedAfter = TargetResolver::resolve(after, after.arm9, paths, quiet);
+	const BuildTarget resolvedBefore = TargetResolver::resolve(before, before.arm9, paths, nullptr, quiet);
+	const BuildTarget resolvedAfter = TargetResolver::resolve(after, after.arm9, paths, nullptr, quiet);
 
 	check(resolvedBefore.regions.size() == resolvedAfter.regions.size(), "region count survives");
 	check(resolvedBefore.regions[1].maxsize == resolvedAfter.regions[1].maxsize,

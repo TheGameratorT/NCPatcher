@@ -13,6 +13,7 @@
 
 #include "buildtarget.hpp"
 #include "project_config.hpp"
+#include "../modules/module_graph.hpp"
 #include "../system/path_context.hpp"
 
 namespace ncp::config {
@@ -31,9 +32,14 @@ struct Options
 // Applies project -> target -> region inheritance, expands the include and
 // source globs against `paths.targetWorkDir`, and joins each flag list into the
 // string the compiler driver is handed.
+//
+// `graph` folds in what the enabled modules contribute: their include
+// directories, their defines, and the sources they put in each region. It may
+// be null, which is what a project without a `modules:` section resolves as.
 [[nodiscard]] BuildTarget resolve(const ProjectConfig& config,
                                   const TargetConfig& target,
                                   const PathContext& paths,
+                                  const modules::ModuleGraph* graph = nullptr,
                                   const Options& options = {});
 
 // A canonical, line-per-setting rendering of everything that determines how

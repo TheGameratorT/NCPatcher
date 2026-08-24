@@ -6,6 +6,7 @@
 #include "../system/log.hpp"
 #include "../system/except.hpp"
 #include "../utils/glob.hpp"
+#include "../modules/module_graph.hpp"
 
 namespace fs = std::filesystem;
 
@@ -82,6 +83,35 @@ std::vector<fs::path> expandPatterns(const std::vector<std::string>& patterns,
 	return out;
 }
 
+// Module paths arrive absolute, because the graph is shared by both targets and
+// dumped for programs that never knew its working directory. Object files are
+// laid out under the build directory by source path, though, so an absolute one
+// turns into build/external/d_Projects_...; bringing it back inside the target's
+// working directory keeps that legible.
+fs::path relativeTo(const fs::path& base, const fs::path& path)
+{
+	if (base.empty() || !path.is_absolute())
+		return path;
+
+	std::error_code error;
+	const fs::path relative = fs::relative(path, base, error);
+	if (error || relative.empty())
+		return path;
+
+	// Anything that has to climb out of the working directory is left absolute:
+	// "../../elsewhere/x.cpp" is not more legible than the path it came from.
+	if (*relative.begin() == "..")
+		return path;
+
+	return relative;
+}
+
+void appendUnique(std::vector<fs::path>& list, const fs::path& path)
+{
+	if (std::find(list.begin(), list.end(), path) == list.end())
+		list.push_back(path);
+}
+
 // "NAME=VALUE" and "NAME" both name NAME.
 std::string_view defineName(std::string_view entry)
 {
@@ -111,6 +141,96 @@ void applyDefines(DefineSet& defines, const ListOp& op, const char* origin)
 	}
 }
 
+// Folds the module graph's per-region sources into the target that was just
+// resolved.
+//
+// This runs after the declared regions are built rather than before, because a
+// module region inherits the flags of the region it lands in -- and because a
+// module targeting an overlay nobody declared is a question the target has to
+// answer, not the module.
+void foldModuleSources(BuildTarget& out, const modules::TargetContribution& contribution,
+                       const ProjectConfig& config, const TargetConfig& target,
+                       const PathContext& paths, const TargetResolver::Options& options)
+{
+	std::vector<int> missing;
+
+	for (const auto& [destination, sources] : contribution.regionSources)
+	{
+		BuildTarget::Region* region = out.getRegionByDestination(destination);
+		if (region == nullptr)
+		{
+			missing.push_back(destination);
+			continue;
+		}
+
+		for (const fs::path& source : sources)
+			appendUnique(region->sources, relativeTo(paths.targetWorkDir, source));
+	}
+
+	if (!missing.empty())
+	{
+		if (!config.modules.autoCreateRegions)
+		{
+			// Silently inventing the region is how a mistyped overlay id becomes
+			// an overlay full of code the game never loads.
+			std::ostringstream oss;
+			oss << "Modules put code in ";
+			bool first = true;
+			for (int destination : missing)
+			{
+				oss << (first ? "" : ", ")
+				    << OSTR(destination < 0 ? std::string("main") : "ov" + std::to_string(destination));
+				first = false;
+			}
+			oss << ", which the " << OSTR(target.name) << " target does not declare."
+			    << OREASONNL "Add the region, or set " << OSTRa("modules.auto-create-regions")
+			    << " to let a module's target stand on its own.";
+			throw ncp::exception(oss.str());
+		}
+
+		// The template every declared region would have had: the target's own
+		// flags, appended to whatever the overlay already holds.
+		for (int destination : missing)
+		{
+			BuildTarget::Region region;
+			region.destination = destination;
+			region.mode = BuildTarget::Mode::Append;
+			region.compress = false;
+			region.address = 0;
+			region.maxsize = 0x100000;
+			region.cFlags = out.cFlags;
+			region.cppFlags = out.cppFlags;
+			region.asmFlags = out.asmFlags;
+
+			for (const fs::path& source : contribution.regionSources.at(destination))
+				appendUnique(region.sources, relativeTo(paths.targetWorkDir, source));
+
+			out.regions.push_back(std::move(region));
+		}
+	}
+
+	// Regions that nothing ended up in.
+	//
+	// Only for a project that uses modules, and only where the region does
+	// nothing but append: a `replace` region reserves space and an `overwrites`
+	// region blanks code, and both are meaningful with no sources at all. This
+	// is what lets a module-driven project stop pre-declaring one region per
+	// overlay it might ever touch.
+	const std::size_t before = out.regions.size();
+	out.regions.erase(std::remove_if(out.regions.begin(), out.regions.end(),
+		[](const BuildTarget::Region& region) {
+			return region.sources.empty()
+				&& region.mode == BuildTarget::Mode::Append
+				&& region.overwrites.empty();
+		}), out.regions.end());
+
+	if (!options.quiet && out.regions.size() != before)
+	{
+		Log::out << OBUILD << "Skipped " << (before - out.regions.size())
+		         << " empty region(s)." << std::endl;
+	}
+}
+
 void describeList(std::ostringstream& oss, const char* name, const std::vector<std::string>& values)
 {
 	oss << name << '=' << join(values, '\x1f') << '\n';
@@ -119,7 +239,8 @@ void describeList(std::ostringstream& oss, const char* name, const std::vector<s
 } // namespace
 
 BuildTarget TargetResolver::resolve(const ProjectConfig& config, const TargetConfig& target,
-                                    const PathContext& paths, const Options& options)
+                                    const PathContext& paths,
+                                    const modules::ModuleGraph* graph, const Options& options)
 {
 	BuildTarget out;
 	BuildTargetBuilder::setArm9(out, target.arm9);
@@ -131,6 +252,28 @@ BuildTarget TargetResolver::resolve(const ProjectConfig& config, const TargetCon
 	applyDefines(projectDefines, config.defines, "the project");
 	DefineSet targetDefines = projectDefines;
 	applyDefines(targetDefines, target.defines, "the target");
+
+	// The modules speak after the target does. A module define that collides
+	// with one the project wrote by hand is the project's to keep -- but it is
+	// also exactly the kind of thing nobody notices, so it is reported.
+	const modules::TargetContribution* contribution = nullptr;
+	if (graph != nullptr && !graph->empty())
+	{
+		contribution = &graph->contribution(target.arm9);
+		for (const modules::ResolvedDefine& define : contribution->defines)
+		{
+			DefineSet::Define entry;
+			entry.name = define.name;
+			entry.value = define.value;
+			entry.hasValue = define.hasValue;
+			entry.origin = define.origin;
+
+			const DefineSet::Define* existing = targetDefines.find(entry.name);
+			const bool conflicts = existing != nullptr &&
+				(existing->value != entry.value || existing->hasValue != entry.hasValue);
+			targetDefines.add(std::move(entry), conflicts && !options.quiet);
+		}
+	}
 
 	out.arenaLo = int(target.arenaLo.value);
 	out.symbols = target.symbols.value;
@@ -159,6 +302,12 @@ BuildTarget TargetResolver::resolve(const ProjectConfig& config, const TargetCon
 	const std::vector<std::string> includePatterns =
 		target.includes.applyTo(config.includes.applyTo({}));
 	out.includes = expandPatterns(includePatterns, paths.targetWorkDir, true, options.quiet);
+
+	if (contribution != nullptr)
+	{
+		for (const fs::path& include : contribution->includes)
+			appendUnique(out.includes, relativeTo(paths.targetWorkDir, include));
+	}
 
 
 	for (const RegionConfig& regionConfig : target.regions)
@@ -198,6 +347,9 @@ BuildTarget TargetResolver::resolve(const ProjectConfig& config, const TargetCon
 
 		out.regions.push_back(std::move(region));
 	}
+
+	if (contribution != nullptr)
+		foldModuleSources(out, *contribution, config, target, paths, options);
 
 	return out;
 }

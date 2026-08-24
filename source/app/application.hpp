@@ -10,6 +10,7 @@
 #include "context.hpp"
 #include "../config/project_config.hpp"
 #include "../config/rebuild_store.hpp"
+#include "../modules/module_graph.hpp"
 #include "../system/diagnostics.hpp"
 
 #include "../rom/dir_accessor.hpp"
@@ -43,6 +44,10 @@ private:
 	config::RebuildStore m_rebuild;
 	Context m_ctx;
 
+	// What the enabled modules add up to. Empty for a project without a
+	// `modules:` section, which is every project that exists today.
+	modules::ModuleGraph m_modules;
+
 	// Subcommands
 	void runBuild();
 	int runClean();
@@ -51,6 +56,7 @@ private:
 	int runConfigValidate();
 	int runConfigPath();
 	int runMigrate();
+	int runModulesCommand();
 	int runRomCommand();
 
 	static int reportFailure(const std::exception& e);
@@ -77,6 +83,15 @@ private:
 	// Configuration management
 	[[nodiscard]] std::filesystem::path projectFile() const;
 	void loadConfigurations();
+
+	// Reads the module.yaml files and folds them into m_modules.
+	//
+	// Called before target resolution, because a module decides which sources a
+	// region has, and before the pre-build commands, because the dump it writes
+	// is what a code generator run as a hook consumes.
+	void loadModules(bool quiet = false);
+	void writeModuleDump();
+
 	void applyCommandLineOverrides();
 	void resolveRomDir();
 

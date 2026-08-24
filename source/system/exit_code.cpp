@@ -19,6 +19,9 @@ ExitCode exitCodeFor(Diag code)
 	case Diag::RuntimeHeaderMissing:
 		return ExitCode::Toolchain;
 
+	case Diag::ModuleResolve:
+		return ExitCode::Modules;
+
 	case Diag::PreBuildCommand:
 	case Diag::PostBuildCommand:
 		return ExitCode::Hook;
