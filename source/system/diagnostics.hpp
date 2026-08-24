@@ -26,7 +26,7 @@ enum class Diag : unsigned
 	ToolchainMissing     = 6,   // the configured cross-compiler is not installed
 	CleanFailed          = 7,
 	RestoreFailed        = 8,
-	RuntimeHeaderMissing = 9,   // ncp.h absent, or from a different version
+	SdkHeaderMissing     = 9,   // ncp.h absent, or from a different version
 	ModuleResolve        = 10,  // reading module.yaml files and folding them together
 	ProjectInit          = 11,  // creating a new v2 project skeleton
 

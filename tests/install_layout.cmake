@@ -4,7 +4,7 @@
 # What this is guarding is the whole point of W3: that ncp.h is found through
 # the install layout rather than because the build tree happened to be next
 # door. Running the binary in place would prove nothing, since exeDir() is the
-# last entry of the search and the build tree copies the runtime files there.
+# last entry of the search and the build tree copies the SDK files there.
 
 set(staging "${NCP_BINARY_DIR}/install_layout")
 set(elsewhere "${NCP_BINARY_DIR}/install_layout_cwd")
@@ -45,7 +45,7 @@ if (NOT result EQUAL 0)
 	message(FATAL_ERROR "Installed binary failed to run: ${output}")
 endif()
 
-# The runtime header has to be reachable from the installed binary's own
+# The SDK header has to be reachable from the installed binary's own
 # directory tree, with the environment saying nothing.
 file(GLOB_RECURSE header "${staging}/ncp.h")
 if (NOT header)

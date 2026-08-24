@@ -1,9 +1,9 @@
 #pragma once
 
 // Contract version between this header and ncpatcher, which refuses to build
-// against a copy whose number is not the one it expects. Keep NCP_RUNTIME_VERSION
+// against a copy whose number is not the one it expects. Keep NCP_SDK_VERSION
 // in CMakeLists.txt in step.
-#define __ncp_runtime_version 1
+#define __ncp_sdk_version 1
 
 // NCP Common
 
@@ -112,7 +112,7 @@ __ncp_extern_var const char __##sym##_end[];
 #define ncp_noinline __attribute__((noinline))
 #define ncp_asmfunc __attribute__((naked))
 
-// NCP Real Time
+// NCP Runtime
 
 #define ncprt_arm_opcode_b 0xEA000000
 #define ncprt_arm_opcode_bl 0xEB000000

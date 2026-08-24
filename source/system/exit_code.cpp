@@ -12,12 +12,12 @@ ExitCode exitCodeFor(Diag code)
 	case Diag::ProjectInit:
 		return ExitCode::Config;
 
-	// The runtime header ships with the program, so a missing or mismatched
+	// The SDK header ships with the program, so a missing or mismatched
 	// one is the installation being wrong rather than the code being wrong --
 	// the same kind of answer as a missing compiler, and not something a caller
 	// should be tempted to treat as a compile error and show a source line for.
 	case Diag::ToolchainMissing:
-	case Diag::RuntimeHeaderMissing:
+	case Diag::SdkHeaderMissing:
 		return ExitCode::Toolchain;
 
 	case Diag::ModuleResolve:

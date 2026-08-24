@@ -59,6 +59,6 @@ namespace ncp::paths {
 // with the patches quietly missing. That has happened; it cost an afternoon.
 //
 // Throws ncp::exception naming every directory searched, or both versions.
-[[nodiscard]] std::filesystem::path runtimeHeader();
+[[nodiscard]] std::filesystem::path sdkHeader();
 
 } // namespace ncp::paths

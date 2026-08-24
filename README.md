@@ -31,11 +31,12 @@ sudo cmake --install build              # /usr/local/bin + /usr/local/share/ncpa
 `-DNCP_USE_SYSTEM_DEPS=ON`, which turns a missing yaml-cpp into a configure
 error rather than a download. See [packaging/README.md](packaging/README.md).
 
-### Where its data files go
+### Where the SDK files go
 
-`ncp.h`, `ncp_ide.h` and `ncprt.c` are compiled into your ARM code, not into
-ncpatcher, so they are installed as program data rather than as host headers —
-`/usr/share/ncpatcher`, or beside the binary on Windows. They are looked for in:
+`ncp.h`, `ncp_ide.h` and `ncprt.c` — the SDK — are compiled into your ARM code,
+not into ncpatcher, so they are installed as program data rather than as host
+headers — `/usr/share/ncpatcher`, or beside the binary on Windows. They are
+looked for in:
 
 1. `$NCPATCHER_DATA_DIR`, if set
 2. `<directory of the binary>/../share/ncpatcher`
@@ -61,7 +62,7 @@ cmake --build build -j
 On Windows, name the generator instead of the build type:
 `cmake -B build -G "Visual Studio 17 2022" -A x64`, then
 `cmake --build build --config Release`. The binary lands in `build`, with the
-runtime files copied beside it so it can be run from there without installing.
+SDK files copied beside it so it can be run from there without installing.
 
 Useful switches:
 
@@ -225,7 +226,7 @@ severity and source location; the human rendering remains on stderr.
 | 2 | The command line did not parse |
 | 3 | Configuration |
 | 4 | Module resolution |
-| 5 | Toolchain or runtime header not found |
+| 5 | Toolchain or SDK header not found |
 | 6 | Compilation |
 | 7 | Linking |
 | 8 | Patching |
@@ -706,6 +707,10 @@ ncp_endover():
 ```
 
 ### Dynamic Patching
+
+The `ncprt_*` names stand for the NCPatcher Runtime: unlike the static patches
+above, which are spliced into the binary at build time, these write to memory
+while the ROM is running.
 
 C/C++:
 ```

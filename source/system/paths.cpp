@@ -31,12 +31,12 @@
 #define NCP_DATA_RELDIR "../share/ncpatcher"
 #endif
 
-// Bumped whenever runtime/ncp.h changes in a way the patcher cares about. CMake
+// Bumped whenever sdk/ncp.h changes in a way the patcher cares about. CMake
 // checks at configure time that the header carries this same number, so the two
 // cannot drift apart in the source tree -- only on a machine where an old copy
 // is still installed, which is exactly the case this exists to catch.
-#ifndef NCP_RUNTIME_VERSION
-#define NCP_RUNTIME_VERSION 1
+#ifndef NCP_SDK_VERSION
+#define NCP_SDK_VERSION 1
 #endif
 
 namespace fs = std::filesystem;
@@ -128,7 +128,7 @@ std::vector<fs::path> buildDataDirs()
 	return dirs;
 }
 
-// Reads `#define __ncp_runtime_version N` out of a copy of ncp.h. Returns -1
+// Reads `#define __ncp_sdk_version N` out of a copy of ncp.h. Returns -1
 // when the header does not carry a stamp at all, which is what every release
 // before this one looks like.
 int readHeaderVersion(const fs::path& header)
@@ -142,11 +142,11 @@ int readHeaderVersion(const fs::path& header)
 	std::string line;
 	for (int lineNumber = 0; lineNumber < 64 && std::getline(file, line); lineNumber++)
 	{
-		const std::size_t at = line.find("__ncp_runtime_version");
+		const std::size_t at = line.find("__ncp_sdk_version");
 		if (at == std::string::npos || line.find("#define") == std::string::npos)
 			continue;
 
-		std::istringstream rest(line.substr(at + std::strlen("__ncp_runtime_version")));
+		std::istringstream rest(line.substr(at + std::strlen("__ncp_sdk_version")));
 		int version = -1;
 		rest >> version;
 		return rest.fail() ? -1 : version;
@@ -189,7 +189,7 @@ std::string dataDirList()
 	return oss.str();
 }
 
-fs::path runtimeHeader()
+fs::path sdkHeader()
 {
 	const fs::path header = findDataFile("ncp.h");
 	if (header.empty())
@@ -203,13 +203,13 @@ fs::path runtimeHeader()
 	}
 
 	const int version = readHeaderVersion(header);
-	if (version != NCP_RUNTIME_VERSION)
+	if (version != NCP_SDK_VERSION)
 	{
 		std::ostringstream oss;
-		oss << "The runtime header " << OSTR(header.string()) << " is from a different version of NCPatcher."
-			<< OREASONNL << "It declares runtime version "
+		oss << "The SDK header " << OSTR(header.string()) << " is from a different version of NCPatcher."
+			<< OREASONNL << "It declares SDK version "
 			<< (version < 0 ? std::string("none") : std::to_string(version))
-			<< ", and this build needs " << NCP_RUNTIME_VERSION << "."
+			<< ", and this build needs " << NCP_SDK_VERSION << "."
 			<< OREASONNL << "Building against it would compile, and would then leave patches out of the ROM"
 			<< OREASONNL << "without saying so, which is why this is an error."
 			<< OREASONNL << "Update the installed data files, or point " << OSTRa("NCPATCHER_DATA_DIR")

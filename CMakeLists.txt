@@ -4,21 +4,21 @@ project(ncpatcher VERSION 2.0.0 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 
-# The contract version between the binary and runtime/ncp.h. It is checked at
+# The contract version between the binary and sdk/ncp.h. It is checked at
 # run time against the header that is actually found, which may be an older one
 # left behind by a previous install -- the failure mode that makes this worth
 # checking is silent, since a stale header compiles fine and simply stops
 # emitting the sections the patcher looks for.
-set(NCP_RUNTIME_VERSION 1)
+set(NCP_SDK_VERSION 1)
 
-file(STRINGS "${PROJECT_SOURCE_DIR}/runtime/ncp.h" _ncp_stamp
-	REGEX "^#define[ \t]+__ncp_runtime_version[ \t]+")
-if (NOT _ncp_stamp MATCHES "__ncp_runtime_version[ \t]+([0-9]+)")
-	message(FATAL_ERROR "runtime/ncp.h carries no __ncp_runtime_version stamp.")
-elseif (NOT CMAKE_MATCH_1 STREQUAL "${NCP_RUNTIME_VERSION}")
+file(STRINGS "${PROJECT_SOURCE_DIR}/sdk/ncp.h" _ncp_stamp
+	REGEX "^#define[ \t]+__ncp_sdk_version[ \t]+")
+if (NOT _ncp_stamp MATCHES "__ncp_sdk_version[ \t]+([0-9]+)")
+	message(FATAL_ERROR "sdk/ncp.h carries no __ncp_sdk_version stamp.")
+elseif (NOT CMAKE_MATCH_1 STREQUAL "${NCP_SDK_VERSION}")
 	message(FATAL_ERROR
-		"runtime/ncp.h declares __ncp_runtime_version ${CMAKE_MATCH_1}, "
-		"but NCP_RUNTIME_VERSION here is ${NCP_RUNTIME_VERSION}. "
+		"sdk/ncp.h declares __ncp_sdk_version ${CMAKE_MATCH_1}, "
+		"but NCP_SDK_VERSION here is ${NCP_SDK_VERSION}. "
 		"Both have to say the same thing.")
 endif()
 
@@ -182,7 +182,7 @@ add_executable(${PROJECT_NAME} ${SOURCES} $<IF:$<BOOL:${WIN32}>,win_resources.rc
 target_link_libraries(${PROJECT_NAME} PRIVATE ${YAML_CPP_TARGET})
 target_compile_definitions(${PROJECT_NAME} PRIVATE
 	NCP_VERSION="${PROJECT_VERSION}"
-	NCP_RUNTIME_VERSION=${NCP_RUNTIME_VERSION}
+	NCP_SDK_VERSION=${NCP_SDK_VERSION}
 	NCP_DATA_RELDIR="${NCP_DATA_RELDIR}"
 )
 if (NOT WIN32)
@@ -198,22 +198,22 @@ set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_EXTENSIONS OFF)
 # Not host headers, so not CMAKE_INSTALL_INCLUDEDIR: installing ncp.h into
 # /usr/include would put it in the host compiler's search path, where it has no
 # business being.
-set(RUNTIME_FILES
-	"${PROJECT_SOURCE_DIR}/runtime/ncp.h"
-	"${PROJECT_SOURCE_DIR}/runtime/ncp_ide.h"
-	"${PROJECT_SOURCE_DIR}/runtime/ncprt.c"
+set(SDK_FILES
+	"${PROJECT_SOURCE_DIR}/sdk/ncp.h"
+	"${PROJECT_SOURCE_DIR}/sdk/ncp_ide.h"
+	"${PROJECT_SOURCE_DIR}/sdk/ncprt.c"
 )
 
 # Copied next to the binary as well, so that a build tree can be run from
 # without installing: that is what makes exeDir() the last entry of the lookup.
-foreach(_file ${RUNTIME_FILES})
+foreach(_file ${SDK_FILES})
 	add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
 		COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_file}" $<TARGET_FILE_DIR:${PROJECT_NAME}>
 	)
 endforeach()
 
 install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION "${NCP_INSTALL_BINDIR}")
-install(FILES ${RUNTIME_FILES} DESTINATION "${NCP_INSTALL_DATADIR}")
+install(FILES ${SDK_FILES} DESTINATION "${NCP_INSTALL_DATADIR}")
 install(FILES
 	"${PROJECT_SOURCE_DIR}/schema/ncpatcher.schema.json"
 	"${PROJECT_SOURCE_DIR}/schema/module.schema.json"

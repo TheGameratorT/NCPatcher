@@ -172,7 +172,7 @@ static void testExitCodes()
 	check(ncp::exitCodeFor(Diag::ToolchainMissing) == ExitCode::Toolchain, "a missing compiler is its own category");
 	check(ncp::exitCodeFor(Diag::RomAccess) == ExitCode::RomIo,
 		"a ROM that cannot be opened or written is ROM I/O, not a patch failure");
-	check(ncp::exitCodeFor(Diag::RuntimeHeaderMissing) == ExitCode::Toolchain,
+	check(ncp::exitCodeFor(Diag::SdkHeaderMissing) == ExitCode::Toolchain,
 		"a missing or stale ncp.h is the installation, not the code");
 	check(ncp::exitCodeFor(Diag::PreBuildCommand) == ExitCode::Hook, "a pre-build command is a hook");
 	check(ncp::exitCodeFor(Diag::PostBuildCommand) == ExitCode::Hook, "a post-build command is a hook");

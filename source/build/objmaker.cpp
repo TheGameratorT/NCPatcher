@@ -67,9 +67,9 @@ void ObjMaker::makeTarget(
 	// single translation unit is compiled against it.
 	fs::path ncpInclude;
 	{
-		ncp::ScopedContext headerContext(ncp::Diag::RuntimeHeaderMissing,
-			"The NCPatcher runtime header is not usable.");
-		ncpInclude = ncp::paths::runtimeHeader();
+		ncp::ScopedContext headerContext(ncp::Diag::SdkHeaderMissing,
+			"The NCPatcher SDK header is not usable.");
+		ncpInclude = ncp::paths::sdkHeader();
 	}
 
 	m_includeFlags.reserve(256);
