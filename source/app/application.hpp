@@ -12,7 +12,9 @@
 #include "../config/rebuild_store.hpp"
 #include "../system/diagnostics.hpp"
 
-class HeaderBin;
+#include "../rom/dir_accessor.hpp"
+
+namespace ncp::rom { class RomAccessor; }
 
 namespace ncp {
 
@@ -49,9 +51,10 @@ private:
     int runConfigValidate();
     int runConfigPath();
     int runMigrate();
+    int runRomCommand();
 
     static int reportFailure(const std::exception& e);
-    void processTarget(HeaderBin& header, bool isArm9);
+    void processTarget(ncp::rom::RomAccessor& rom, bool isArm9);
 
     // Applies inheritance and expands globs for one target, and fills in the
     // per-target path anchors. Shared by the build and by `config dump`, so
@@ -76,6 +79,28 @@ private:
     void loadConfigurations();
     void applyCommandLineOverrides();
     void resolveRomDir();
+
+    // How much room to leave after the ARM9 binary when a .nds has to be laid
+    // out again. 64 KiB is comfortably more than any project has ever added to
+    // ARM9, and costs that much dead space once rather than a full relayout on
+    // every build.
+    static constexpr u32 DEFAULT_ARM9_SLACK = 0x10000;
+
+    [[nodiscard]] static bool looksLikeRomFile(const std::filesystem::path& path);
+
+    // The ROM the `rom` subcommands act on, and the layout they read it with.
+    // --rom on its own is enough: those commands are useful outside a project,
+    // and requiring a configuration file to look at a ROM would be silly.
+    [[nodiscard]] std::filesystem::path romTarget();
+    [[nodiscard]] ncp::rom::DirLayout romLayout() const;
+
+    // Builds the accessor the whole build patches through: the extracted
+    // directory or, once rom.file names one, the .nds itself.
+    [[nodiscard]] std::unique_ptr<ncp::rom::RomAccessor> openRom();
+
+    // The .nds this build patches, absolute. Empty when the project patches an
+    // extracted directory instead.
+    std::filesystem::path m_romFile;
     void saveRebuildConfig();
 };
 

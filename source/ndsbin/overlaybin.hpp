@@ -28,7 +28,7 @@ class OverlayBin : public ICodeBin
 public:
 	OverlayBin();
 
-	void load(const std::filesystem::path& path, u32 ramAddress, bool compressed, int id);
+	void load(std::vector<u8> bytes, u32 ramAddress, bool compressed, int id);
 
 	void readBytes(u32 address, void* out, u32 size) const override;
 	void writeBytes(u32 address, const void* data, u32 size) override;

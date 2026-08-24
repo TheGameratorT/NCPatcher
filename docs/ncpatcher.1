@@ -59,6 +59,27 @@ list. Prints the result;
 .B \-\-write
 saves it.
 .TP
+.B rom info
+Print what the ROM header says: the title, where each binary lives, how many
+overlays there are, and whether the header checksum matches its contents.
+.TP
+.BI "rom extract" " DIR"
+Write the ROM's code binaries \(em the header, the two ARM binaries, the two
+overlay tables and the overlay files \(em into
+.IR DIR ,
+in the layout the patcher reads. Overlays are written exactly as the ROM stores
+them, compression and all. This is not a NitroFS extraction; use
+.BR ndstool (1)
+for that.
+.TP
+.BI "rom pack" " DIR"
+Read those same files back out of
+.I DIR
+and write them into the ROM. Files the directory does not have are left as the
+ROM had them, so a directory holding only
+.B arm9.bin
+updates only ARM9.
+.TP
 .B version
 Print the version.
 .SH OPTIONS
@@ -68,7 +89,16 @@ Project directory, or the configuration file itself. Removes the need to launch
 the program from the project directory.
 .TP
 .BI \-\-rom " PATH"
-Extracted-ROM directory, overriding the one in the configuration.
+The ROM to patch, overriding the configuration. Either a
+.B .nds
+or a directory holding an extracted one; which it is is decided by looking at
+the path.
+.TP
+.BI \-\-out " PATH"
+Write the patched ROM here instead of patching it in place. Only meaningful for
+a
+.B .nds
+\(em an extracted directory is patched where it is.
 .TP
 .BI \-D " NAME[=VAL]" "\fR, \fP" \-\-define " NAME[=VAL]"
 Define a preprocessor macro for every translation unit.

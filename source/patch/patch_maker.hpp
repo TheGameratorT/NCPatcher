@@ -11,7 +11,7 @@
 #include "../config/buildtarget.hpp"
 #include "../config/rebuild_store.hpp"
 #include "../app/context.hpp"
-#include "../ndsbin/headerbin.hpp"
+#include "../rom/accessor.hpp"
 #include "../ndsbin/armbin.hpp"
 #include "../ndsbin/overlaybin.hpp"
 #include "../system/log.hpp"
@@ -38,7 +38,7 @@ public:
 	void makeTarget(
 		const BuildTarget& target,
 		const ncp::Context& ctx,
-		const HeaderBin& header,
+		ncp::rom::RomAccessor& rom,
 		core::CompilationUnitManager& compilationUnitMgr
 	);
 
@@ -47,7 +47,7 @@ private:
 	const BuildTarget* m_target;
 	const ncp::Context* m_ctx;
 	const ncp::PathContext* m_paths;
-	const HeaderBin* m_header;
+	ncp::rom::RomAccessor* m_rom;
 	core::CompilationUnitManager* m_compilationUnitMgr;
 	
 	// Component managers

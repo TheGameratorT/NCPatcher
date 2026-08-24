@@ -15,7 +15,6 @@
 //     its size limit and fell back to the 1 MiB default.
 //   * the [path, recursive] pair form of `includes`/`sources` is accepted;
 //     the glob rewrite would throw on it, and six shipped projects use it.
-//   * `compress: true` warns, because nothing writes compressed overlays yet.
 
 #include "config_loader.hpp"
 

@@ -4,7 +4,11 @@
   "title": "NCPatcher project configuration",
   "description": "Schema for ncpatcher.yaml (configuration version 2). The older ncpatcher.json is a different schema and is not described here; run `ncpatcher migrate` to convert it.",
   "type": "object",
-  "required": ["version", "rom", "targets"],
+  "required": [
+    "version",
+    "rom",
+    "targets"
+  ],
   "additionalProperties": false,
   "properties": {
     "version": {
@@ -14,9 +18,13 @@
     "vars": {
       "description": "Named values usable as ${vars.NAME} anywhere in this file. Resolved lazily, so declaration order does not matter, and overridable with --var NAME=VALUE.",
       "type": "object",
-      "additionalProperties": { "type": "string" }
+      "additionalProperties": {
+        "type": "string"
+      }
     },
-    "rom": { "$ref": "#/$defs/rom" },
+    "rom": {
+      "$ref": "#/$defs/rom"
+    },
     "toolchain": {
       "type": "object",
       "additionalProperties": false,
@@ -38,17 +46,31 @@
         }
       }
     },
-    "includes": { "$ref": "#/$defs/stringList" },
-    "defines": { "$ref": "#/$defs/stringList" },
-    "flags": { "$ref": "#/$defs/flags" },
-    "pre-build": { "$ref": "#/$defs/commandList" },
-    "post-build": { "$ref": "#/$defs/commandList" },
+    "includes": {
+      "$ref": "#/$defs/stringList"
+    },
+    "defines": {
+      "$ref": "#/$defs/stringList"
+    },
+    "flags": {
+      "$ref": "#/$defs/flags"
+    },
+    "pre-build": {
+      "$ref": "#/$defs/commandList"
+    },
+    "post-build": {
+      "$ref": "#/$defs/commandList"
+    },
     "targets": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "arm9": { "$ref": "#/$defs/target" },
-        "arm7": { "$ref": "#/$defs/target" }
+        "arm9": {
+          "$ref": "#/$defs/target"
+        },
+        "arm7": {
+          "$ref": "#/$defs/target"
+        }
       }
     }
   },
@@ -56,36 +78,68 @@
     "address": {
       "description": "A 32-bit address. Either a number or a string, so that 0x-prefixed hex reads as it does in a disassembler.",
       "oneOf": [
-        { "type": "integer", "minimum": 0, "maximum": 4294967295 },
-        { "type": "string", "pattern": "^(0[xX][0-9a-fA-F]+|[0-9]+)$" }
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        {
+          "type": "string",
+          "pattern": "^(0[xX][0-9a-fA-F]+|[0-9]+)$"
+        }
       ]
     },
     "stringList": {
       "description": "A list that appends to whatever the level above contributed. The mapping form replaces or subtracts instead.",
       "oneOf": [
-        { "type": "array", "items": { "type": "string" } },
-        { "type": "string" },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        {
+          "type": "string"
+        },
         {
           "type": "object",
           "additionalProperties": false,
           "properties": {
             "set": {
               "description": "Replaces everything inherited. An empty list means nothing.",
-              "type": "array", "items": { "type": "string" }
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             },
             "remove": {
               "description": "Applied after set, before append.",
-              "type": "array", "items": { "type": "string" }
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             },
-            "append": { "type": "array", "items": { "type": "string" } }
+            "append": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
           }
         }
       ]
     },
     "commandList": {
       "oneOf": [
-        { "type": "array", "items": { "type": "string" } },
-        { "type": "string" }
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        {
+          "type": "string"
+        }
       ]
     },
     "flags": {
@@ -93,11 +147,21 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "common": { "$ref": "#/$defs/stringList" },
-        "c": { "$ref": "#/$defs/stringList" },
-        "cpp": { "$ref": "#/$defs/stringList" },
-        "asm": { "$ref": "#/$defs/stringList" },
-        "ld": { "$ref": "#/$defs/stringList" }
+        "common": {
+          "$ref": "#/$defs/stringList"
+        },
+        "c": {
+          "$ref": "#/$defs/stringList"
+        },
+        "cpp": {
+          "$ref": "#/$defs/stringList"
+        },
+        "asm": {
+          "$ref": "#/$defs/stringList"
+        },
+        "ld": {
+          "$ref": "#/$defs/stringList"
+        }
       }
     },
     "rom": {
@@ -109,11 +173,11 @@
           "type": "string"
         },
         "file": {
-          "description": "A .nds read and written directly. Not supported yet; use dir.",
+          "description": "A .nds read and written directly, as opposed to an extracted directory. Mutually exclusive with dir.",
           "type": "string"
         },
         "output": {
-          "description": "Where to write the patched ROM. Omit to patch in place. Not supported yet.",
+          "description": "Where to write the patched ROM. Omit to patch rom.file in place. Only meaningful alongside rom.file.",
           "type": "string"
         },
         "backup": {
@@ -121,12 +185,77 @@
           "type": "string"
         },
         "layout": {
-          "description": "Naming convention of the extracted ROM directory. Not supported yet.",
-          "type": "string"
+          "description": "Naming convention of the extracted ROM directory. A preset name, or a mapping of file names -- optionally with `preset:` naming the one to start from.",
+          "oneOf": [
+            {
+              "enum": [
+                "ncpatcher",
+                "ndstool"
+              ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "preset": {
+                  "enum": [
+                    "ncpatcher",
+                    "ndstool"
+                  ]
+                },
+                "header": {
+                  "type": "string"
+                },
+                "arm9": {
+                  "type": "string"
+                },
+                "arm7": {
+                  "type": "string"
+                },
+                "arm9-ovt": {
+                  "type": "string"
+                },
+                "arm7-ovt": {
+                  "type": "string"
+                },
+                "overlay9-dir": {
+                  "type": "string"
+                },
+                "overlay7-dir": {
+                  "type": "string"
+                },
+                "overlay9-name": {
+                  "type": "string"
+                },
+                "overlay7-name": {
+                  "type": "string"
+                },
+                "fnt": {
+                  "type": "string"
+                },
+                "fat": {
+                  "type": "string"
+                },
+                "banner": {
+                  "type": "string"
+                },
+                "data-dir": {
+                  "type": "string"
+                }
+              }
+            }
+          ]
         },
         "arm9-slack": {
-          "description": "Spare room to leave after arm9 when writing a .nds. Not supported yet.",
-          "oneOf": [{ "const": "auto" }, { "$ref": "#/$defs/address" }]
+          "description": "Spare room to leave after arm9 when a .nds has to be laid out again, so that later builds fit in place. `auto` lets ncpatcher choose.",
+          "oneOf": [
+            {
+              "const": "auto"
+            },
+            {
+              "$ref": "#/$defs/address"
+            }
+          ]
         }
       }
     },
@@ -134,7 +263,10 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean", "default": true },
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
         "build": {
           "description": "Directory for object files, the linker script, the ELF and the log. Relative to the project directory.",
           "type": "string"
@@ -151,18 +283,28 @@
           "description": "Linker script naming the addresses of the game's own functions.",
           "type": "string"
         },
-        "includes": { "$ref": "#/$defs/stringList" },
-        "defines": { "$ref": "#/$defs/stringList" },
-        "flags": { "$ref": "#/$defs/flags" },
+        "includes": {
+          "$ref": "#/$defs/stringList"
+        },
+        "defines": {
+          "$ref": "#/$defs/stringList"
+        },
+        "flags": {
+          "$ref": "#/$defs/flags"
+        },
         "regions": {
           "type": "array",
-          "items": { "$ref": "#/$defs/region" }
+          "items": {
+            "$ref": "#/$defs/region"
+          }
         }
       }
     },
     "region": {
       "type": "object",
-      "required": ["dest"],
+      "required": [
+        "dest"
+      ],
       "additionalProperties": false,
       "properties": {
         "dest": {
@@ -172,20 +314,32 @@
         },
         "mode": {
           "description": "append adds code after the existing binary; replace overwrites it; create makes a new overlay.",
-          "enum": ["append", "replace", "create"]
+          "enum": [
+            "append",
+            "replace",
+            "create"
+          ]
         },
-        "address": { "$ref": "#/$defs/address" },
+        "address": {
+          "$ref": "#/$defs/address"
+        },
         "maxsize": {
           "description": "Refuses to build if the region grows past this. Worth setting for an overlay that has something after it in memory.",
           "$ref": "#/$defs/address"
         },
-        "compress": { "type": "boolean" },
+        "compress": {
+          "type": "boolean"
+        },
         "sources": {
           "description": "Glob patterns, matched against the target's workdir. Supports *, ?, [abc], {a,b}, ** as a whole segment, and !pattern to exclude.",
           "$ref": "#/$defs/stringList"
         },
-        "defines": { "$ref": "#/$defs/stringList" },
-        "flags": { "$ref": "#/$defs/flags" },
+        "defines": {
+          "$ref": "#/$defs/stringList"
+        },
+        "flags": {
+          "$ref": "#/$defs/flags"
+        },
         "overwrites": {
           "description": "Address ranges of the original binary this region is allowed to write over, as [start, end] pairs.",
           "type": "array",
@@ -193,7 +347,9 @@
             "type": "array",
             "minItems": 2,
             "maxItems": 2,
-            "items": { "$ref": "#/$defs/address" }
+            "items": {
+              "$ref": "#/$defs/address"
+            }
           }
         }
       }

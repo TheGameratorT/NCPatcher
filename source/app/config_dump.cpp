@@ -151,7 +151,13 @@ void dumpJson(std::ostream& out,
 	writer.field("version", config.version);
 	writer.field("file", config.file.string());
 	writer.key("project-root").value(config.projectRoot.string());
+	// Both keys are always present, one of them empty: a consumer should not
+	// have to test for a key's existence to find out which mode a project is in.
 	writer.key("rom-dir").value(paths.romDir.string());
+	writer.key("rom-file").value(
+		config.romFile.configured() ? paths.work(config.romFile.value).string() : std::string());
+	writer.key("rom-output").value(
+		config.romOutput.configured() ? paths.work(config.romOutput.value).string() : std::string());
 	writer.key("backup-dir").value(paths.work(config.backupDir.value).string());
 	writer.field("toolchain", config.toolchain.value);
 	writer.field("threads", config.threadCount.value);
@@ -195,6 +201,7 @@ void dumpJson(std::ostream& out,
 		writer.field("threads", config::sourceName(config.threadCount.source));
 		writer.key("backup-dir").value(config::sourceName(config.backupDir.source));
 		writer.key("rom-dir").value(config::sourceName(config.filesystemDir.source));
+		writer.key("rom-file").value(config::sourceName(config.romFile.source));
 		writer.endObject();
 	}
 
@@ -232,8 +239,21 @@ void dumpHuman(std::ostream& out,
 	out << "  file:         " << config.file.string() << '\n';
 	out << "  schema:       version " << config.version << '\n';
 	out << "  root:         " << config.projectRoot.string() << '\n';
-	out << "  rom dir:      " << paths.romDir.string()
-	    << origin(config.filesystemDir.source, explain) << '\n';
+	if (config.romFile.configured())
+	{
+		out << "  rom file:     " << paths.work(config.romFile.value).string()
+		    << origin(config.romFile.source, explain) << '\n';
+		if (config.romOutput.configured())
+		{
+			out << "  rom output:   " << paths.work(config.romOutput.value).string()
+			    << origin(config.romOutput.source, explain) << '\n';
+		}
+	}
+	else
+	{
+		out << "  rom dir:      " << paths.romDir.string()
+		    << origin(config.filesystemDir.source, explain) << '\n';
+	}
 	out << "  backup dir:   " << paths.work(config.backupDir.value).string()
 	    << origin(config.backupDir.source, explain) << '\n';
 	out << "  toolchain:    " << config.toolchain.value

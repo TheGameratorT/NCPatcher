@@ -34,7 +34,7 @@ public:
 	};
 
 	ArmBin();
-	void load(const std::filesystem::path& path, u32 entryAddr, u32 ramAddr, u32 autoLoadHookOff, bool isArm9);
+	void load(std::vector<u8> bytes, u32 entryAddr, u32 ramAddr, u32 autoLoadHookOff, bool isArm9);
 
 	void readBytes(u32 address, void* out, u32 size) const override;
 	void writeBytes(u32 address, const void* data, u32 size) override;

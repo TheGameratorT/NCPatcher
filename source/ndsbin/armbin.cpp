@@ -21,7 +21,10 @@ static const char* InvResn = "Invalid ARM| file.";
 
 ArmBin::ArmBin() = default;
 
-void ArmBin::load(const fs::path& path, u32 entryAddr, u32 ramAddr, u32 autoLoadHookOff, bool isArm9)
+// Takes the binary's bytes rather than a path: where they came from -- a loose
+// arm9.bin, a backup copy, or an extent inside a .nds -- is the ROM accessor's
+// business, and this class has no reason to know which.
+void ArmBin::load(std::vector<u8> bytes, u32 entryAddr, u32 ramAddr, u32 autoLoadHookOff, bool isArm9)
 {
 	m_ramAddr = ramAddr;
 	m_entryAddr = entryAddr;
@@ -30,24 +33,13 @@ void ArmBin::load(const fs::path& path, u32 entryAddr, u32 ramAddr, u32 autoLoad
 
 	Log::info(getString(LoadInf));
 
-	// READ FILE ================================
-
 	ncp::ScopedContext ctx(ncp::Diag::ArmBinLoad, isArm9 ? LoadErr9 : LoadErr7);
 
-	if (!fs::exists(path))
-		throw ncp::file_error(path, ncp::file_error::find);
-
-	uintmax_t fileSize = fs::file_size(path);
+	const std::size_t fileSize = bytes.size();
 	if (fileSize < 4)
 		throw ncp::exception(getString(InvResn));
 
-	std::ifstream file(path, std::ios::binary);
-	if (!file.is_open())
-		throw ncp::file_error(path, ncp::file_error::read);
-
-	m_bytes.resize(fileSize);
-	file.read(reinterpret_cast<char*>(m_bytes.data()), std::streamsize(fileSize));
-	file.close();
+	m_bytes = std::move(bytes);
 
 	u8* bytesData = m_bytes.data();
 

@@ -383,6 +383,46 @@ ProjectConfig loadV2(const fs::path& projectFile, const fs::path& projectRoot,
 
 	config.backupDir.set(expander.expand(rom.require("backup").asString(), rom["backup"]), Source::ProjectFile);
 
+	if (rom.has("output"))
+	{
+		if (!hasFile)
+			rom["output"].fail("Only a project that patches a .nds can write one; give " ANSI_bCYAN "rom.file" ANSI_RESET " as well.");
+		config.romOutput.set(expander.expand(rom["output"].asString(), rom["output"]), Source::ProjectFile);
+	}
+
+	if (rom.has("layout"))
+	{
+		const cfg::Node layout = rom["layout"];
+		if (layout.isMap())
+		{
+			// A mapping names the files directly, optionally starting from a
+			// preset. The keys are not checked here: which names exist is the
+			// accessor's business, and it reports an unknown one against the
+			// layout it was building.
+			for (const auto& [key, value] : layout.fields())
+			{
+				if (key == "preset")
+					config.romLayoutPreset.set(value.asString(), Source::ProjectFile);
+				else
+					config.romLayoutOverrides.emplace_back(key, expander.expand(value.asString(), value));
+			}
+		}
+		else
+		{
+			config.romLayoutPreset.set(layout.asString(), Source::ProjectFile);
+		}
+	}
+
+	if (rom.has("arm9-slack"))
+	{
+		// `auto` means "let ncpatcher choose", which is also what leaving the
+		// key out means. Spelling it is allowed so that a project can say the
+		// default is deliberate.
+		const cfg::Node slack = rom["arm9-slack"];
+		if (slack.asString("") != "auto")
+			config.romArm9Slack.set(slack.asU32(), Source::ProjectFile);
+	}
+
 	// Toolchain and build --------------------------------------------------
 
 	const cfg::Node toolchain = root["toolchain"];

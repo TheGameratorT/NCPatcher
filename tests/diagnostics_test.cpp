@@ -167,6 +167,8 @@ static void testExitCodes()
 	check(ncp::exitCodeFor(Diag::TargetConfigLoad) == ExitCode::Config, "resolving a target is a config error");
 	check(ncp::exitCodeFor(Diag::ConfigMigrate) == ExitCode::Config, "migration is a config error");
 	check(ncp::exitCodeFor(Diag::ToolchainMissing) == ExitCode::Toolchain, "a missing compiler is its own category");
+	check(ncp::exitCodeFor(Diag::RomAccess) == ExitCode::RomIo,
+		"a ROM that cannot be opened or written is ROM I/O, not a patch failure");
 	check(ncp::exitCodeFor(Diag::RuntimeHeaderMissing) == ExitCode::Toolchain,
 		"a missing or stale ncp.h is the installation, not the code");
 	check(ncp::exitCodeFor(Diag::PreBuildCommand) == ExitCode::Hook, "a pre-build command is a hook");

@@ -33,7 +33,7 @@ PatchMaker::~PatchMaker() = default;
 void PatchMaker::makeTarget(
 	const BuildTarget& target,
 	const ncp::Context& ctx,
-	const HeaderBin& header,
+	ncp::rom::RomAccessor& rom,
 	core::CompilationUnitManager& compilationUnitMgr
 	)
 {
@@ -41,7 +41,7 @@ void PatchMaker::makeTarget(
 	m_target = &target;
 	m_ctx = &ctx;
 	m_paths = &ctx.paths;
-	m_header = &header;
+	m_rom = &rom;
 	m_compilationUnitMgr = &compilationUnitMgr;
 
 	// TODO: change this, the user might want to link only a library
@@ -77,7 +77,7 @@ void PatchMaker::initializeComponents()
 	m_dependencyResolver = std::make_unique<DependencyResolver>();
 
 	// Initialize all components
-	m_fileSystemManager->initialize(*m_target, *m_ctx, *m_header);
+	m_fileSystemManager->initialize(*m_target, *m_ctx, *m_rom);
 	m_dependencyResolver->initialize(*m_ctx, *m_compilationUnitMgr);
 	m_patchTracker->initialize(*m_target, *m_ctx, *m_compilationUnitMgr, *m_dependencyResolver);
 	m_libraryManager->initialize(*m_target, *m_ctx, *m_compilationUnitMgr);
@@ -749,8 +749,8 @@ void PatchMaker::handleAppendModeOverlay(int dest, const std::unique_ptr<Newcode
 	auto& ovtEntries = m_fileSystemManager->getOvtEntries();
 	auto& ovtEntry = ovtEntries[dest];
 
-	ovtEntry.compressed = 0;
-	ovtEntry.flag = 0;
+	ovtEntry.compressedSize = 0;
+	ovtEntry.flags = 0;
 
 	std::vector<u8>& data = bin->data();
 	std::size_t szData = data.size();
@@ -795,10 +795,10 @@ void PatchMaker::handleReplaceModeOverlay(int dest, const std::unique_ptr<Newcod
 	ovtEntry.ramAddress = newcodeAddr;
 	ovtEntry.ramSize = newcodeInfo->binSize;
 	ovtEntry.bssSize = newcodeInfo->bssSize;
-	ovtEntry.sinitStart = 0;
-	ovtEntry.sinitEnd = 0;
-	ovtEntry.compressed = 0;
-	ovtEntry.flag = 0;
+	ovtEntry.staticInitStart = 0;
+	ovtEntry.staticInitEnd = 0;
+	ovtEntry.compressedSize = 0;
+	ovtEntry.flags = 0;
 
 	std::size_t totalOvSize = newcodeInfo->binSize + newcodeInfo->bssSize;
 	

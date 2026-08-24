@@ -164,15 +164,49 @@ namespace BLZ
 {
 	std::vector<u8> compress(const std::vector<u8>& data)
 	{
-		size_t dataSize = data.size();
-		std::vector<u8> dest(dataSize);
+		const size_t dataSize = data.size();
+		if (dataSize < 16)
+			return {};
 
-		size_t destSize = CompressBackward(data.data(), dataSize, dest.data());
-		if (destSize == -1)
-			throw std::runtime_error("Compression failed.");
+		// CompressBackward fills its buffer from the top down and returns the
+		// lowest index it wrote, so the encoded stream is the *tail* of the
+		// buffer. Taking the head instead -- which is what this function used
+		// to do -- returned uninitialised bytes, which is why nothing had ever
+		// successfully written a compressed overlay.
+		std::vector<u8> work(dataSize);
+		const size_t low = CompressBackward(data.data(), dataSize, work.data());
+		if (low == size_t(-1))
+			return {};
 
-		dest.resize(destSize);
-		return dest;
+		const size_t bodySize = dataSize - low;
+
+		// The footer is two little-endian words, and the decompressor reads
+		// them as aligned words counted back from the end of the image, so the
+		// image length has to be a multiple of four. Any slack goes between the
+		// stream and the footer, where the decompressor never looks.
+		size_t total = bodySize + 8;
+		const size_t padding = (4 - (total % 4)) % 4;
+		total += padding;
+
+		if (total >= dataSize)
+			return {};
+
+		std::vector<u8> out(total, 0);
+		std::copy(work.begin() + std::ptrdiff_t(low), work.end(), out.begin());
+
+		// Top 8 bits: how far back from the end the encoded stream ends.
+		// Low 24 bits: how far back from the end it begins -- the whole image
+		// here, since nothing is left uncompressed.
+		const u32 offsetIn = u32(total) | (u32(8 + padding) << 24);
+		const u32 offsetOut = u32(dataSize - total);
+
+		for (int i = 0; i < 4; i++)
+		{
+			out[total - 8 + size_t(i)] = u8((offsetIn >> (8 * i)) & 0xFF);
+			out[total - 4 + size_t(i)] = u8((offsetOut >> (8 * i)) & 0xFF);
+		}
+
+		return out;
 	}
 
 	std::vector<u8> uncompress(const std::vector<u8>& data)

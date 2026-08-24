@@ -160,7 +160,6 @@ BuildTarget TargetResolver::resolve(const ProjectConfig& config, const TargetCon
 		target.includes.applyTo(config.includes.applyTo({}));
 	out.includes = expandPatterns(includePatterns, paths.targetWorkDir, true, options.quiet);
 
-	bool warnedAboutCompression = false;
 
 	for (const RegionConfig& regionConfig : target.regions)
 	{
@@ -187,14 +186,14 @@ BuildTarget TargetResolver::resolve(const ProjectConfig& config, const TargetCon
 
 		region.sources = expandPatterns(regionConfig.sources.applyTo({}), paths.targetWorkDir, false, options.quiet);
 
-		if (region.compress && !warnedAboutCompression && !options.quiet)
+		if (region.compress && region.destination < 0)
 		{
-			// Parsed since the first release and never acted on. Saying so is
-			// the difference between a ROM that is bigger than expected and a
-			// ROM that is bigger than expected for no discoverable reason.
-			Log::out << OWARN << OSTRa("compress") << " is not implemented yet; region "
+			// Only overlays are compressible: the ARM9 binary's compression is
+			// described by ModuleParams and undone on load, and re-doing it
+			// would mean rewriting the autoload machinery this tool patches.
+			Log::out << OWARN << OSTRa("compress") << " applies to overlays; region "
 			         << OSTR(regionConfig.dest) << " will be written uncompressed." << std::endl;
-			warnedAboutCompression = true;
+			region.compress = false;
 		}
 
 		out.regions.push_back(std::move(region));

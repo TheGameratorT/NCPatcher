@@ -1,17 +1,19 @@
 #include "filesystem_manager.hpp"
 
-#include <fstream>
 #include <sstream>
-#include <cstring>
 
 #include "../system/log.hpp"
 #include "../system/except.hpp"
 #include "../system/message.hpp"
-#include "../ndsbin/overlaybin.hpp"
+#include "../formats/blz.hpp"
 
 namespace fs = std::filesystem;
 
 namespace ncp::patch {
+
+using ncp::rom::BackupStore;
+using ncp::rom::OverlayEntry;
+using ncp::rom::OverlayTable;
 
 FileSystemManager::FileSystemManager() = default;
 FileSystemManager::~FileSystemManager() = default;
@@ -19,18 +21,19 @@ FileSystemManager::~FileSystemManager() = default;
 void FileSystemManager::initialize(
     const BuildTarget& target,
     const ncp::Context& ctx,
-    const HeaderBin& header
+    ncp::rom::RomAccessor& rom
 )
 {
     m_target = &target;
     m_ctx = &ctx;
     m_paths = &ctx.paths;
-    m_header = &header;
+    m_rom = &rom;
+    m_backup = std::make_unique<BackupStore>(ctx.backupDir());
 }
 
-fs::path FileSystemManager::backupPath(const fs::path& relative) const
+bool FileSystemManager::isArm9() const
 {
-    return m_ctx->backupDir() / relative;
+    return m_target->getArm9();
 }
 
 void FileSystemManager::createBuildDirectory()
@@ -49,210 +52,159 @@ void FileSystemManager::createBuildDirectory()
 
 void FileSystemManager::createBackupDirectory()
 {
-    const fs::path bakDir = m_ctx->backupDir();
-    if (!fs::exists(bakDir))
-    {
-        if (!fs::create_directories(bakDir))
-        {
-            std::ostringstream oss;
-            oss << "Could not create backup directory: " << OSTR(bakDir);
-            throw ncp::exception(oss.str());
-        }
-    }
-
-    const char* prefix = m_target->getArm9() ? "overlay9" : "overlay7";
-    fs::path bakOvDir = bakDir / prefix;
-    if (!fs::exists(bakOvDir))
-    {
-        if (!fs::create_directories(bakOvDir))
-        {
-            std::ostringstream oss;
-            oss << "Could not create overlay backup directory: " << OSTR(bakOvDir);
-            throw ncp::exception(oss.str());
-        }
-    }
+    m_backup->createDirectories(isArm9());
 }
 
 void FileSystemManager::loadArmBin()
 {
-    bool isArm9 = m_target->getArm9();
+    const bool arm9 = isArm9();
 
-    const char* binName; u32 entryAddress, ramAddress, autoLoadListHookOff;
-    if (isArm9)
+    const ncp::rom::ArmBinaryInfo info = m_rom->header().arm(arm9);
+    const u32 autoLoadListHookOff = m_rom->header().autoLoadListHookAddress(arm9);
+
+    const std::string key = BackupStore::armKey(arm9);
+
+    m_arm = std::make_unique<ArmBin>();
+    if (m_backup->has(key))
     {
-        binName = "arm9.bin";
-        entryAddress = m_header->arm9.entryAddress;
-        ramAddress = m_header->arm9.ramAddress;
-        autoLoadListHookOff = m_header->arm9AutoLoadListHookOffset;
+        m_arm->load(m_backup->read(key), info.entryAddress, info.ramAddress, autoLoadListHookOff, arm9);
     }
     else
     {
-        binName = "arm7.bin";
-        entryAddress = m_header->arm7.entryAddress;
-        ramAddress = m_header->arm7.ramAddress;
-        autoLoadListHookOff = m_header->arm7AutoLoadListHookOffset;
-    }
-
-    fs::path bakBinName = backupPath(binName);
-
-    m_arm = std::make_unique<ArmBin>();
-    if (fs::exists(bakBinName)) //has backup
-    {
-        m_arm->load(bakBinName, entryAddress, ramAddress, autoLoadListHookOff, isArm9);
-    }
-    else //has no backup
-    {
-        m_arm->load(m_paths->rom(binName), entryAddress, ramAddress, autoLoadListHookOff, isArm9);
-        const std::vector<u8>& bytes = m_arm->data();
-
-        std::ofstream outputFile(bakBinName, std::ios::binary);
-        if (!outputFile.is_open())
-            throw ncp::file_error(bakBinName, ncp::file_error::write);
-        outputFile.write(reinterpret_cast<const char*>(bytes.data()), std::streamsize(bytes.size()));
-        outputFile.close();
+        // The pristine bytes are saved before anything is patched into them,
+        // and everything afterwards reads from that copy. A build that skipped
+        // this would be patching its own previous output.
+        std::vector<u8> bytes = m_rom->readArm(arm9);
+        m_backup->write(key, bytes);
+        m_arm->load(std::move(bytes), info.entryAddress, info.ramAddress, autoLoadListHookOff, arm9);
     }
 }
 
 void FileSystemManager::saveArmBin()
 {
-    const char* binName = m_target->getArm9() ? "arm9.bin" : "arm7.bin";
-
-    reportWrite("arm", binName, -1, m_arm->data().size(), nullptr);
-
+    const bool arm9 = isArm9();
+    const std::string name = m_rom->nameOfArm(arm9);
     const std::vector<u8>& bytes = m_arm->data();
 
-    const fs::path romBinPath = m_paths->rom(binName);
-    std::ofstream outputFile(romBinPath, std::ios::binary);
-    if (!outputFile.is_open())
-        throw ncp::file_error(romBinPath, ncp::file_error::write);
-    outputFile.write(reinterpret_cast<const char*>(bytes.data()), std::streamsize(bytes.size()));
-    outputFile.close();
+    reportWrite("arm", name, -1, bytes.size(), true, nullptr);
+    m_rom->writeArm(arm9, bytes);
 }
 
 void FileSystemManager::loadOverlayTableBin()
 {
     Log::info("Loading overlay table...");
 
-    const char* binName = m_target->getArm9() ? "arm9ovt.bin" : "arm7ovt.bin";
+    const bool arm9 = isArm9();
+    const std::string key = BackupStore::overlayTableKey(arm9);
 
-    fs::path bakBinName = backupPath(binName);
-
-    fs::path workBinName;
-    if (fs::exists(bakBinName)) //has backup
-    {
-        workBinName = bakBinName;
-    }
-    else //has no backup
-    {
-        workBinName = m_paths->rom(binName);
-        if (!fs::exists(workBinName))
-            throw ncp::file_error(workBinName, ncp::file_error::find);
-    }
-
-    uintmax_t fileSize = fs::file_size(workBinName);
-    u32 overlayCount = fileSize / sizeof(OvtEntry);
-
-    m_ovtEntries.resize(overlayCount);
-
-    std::ifstream inputFile(workBinName, std::ios::binary);
-    if (!inputFile.is_open())
-        throw ncp::file_error(workBinName, ncp::file_error::read);
-    for (u32 i = 0; i < overlayCount; i++)
-        inputFile.read(reinterpret_cast<char*>(&m_ovtEntries[i]), sizeof(OvtEntry));
-    inputFile.close();
+    m_ovt = m_backup->has(key)
+        ? OverlayTable::parse(m_backup->read(key))
+        : m_rom->readOverlayTable(arm9);
 
     // Plain assignment, not resize+memcpy: an empty table (arm7 usually has one)
     // means both data() pointers are null, and memcpy forbids that even for a
     // zero length.
-    m_bakOvtEntries = m_ovtEntries;
+    m_bakOvt = m_ovt;
 }
 
 void FileSystemManager::saveOverlayTableBin()
 {
-    auto saveOvtEntries = [](const std::vector<OvtEntry>& ovtEntries, const fs::path& filePath){
-        std::ofstream outputFile(filePath, std::ios::binary);
-        if (!outputFile.is_open())
-            throw ncp::file_error(filePath, ncp::file_error::write);
-        outputFile.write(reinterpret_cast<const char*>(ovtEntries.data()), ovtEntries.size() * sizeof(OvtEntry));
-        outputFile.close();
-    };
+    const bool arm9 = isArm9();
+    const std::string name = m_rom->nameOfOverlayTable(arm9);
 
-    const char* binName = m_target->getArm9() ? "arm9ovt.bin" : "arm7ovt.bin";
-
-    reportWrite("overlay-table", binName, -1, m_ovtEntries.size() * sizeof(OvtEntry), nullptr);
+    reportWrite("overlay-table", name, -1, m_ovt.byteSize(), true, nullptr);
 
     if (m_bakOvtChanged)
-        saveOvtEntries(m_bakOvtEntries, backupPath(binName));
+        m_backup->write(BackupStore::overlayTableKey(arm9), m_bakOvt.serialize());
 
-    saveOvtEntries(m_ovtEntries, m_paths->rom(binName));
+    m_rom->writeOverlayTable(arm9, m_ovt);
 }
 
 OverlayBin* FileSystemManager::loadOverlayBin(std::size_t ovID)
 {
-    std::string prefix = m_target->getArm9() ? "overlay9" : "overlay7";
+    const bool arm9 = isArm9();
+    const std::string key = BackupStore::overlayKey(arm9, u32(ovID));
 
-    fs::path binName = fs::path(prefix) / (prefix + "_" + std::to_string(ovID) + ".bin");
-    fs::path bakBinName = backupPath(binName);
+    OverlayEntry& ovte = m_ovt.entries()[ovID];
+    const bool wasCompressed = ovte.compressed();
 
-    OvtEntry& ovte = m_ovtEntries[ovID];
-
-    auto* overlay = new OverlayBin();
-    if (fs::exists(bakBinName)) //has backup
+    auto overlay = std::make_unique<OverlayBin>();
+    if (m_backup->has(key))
     {
-        overlay->load(bakBinName, ovte.ramAddress, ovte.flag & OVERLAY_FLAG_COMP, ovID);
-        ovte.flag = 0;
+        overlay->load(m_backup->read(key), ovte.ramAddress, wasCompressed, int(ovID));
+        ovte.flags = 0;
     }
-    else //has no backup
+    else
     {
-        overlay->load(m_paths->rom(binName), ovte.ramAddress, ovte.flag & OVERLAY_FLAG_COMP, ovID);
-        ovte.flag = 0;
-        const std::vector<u8>& bytes = overlay->data();
+        overlay->load(m_rom->readOverlay(arm9, u32(ovID)), ovte.ramAddress, wasCompressed, int(ovID));
+        ovte.flags = 0;
 
-        std::vector<u8>& backupBytes = overlay->backupData();
-        backupBytes.resize(bytes.size());
-        std::memcpy(backupBytes.data(), bytes.data(), bytes.size());
+        // The backup is the decompressed form, and the backed-up table row has
+        // its compression flag cleared to match. Storing the compressed bytes
+        // with a cleared flag -- or the plain bytes with it set -- would make
+        // the next build read nonsense.
+        overlay->backupData() = overlay->data();
 
-        m_bakOvtEntries[ovID].flag = 0;
+        m_bakOvt.entries()[ovID].flags = 0;
         m_bakOvtChanged = true;
     }
 
-    m_loadedOverlays.emplace(ovID, std::unique_ptr<OverlayBin>(overlay));
-    return overlay;
+    OverlayBin* result = overlay.get();
+    m_loadedOverlays.emplace(ovID, std::move(overlay));
+    return result;
 }
 
 OverlayBin* FileSystemManager::getOverlay(std::size_t ovID)
 {
-    for (auto& [id, ov] : m_loadedOverlays)
-    {
-        if (id == ovID)
-            return ov.get();
-    }
+    const auto it = m_loadedOverlays.find(ovID);
+    if (it != m_loadedOverlays.end())
+        return it->second.get();
     return loadOverlayBin(ovID);
 }
 
 void FileSystemManager::saveOverlayBins()
 {
-    std::string prefix = m_target->getArm9() ? "overlay9" : "overlay7";
+    const bool arm9 = isArm9();
 
     for (auto& [ovID, ov] : m_loadedOverlays)
     {
-        fs::path binName = fs::path(prefix) / (prefix + "_" + std::to_string(ovID) + ".bin");
+        const std::string name = m_rom->nameOfOverlay(arm9, u32(ovID));
+        const bool existed = m_rom->hasOverlay(arm9, u32(ovID));
 
-        auto saveOvData = [](const std::vector<u8>& ovData, const fs::path& ovFilePath){
-            std::ofstream outputFile(ovFilePath, std::ios::binary);
-            if (!outputFile.is_open())
-                throw ncp::file_error(ovFilePath, ncp::file_error::write);
-            outputFile.write(reinterpret_cast<const char*>(ovData.data()), std::streamsize(ovData.size()));
-            outputFile.close();
-        };
+        OverlayEntry& entry = m_ovt.entries()[ovID];
 
-        const OvtEntry& entry = m_ovtEntries[ovID];
-        reportWrite("overlay", binName.generic_string(), int(ovID), ov->data().size(), &entry);
+        // `compress: true` on the region was parsed and then ignored for as
+        // long as the key has existed, so an overlay it named went into the ROM
+        // uncompressed and the project silently got a bigger ROM than it asked
+        // for. The ram size stays the decompressed length -- that is what the
+        // loader allocates -- while the table's own 24-bit field carries what
+        // is actually stored.
+        const BuildTarget::Region* region = m_target->getRegionByDestination(int(ovID));
+        std::vector<u8> stored;
+        if (region != nullptr && region->compress)
+            stored = BLZ::compress(ov->data());
 
-        saveOvData(ov->data(), m_paths->rom(binName));
+        if (!stored.empty())
+        {
+            entry.compressedSize = u32(stored.size());
+            entry.setCompressed(true);
+        }
+        else
+        {
+            // Either the region did not ask for compression, or the data did
+            // not get smaller. Storing it "compressed" anyway would cost the
+            // game a decompression pass to end up with a bigger file.
+            stored = ov->data();
+            entry.compressedSize = 0;
+            entry.setCompressed(false);
+        }
+
+        reportWrite("overlay", name, int(ovID), stored.size(), existed, &entry);
+
+        m_rom->writeOverlay(arm9, u32(ovID), stored);
 
         if (!ov->backupData().empty())
-            saveOvData(ov->backupData(), backupPath(binName));
+            m_backup->write(BackupStore::overlayKey(arm9, u32(ovID)), ov->backupData());
     }
 }
 
@@ -265,12 +217,12 @@ void FileSystemManager::saveOverlayBins()
 // by a name its own filesystem has never been told about.
 void FileSystemManager::reportWrite(
     const char* kind, const std::string& name, int id,
-    std::size_t size, const OvtEntry* entry) const
+    std::size_t size, bool existed, const OverlayEntry* entry) const
 {
     msg::Artifact artifact;
     artifact.kind = kind;
-    artifact.proc = m_target->getArm9() ? "arm9" : "arm7";
-    artifact.action = fs::exists(m_paths->rom(name)) ? "modified" : "created";
+    artifact.proc = isArm9() ? "arm9" : "arm7";
+    artifact.action = existed ? "modified" : "created";
     artifact.name = name;
     artifact.id = id;
     artifact.size = static_cast<long long>(size);
@@ -279,7 +231,7 @@ void FileSystemManager::reportWrite(
     {
         artifact.ramAddress = entry->ramAddress;
         artifact.hasRamAddress = true;
-        artifact.fileId = int(entry->fileID);
+        artifact.fileId = int(entry->fileId);
     }
 
     msg::artifact(std::move(artifact));

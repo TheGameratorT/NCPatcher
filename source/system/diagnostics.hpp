@@ -40,6 +40,7 @@ enum class Diag : unsigned
 
 	RomHeaderLoad        = 3001,
 	ArmBinLoad           = 3002,
+	RomAccess            = 3003,  // opening, reading or writing the ROM itself
 };
 
 // "NCP1001". Diag::None renders as an empty string.

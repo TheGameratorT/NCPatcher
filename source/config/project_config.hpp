@@ -237,10 +237,28 @@ struct ProjectConfig
 	// Extracted-ROM directory. Mutually exclusive with romFile.
 	Setting<std::filesystem::path> filesystemDir;
 
-	// A .nds read directly. Parsed here so v2 documents that use it round-trip,
-	// but nothing consumes it yet -- the container backend is a later phase, and
-	// the loader rejects it with that as the reason rather than ignoring it.
+	// A .nds read directly, as opposed to an extracted directory.
 	Setting<std::filesystem::path> romFile;
+
+	// Where the patched .nds goes. Empty means patch rom.file in place. Only
+	// meaningful alongside romFile: an extracted directory is patched where it
+	// is, because there is nothing to copy it into.
+	Setting<std::filesystem::path> romOutput;
+
+	// Which extracted layout the ROM directory uses -- see rom/dir_accessor.hpp
+	// for the presets. Ignored when romFile is set, since a .nds has only one
+	// layout.
+	Setting<std::string> romLayoutPreset;
+
+	// Per-file overrides on top of the preset, keyed by the config's own names
+	// ("arm9-ovt", "overlay9-name", ...). Kept as written so that an unknown
+	// key can be reported against the line it came from.
+	std::vector<std::pair<std::string, std::string>> romLayoutOverrides;
+
+	// Spare bytes left after arm9 in a .nds, so that an `append` region growing
+	// it does not force the whole ROM to be laid out again on every build.
+	// Unset means "choose one"; see rom/nds_rom.cpp.
+	Setting<u32> romArm9Slack;
 
 	Setting<std::string> toolchain;
 	Setting<int> threadCount;

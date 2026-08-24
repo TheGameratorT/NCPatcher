@@ -11,27 +11,16 @@ namespace fs = std::filesystem;
 
 OverlayBin::OverlayBin() = default;
 
-void OverlayBin::load(const fs::path& path, u32 ramAddress, bool compressed, int id)
+void OverlayBin::load(std::vector<u8> bytes, u32 ramAddress, bool compressed, int id)
 {
 	m_ramAddress = ramAddress;
 	m_id = id;
 	m_isDirty = false;
 
-	if (!fs::exists(path))
-		throw ncp::file_error(path, ncp::file_error::find);
-
-	uintmax_t fileSize = fs::file_size(path);
-
-	std::ifstream file(path, std::ios::binary);
-	if (!file.is_open())
-		throw ncp::file_error(path, ncp::file_error::read);
-
-	if (fileSize == 0)
+	if (bytes.empty())
 		return;
 
-	m_bytes.resize(fileSize);
-	file.read(reinterpret_cast<char*>(m_bytes.data()), std::streamsize(fileSize));
-	file.close();
+	m_bytes = std::move(bytes);
 
 	if (compressed)
 		BLZ::uncompressInplace(m_bytes);

@@ -64,8 +64,12 @@ void addGlobalOptions(CLI::App& app, CommandLine& out, std::vector<std::string>&
 		"Project directory, or the configuration file itself")
 		->type_name("PATH");
 
-	app.add_option("--rom", out.romDir,
-		"Extracted-ROM directory, overriding the one in the configuration")
+	app.add_option("--rom", out.romPath,
+		"ROM to patch -- a .nds or an extracted directory -- overriding the configuration")
+		->type_name("PATH");
+
+	app.add_option("--out", out.outPath,
+		"Write the patched ROM here instead of patching it in place")
 		->type_name("PATH");
 
 	app.add_option("-D,--define", out.defines,
@@ -169,11 +173,31 @@ std::optional<int> parseCommandLine(int argc, char* argv[], CommandLine& out)
 	migrate->add_flag("--write", out.migrateWrite,
 		"Save the result instead of printing it");
 
+	CLI::App* rom = app.add_subcommand("rom", "Inspect a ROM, or move its code binaries in and out");
+	rom->require_subcommand(1);
+
+	CLI::App* romInfo = rom->add_subcommand("info",
+		"Print what the ROM header says about the ROM");
+
+	// Deliberately the code binaries and nothing else: that is the set the
+	// patcher works on, and the set every project currently extracts with a
+	// script of its own. Extracting the whole filesystem is ndstool's job.
+	CLI::App* romExtract = rom->add_subcommand("extract",
+		"Write the ROM's code binaries into a directory the patcher can use");
+	romExtract->add_option("dir", out.romDirArgument, "Directory to write into")
+		->required()->type_name("DIR");
+
+	CLI::App* romPack = rom->add_subcommand("pack",
+		"Fold a directory of code binaries back into a ROM");
+	romPack->add_option("dir", out.romDirArgument, "Directory to read from")
+		->required()->type_name("DIR");
+
 	CLI::App* version = app.add_subcommand("version", "Show the version and exit");
 
 	// Every subcommand accepts the global options too, so that both
 	// `ncpatcher -v build` and `ncpatcher build -v` work.
-	for (CLI::App* sub : { build, clean, restore, configDump, configValidate, configPath, migrate })
+	for (CLI::App* sub : { build, clean, restore, configDump, configValidate, configPath, migrate,
+	                       romInfo, romExtract, romPack })
 		sub->fallthrough();
 
 	try {
@@ -206,6 +230,9 @@ std::optional<int> parseCommandLine(int argc, char* argv[], CommandLine& out)
 	else if (*configValidate) out.command = Command::ConfigValidate;
 	else if (*configPath)    out.command = Command::ConfigPath;
 	else if (*migrate)       out.command = Command::Migrate;
+	else if (*romInfo)       out.command = Command::RomInfo;
+	else if (*romExtract)    out.command = Command::RomExtract;
+	else if (*romPack)       out.command = Command::RomPack;
 	else if (*version)       out.command = Command::Version;
 	else                     out.command = Command::Build;
 

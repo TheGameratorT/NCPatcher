@@ -15,10 +15,10 @@ _ncpatcher()
 		cword=$COMP_CWORD
 	fi
 
-	local globals='-C --project --rom -D --define --var --toolchain -j --jobs
+	local globals='-C --project --rom --out -D --define --var --toolchain -j --jobs
 		-v --verbose --verbose-tag --color --message-format --result
 		--log --no-log -h --help --version'
-	local commands='build clean restore config migrate version'
+	local commands='build clean restore config migrate rom version'
 
 	# Options taking a value are completed from the value, not the option list.
 	case "$prev" in
@@ -27,7 +27,12 @@ _ncpatcher()
 			return
 			;;
 		--rom)
-			_filedir -d
+			# Either a .nds or an extracted directory, so both are offered.
+			_filedir
+			return
+			;;
+		--out)
+			_filedir
 			return
 			;;
 		--result|--log)
@@ -55,11 +60,14 @@ _ncpatcher()
 	local command='' sub='' i
 	for ((i = 1; i < cword; i++)); do
 		case "${words[i]}" in
-			build|clean|restore|config|migrate|version)
+			build|clean|restore|config|migrate|rom|version)
 				command="${words[i]}"
 				;;
 			dump|validate|path)
 				[[ $command == config ]] && sub="${words[i]}"
+				;;
+			info|extract|pack)
+				[[ $command == rom ]] && sub="${words[i]}"
 				;;
 		esac
 		[[ -n $command && -n $sub ]] && break
@@ -75,6 +83,17 @@ _ncpatcher()
 				return
 			fi
 			[[ $sub == dump ]] && extra='--explain --json'
+			;;
+		rom)
+			if [[ -z $sub ]]; then
+				COMPREPLY=($(compgen -W 'info extract pack' -- "$cur"))
+				return
+			fi
+			# extract and pack each take a directory.
+			if [[ $sub == extract || $sub == pack ]] && [[ $cur != -* ]]; then
+				_filedir -d
+				return
+			fi
 			;;
 	esac
 

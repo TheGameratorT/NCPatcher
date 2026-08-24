@@ -113,6 +113,7 @@ set(SOURCES
 	source/app/application.cpp
 	source/app/cli.cpp
 	source/app/config_dump.cpp
+	source/app/rom_command.cpp
 	source/app/context.cpp
 	source/build/buildlogger.cpp
 	source/build/objmaker.cpp
@@ -132,7 +133,6 @@ set(SOURCES
 	source/formats/blz.cpp
 	source/formats/elf.cpp
 	source/ndsbin/armbin.cpp
-	source/ndsbin/headerbin.cpp
 	source/ndsbin/overlaybin.cpp
 	source/patch/arenalo_finder.cpp
 	source/patch/asm_generator.cpp
@@ -144,6 +144,15 @@ set(SOURCES
 	source/patch/patch_maker.cpp
 	source/patch/patch_tracker.cpp
 	source/patch/types.cpp
+	source/rom/backup_store.cpp
+	source/rom/dir_accessor.cpp
+	source/rom/endian.cpp
+	source/rom/fat.cpp
+	source/rom/header.cpp
+	source/rom/nds_accessor.cpp
+	source/rom/nds_rom.cpp
+	source/rom/nitro_fs.cpp
+	source/rom/overlay_table.cpp
 	source/system/ansi.cpp
 	source/system/cache.cpp
 	source/system/diagnostics.cpp
@@ -256,6 +265,24 @@ if (NCP_BUILD_TESTS)
 		source/system/diagnostics.cpp source/system/exit_code.cpp)
 	ncp_add_test(json_test tests/json_test.cpp source/utils/json.cpp)
 	ncp_add_test(ansi_test tests/ansi_test.cpp source/system/ansi.cpp)
+
+	# The ROM tests reach into the container, which reports failures the same
+	# way the rest of the program does, so they need the diagnostics and log
+	# machinery along with source/rom itself.
+	ncp_add_test(rom_test
+		tests/rom_test.cpp
+		source/formats/blz.cpp
+		source/rom/endian.cpp
+		source/rom/fat.cpp
+		source/rom/header.cpp
+		source/rom/nds_rom.cpp
+		source/rom/nitro_fs.cpp
+		source/rom/overlay_table.cpp
+		source/system/ansi.cpp
+		source/system/diagnostics.cpp
+		source/system/except.cpp
+		source/system/log.cpp
+		source/system/log_sink.cpp)
 
 	# The config test exercises the whole reader stack -- both schemas, the
 	# expander, inheritance and migration -- so it needs the same sources the

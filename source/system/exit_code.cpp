@@ -43,6 +43,7 @@ ExitCode exitCodeFor(Diag code)
 	// is a broken input, not a broken patch.
 	case Diag::PatchFileSystemSetup:
 	case Diag::RomHeaderLoad:
+	case Diag::RomAccess:
 	case Diag::ArmBinLoad:
 	case Diag::CleanFailed:
 	case Diag::RestoreFailed:

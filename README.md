@@ -77,11 +77,66 @@ Configure the project as described below, then run `ncpatcher` in the directory
 holding its configuration file — or from anywhere with `ncpatcher -C <that
 directory>`.
 
-NCPatcher does not build the ROM. It works on an extracted one, which is a
-deliberate choice: it leaves you free to pack the result however you like.
-`nds-build` and `nds-extract`, included with
-[Fireflower](https://github.com/MammaMiaTeam/Fireflower/releases/latest), are
-one way to do it.
+NCPatcher patches a `.nds` directly:
+
+```yaml
+rom:
+  file: roms/nsmb.nds     # patched in place
+  output: build/out.nds   # ...unless you say where to put the result
+  backup: backup
+```
+
+It only ever touches the header, the two ARM binaries, the two overlay tables
+and the overlay files, and it edits the ROM rather than rebuilding it — so
+levels, textures, sounds, the banner, the secure area and anything else in
+there come out exactly as they went in.
+
+An extracted directory works too, and is what a level editor hands it:
+
+```yaml
+rom:
+  dir: __tmp
+  backup: backup
+```
+
+`ncpatcher rom extract <dir>` writes that directory out of a `.nds`, and
+`ncpatcher rom pack <dir>` folds it back in — which is the job most projects
+currently do with a script of their own. Neither one takes the NitroFS apart;
+`ndstool`, or `nds-extract` from
+[Fireflower](https://github.com/MammaMiaTeam/Fireflower/releases/latest), is
+the tool for that.
+
+Patching a directory does not rewrite its `header.bin`: the header is an input
+the patcher has never owned, and every tool that repacks one of these
+directories works the sizes out for itself. `ncpatcher rom pack` does too — it
+takes the header from the ROM it is packing into and updates it there.
+
+If your extraction names the files differently, say so rather than renaming
+them:
+
+```yaml
+rom:
+  dir: dump
+  layout: ndstool            # or a mapping of names
+  # layout: { preset: ndstool, arm7-ovt: y7.bin }
+```
+
+The presets are `ncpatcher` (the default, and what a level editor writes) and
+`ndstool`. The names a mapping may set are `header`, `arm9`, `arm7`,
+`arm9-ovt`, `arm7-ovt`, `overlay9-dir`, `overlay7-dir`, `overlay9-name`,
+`overlay7-name`, `fnt`, `fat`, `banner` and `data-dir`; the two `*-name` keys
+take `{id}` for the overlay number, or `{id:4}` to zero-pad it.
+
+### Growing ARM9
+
+An `append` region adds code to the end of ARM9, and ARM9 cannot be moved: the
+secure area is encrypted against its being at the offset the header names. So
+the first build that outgrows the gap before the overlay table lays the ROM out
+again, leaving `rom.arm9-slack` bytes (64 KiB by default) of room behind it.
+Because every build re-applies its patches to the *pristine* ARM9 rather than
+to the last build's output, the patched size is a function of the code and not
+of how many times you have built — so that happens once, and later builds write
+in place and produce a byte-identical ROM.
 
 ## Command line
 
@@ -96,6 +151,9 @@ ncpatcher [build]                    compile and patch
           config validate
           config path
           migrate [--write]          convert ncpatcher.json to ncpatcher.yaml
+          rom info                   print what the ROM header says
+          rom extract DIR            write the ROM's code binaries into DIR
+          rom pack DIR               fold a directory of code binaries into the ROM
           version
 ```
 
@@ -104,7 +162,8 @@ Options, which may be written before or after the subcommand:
 | Option | Meaning |
 |---|---|
 | `-C, --project PATH` | Project directory, or the configuration file itself |
-| `--rom PATH` | Extracted-ROM directory, overriding the configured one |
+| `--rom PATH` | ROM to patch: a `.nds` or an extracted directory |
+| `--out PATH` | Write the patched ROM here instead of patching in place |
 | `-D, --define NAME[=VAL]` | Define a preprocessor macro |
 | `--var NAME=VAL` | Override a `vars:` entry |
 | `--toolchain PREFIX` | Cross-compiler prefix |
@@ -262,7 +321,7 @@ Structure:
      - "create" creates a new overlay with your code.
    - address - The address in memory for this overlay. (Optional, except for "create" mode. In "replace" mode it can be used to set a new address for the overlay)
    - length - The max length that this overlay can have. (Optional)
-   - compress - If the binary should be Backwards LZ compressed.
+   - compress - If the overlay should be Backwards LZ compressed. Overlays only; a main region asking for it is warned about and written uncompressed. An overlay whose data does not get smaller is stored as it is, rather than "compressed" into something bigger.
    - sources - Array of paths or glob patterns that resolve to source files.
    - c_flags, cpp_flags, asm_flags - Region overwriteable flags. (Optional)
  - arenaLo - The address of the value holding the address end of the main binary code in memory. (Usually the value being loaded in the first LDR of OS_GetInitArenaLo)

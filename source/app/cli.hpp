@@ -31,6 +31,9 @@ enum class Command
 	ConfigValidate,
 	ConfigPath,
 	Migrate,
+	RomInfo,
+	RomExtract,
+	RomPack,
 	Version
 };
 
@@ -43,10 +46,20 @@ struct CommandLine
 	// `-C mymod` and `-C mymod/ncpatcher.yaml` do what they look like.
 	std::filesystem::path projectPath;
 
-	// --rom, overriding the configured extracted-ROM directory. This is what
-	// removes the "launch it from the right working directory" constraint that
-	// the level editor and CTGPNitro's build script both work around.
-	std::filesystem::path romDir;
+	// --rom, overriding the configured ROM location. Either a .nds or an
+	// extracted directory; which one is decided by looking at the path, the
+	// same way -C decides between a project directory and a project file. This
+	// is what removes the "launch it from the right working directory"
+	// constraint that the level editor and CTGPNitro's build script both work
+	// around.
+	std::filesystem::path romPath;
+
+	// --out, where the patched .nds goes. Meaningless for an extracted
+	// directory, which is patched where it is.
+	std::filesystem::path outPath;
+
+	// The directory `rom extract` writes into or `rom pack` reads from.
+	std::filesystem::path romDirArgument;
 
 	std::vector<std::string> defines;   // -D/--define
 	std::vector<std::string> vars;      // --var NAME=VALUE
