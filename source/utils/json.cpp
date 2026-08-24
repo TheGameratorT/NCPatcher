@@ -140,13 +140,6 @@ Writer& Writer::value(bool flag)
 	return *this;
 }
 
-Writer& Writer::value(int number)
-{
-	prepareValue();
-	m_out << number;
-	return *this;
-}
-
 Writer& Writer::value(long long number)
 {
 	prepareValue();

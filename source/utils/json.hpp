@@ -11,9 +11,11 @@
 // There is no reader here on purpose: everything this program *reads* is YAML,
 // and JSON is a subset of YAML 1.2, so cfg::Document already covers it.
 
+#include <concepts>
 #include <ostream>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 #include "types.hpp"
@@ -46,11 +48,24 @@ public:
 	Writer& value(const char* text) { return value(std::string_view(text)); }
 	Writer& value(const std::string& text) { return value(std::string_view(text)); }
 	Writer& value(bool flag);
-	Writer& value(int number);
 	Writer& value(long long number);
 	Writer& value(unsigned long long number);
-	Writer& value(u32 number) { return value(static_cast<unsigned long long>(number)); }
-	Writer& value(std::size_t number) { return value(static_cast<unsigned long long>(number)); }
+
+	// Every other integer widens into one of the two above. This is a template
+	// rather than a list of overloads because that list is not portable: size_t
+	// is a distinct type from both u32 and unsigned long long only on LP64, and
+	// spelling all three out stops compiling the moment the target is Windows,
+	// where size_t *is* one of them.
+	template <typename T>
+		requires std::integral<T> && (!std::same_as<T, bool>)
+	Writer& value(T number)
+	{
+		if constexpr (std::is_signed_v<T>)
+			return value(static_cast<long long>(number));
+		else
+			return value(static_cast<unsigned long long>(number));
+	}
+
 	Writer& null();
 
 	// "0x02065F10" -- an address is far more legible as one, and JSON has no
