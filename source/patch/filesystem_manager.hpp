@@ -25,52 +25,52 @@ namespace ncp::patch {
 class FileSystemManager
 {
 public:
-    FileSystemManager();
-    ~FileSystemManager();
+	FileSystemManager();
+	~FileSystemManager();
 
-    void initialize(
-        const BuildTarget& target,
-        const ncp::Context& ctx,
-        ncp::rom::RomAccessor& rom
-    );
+	void initialize(
+		const BuildTarget& target,
+		const ncp::Context& ctx,
+		ncp::rom::RomAccessor& rom
+	);
 
-    void createBuildDirectory();
-    void createBackupDirectory();
+	void createBuildDirectory();
+	void createBackupDirectory();
 
-    void loadArmBin();
-    void saveArmBin();
+	void loadArmBin();
+	void saveArmBin();
     
-    void loadOverlayTableBin();
-    void saveOverlayTableBin();
+	void loadOverlayTableBin();
+	void saveOverlayTableBin();
     
-    OverlayBin* loadOverlayBin(std::size_t ovID);
-    OverlayBin* getOverlay(std::size_t ovID);
-    void saveOverlayBins();
+	OverlayBin* loadOverlayBin(std::size_t ovID);
+	OverlayBin* getOverlay(std::size_t ovID);
+	void saveOverlayBins();
 
-    [[nodiscard]] inline ArmBin* getArm() const { return m_arm.get(); }
-    std::vector<ncp::rom::OverlayEntry>& getOvtEntries() { return m_ovt.entries(); }
-    const std::vector<ncp::rom::OverlayEntry>& getOvtEntries() const { return m_ovt.entries(); }
-    const std::unordered_map<std::size_t, std::unique_ptr<OverlayBin>>& getLoadedOverlays() const { return m_loadedOverlays; }
+	[[nodiscard]] inline ArmBin* getArm() const { return m_arm.get(); }
+	std::vector<ncp::rom::OverlayEntry>& getOvtEntries() { return m_ovt.entries(); }
+	const std::vector<ncp::rom::OverlayEntry>& getOvtEntries() const { return m_ovt.entries(); }
+	const std::unordered_map<std::size_t, std::unique_ptr<OverlayBin>>& getLoadedOverlays() const { return m_loadedOverlays; }
 
 private:
-    const BuildTarget* m_target = nullptr;
-    const ncp::Context* m_ctx = nullptr;
-    const PathContext* m_paths = nullptr;
-    ncp::rom::RomAccessor* m_rom = nullptr;
-    std::unique_ptr<ncp::rom::BackupStore> m_backup;
+	const BuildTarget* m_target = nullptr;
+	const ncp::Context* m_ctx = nullptr;
+	const PathContext* m_paths = nullptr;
+	ncp::rom::RomAccessor* m_rom = nullptr;
+	std::unique_ptr<ncp::rom::BackupStore> m_backup;
 
-    [[nodiscard]] bool isArm9() const;
+	[[nodiscard]] bool isArm9() const;
 
-    // Emits the machine-readable record of a ROM file about to be written.
-    // `entry` is the overlay table row, where there is one.
-    void reportWrite(const char* kind, const std::string& name, int id,
-                     std::size_t size, bool existed, const ncp::rom::OverlayEntry* entry) const;
+	// Emits the machine-readable record of a ROM file about to be written.
+	// `entry` is the overlay table row, where there is one.
+	void reportWrite(const char* kind, const std::string& name, int id,
+					 std::size_t size, bool existed, const ncp::rom::OverlayEntry* entry) const;
     
-    std::unique_ptr<ArmBin> m_arm;
-    std::unordered_map<std::size_t, std::unique_ptr<OverlayBin>> m_loadedOverlays;
-    ncp::rom::OverlayTable m_ovt;
-    ncp::rom::OverlayTable m_bakOvt;
-    bool m_bakOvtChanged = false;
+	std::unique_ptr<ArmBin> m_arm;
+	std::unordered_map<std::size_t, std::unique_ptr<OverlayBin>> m_loadedOverlays;
+	ncp::rom::OverlayTable m_ovt;
+	ncp::rom::OverlayTable m_bakOvt;
+	bool m_bakOvtChanged = false;
 };
 
 } // namespace ncp::patch

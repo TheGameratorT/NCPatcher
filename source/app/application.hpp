@@ -21,87 +21,87 @@ namespace ncp {
 class Application
 {
 public:
-    Application();
-    ~Application();
+	Application();
+	~Application();
 
-    // Sets up logging, parses the command line and works out where the project
-    // is. Returns an exit code when the process should stop here -- because
-    // --help was asked for, or because the command line did not parse -- and
-    // nothing when run() should be called.
-    [[nodiscard]] std::optional<int> initialize(int argc, char* argv[]);
+	// Sets up logging, parses the command line and works out where the project
+	// is. Returns an exit code when the process should stop here -- because
+	// --help was asked for, or because the command line did not parse -- and
+	// nothing when run() should be called.
+	[[nodiscard]] std::optional<int> initialize(int argc, char* argv[]);
 
-    // Runs the requested subcommand and returns the process exit code.
-    [[nodiscard]] int run();
+	// Runs the requested subcommand and returns the process exit code.
+	[[nodiscard]] int run();
 
 private:
-    // Everything the build reads, owned here and handed down by reference.
-    // These used to be file-scope statics in BuildConfig and Application; see
-    // context.hpp for why they are not any more.
-    CommandLine m_cli;
-    Options m_options;
-    config::ProjectConfig m_config;
-    config::RebuildStore m_rebuild;
-    Context m_ctx;
+	// Everything the build reads, owned here and handed down by reference.
+	// These used to be file-scope statics in BuildConfig and Application; see
+	// context.hpp for why they are not any more.
+	CommandLine m_cli;
+	Options m_options;
+	config::ProjectConfig m_config;
+	config::RebuildStore m_rebuild;
+	Context m_ctx;
 
-    // Subcommands
-    void runBuild();
-    int runClean();
-    int runRestore();
-    int runConfigDump();
-    int runConfigValidate();
-    int runConfigPath();
-    int runMigrate();
-    int runRomCommand();
+	// Subcommands
+	void runBuild();
+	int runClean();
+	int runRestore();
+	int runConfigDump();
+	int runConfigValidate();
+	int runConfigPath();
+	int runMigrate();
+	int runRomCommand();
 
-    static int reportFailure(const std::exception& e);
-    void processTarget(ncp::rom::RomAccessor& rom, bool isArm9);
+	static int reportFailure(const std::exception& e);
+	void processTarget(ncp::rom::RomAccessor& rom, bool isArm9);
 
-    // Applies inheritance and expands globs for one target, and fills in the
-    // per-target path anchors. Shared by the build and by `config dump`, so
-    // that what the dump prints is what the build would use rather than a
-    // second implementation of the same rules.
-    [[nodiscard]] ResolvedTarget resolveTarget(bool isArm9, Context& targetCtx) const;
+	// Applies inheritance and expands globs for one target, and fills in the
+	// per-target path anchors. Shared by the build and by `config dump`, so
+	// that what the dump prints is what the build would use rather than a
+	// second implementation of the same rules.
+	[[nodiscard]] ResolvedTarget resolveTarget(bool isArm9, Context& targetCtx) const;
 
-    void runCommandList(const std::vector<std::string>& commands,
-                       const char* message,
-                       Diag code,
-                       const char* errorContext);
+	void runCommandList(const std::vector<std::string>& commands,
+					   const char* message,
+					   Diag code,
+					   const char* errorContext);
 
-    // Initialization helpers
-    void initializePaths();
-    void initializeLogging();
-    [[nodiscard]] std::filesystem::path logDirectory() const;
-    void openDefaultLogFile();
-    void validateToolchain();
+	// Initialization helpers
+	void initializePaths();
+	void initializeLogging();
+	[[nodiscard]] std::filesystem::path logDirectory() const;
+	void openDefaultLogFile();
+	void validateToolchain();
 
-    // Configuration management
-    [[nodiscard]] std::filesystem::path projectFile() const;
-    void loadConfigurations();
-    void applyCommandLineOverrides();
-    void resolveRomDir();
+	// Configuration management
+	[[nodiscard]] std::filesystem::path projectFile() const;
+	void loadConfigurations();
+	void applyCommandLineOverrides();
+	void resolveRomDir();
 
-    // How much room to leave after the ARM9 binary when a .nds has to be laid
-    // out again. 64 KiB is comfortably more than any project has ever added to
-    // ARM9, and costs that much dead space once rather than a full relayout on
-    // every build.
-    static constexpr u32 DEFAULT_ARM9_SLACK = 0x10000;
+	// How much room to leave after the ARM9 binary when a .nds has to be laid
+	// out again. 64 KiB is comfortably more than any project has ever added to
+	// ARM9, and costs that much dead space once rather than a full relayout on
+	// every build.
+	static constexpr u32 DEFAULT_ARM9_SLACK = 0x10000;
 
-    [[nodiscard]] static bool looksLikeRomFile(const std::filesystem::path& path);
+	[[nodiscard]] static bool looksLikeRomFile(const std::filesystem::path& path);
 
-    // The ROM the `rom` subcommands act on, and the layout they read it with.
-    // --rom on its own is enough: those commands are useful outside a project,
-    // and requiring a configuration file to look at a ROM would be silly.
-    [[nodiscard]] std::filesystem::path romTarget();
-    [[nodiscard]] ncp::rom::DirLayout romLayout() const;
+	// The ROM the `rom` subcommands act on, and the layout they read it with.
+	// --rom on its own is enough: those commands are useful outside a project,
+	// and requiring a configuration file to look at a ROM would be silly.
+	[[nodiscard]] std::filesystem::path romTarget();
+	[[nodiscard]] ncp::rom::DirLayout romLayout() const;
 
-    // Builds the accessor the whole build patches through: the extracted
-    // directory or, once rom.file names one, the .nds itself.
-    [[nodiscard]] std::unique_ptr<ncp::rom::RomAccessor> openRom();
+	// Builds the accessor the whole build patches through: the extracted
+	// directory or, once rom.file names one, the .nds itself.
+	[[nodiscard]] std::unique_ptr<ncp::rom::RomAccessor> openRom();
 
-    // The .nds this build patches, absolute. Empty when the project patches an
-    // extracted directory instead.
-    std::filesystem::path m_romFile;
-    void saveRebuildConfig();
+	// The .nds this build patches, absolute. Empty when the project patches an
+	// extracted directory instead.
+	std::filesystem::path m_romFile;
+	void saveRebuildConfig();
 };
 
 } // namespace ncp
