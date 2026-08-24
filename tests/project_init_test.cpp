@@ -63,8 +63,11 @@ int main()
 	ncp::project::initialize(nsmb, "nsmb");
 	const std::string nsmbConfig = read(nsmb / "ncpatcher.yaml");
 	check(nsmbConfig.find("file: NSMB.nds") != std::string::npos, "nsmb names the conventional ROM");
-	check(nsmbConfig.find("symbols: symbols9.x") != std::string::npos, "nsmb includes game symbols");
+	check(nsmbConfig.find("${env.NSMBREF_ROOT}/symbols9.c") != std::string::npos, "nsmb includes game symbols");
+	check(nsmbConfig.find("${env.NSMB_NITRO_ROOT}/include") != std::string::npos, "nsmb includes the SDK headers");
 	check(nsmbConfig.find("-std=c++23") != std::string::npos, "nsmb keeps the template language level");
+	check(fs::is_directory(nsmb / "source"), "nsmb creates source/");
+	check(!fs::exists(nsmb / "include"), "nsmb leaves out the unused include/");
 
 	check(rejects(root / "unknown", "other"), "an unknown template is refused");
 	check(!fs::exists(root / "unknown" / "ncpatcher.yaml"), "an unknown template writes nothing");

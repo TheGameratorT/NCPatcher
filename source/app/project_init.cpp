@@ -59,22 +59,30 @@ flags:
 targets:
   arm9:
     build: build/arm9
-    symbols: symbols9.x
-    includes: [include, source]
+    includes: ["${env.NSMB_NITRO_ROOT}/include", "${env.NSMBREF_ROOT}/include", source]
     defines: [SDK_ARM9, arm9_start=0x021901E0]
     flags:
       common: [-mcpu=arm946e-s, -marm]
     regions:
       - dest: main
-        sources: source/**
+        sources: [source/**, "${env.NSMBREF_ROOT}/symbols9.c"]
 )YAML";
 
-std::string_view projectDocument(std::string_view name)
+struct ProjectTemplate
+{
+	std::string_view document;
+	// Whether the project keeps its own headers. The nsmb template takes them
+	// from the SDK and the code reference instead, so an include directory
+	// there would sit outside the include path and never be searched.
+	bool hasIncludeDirectory;
+};
+
+ProjectTemplate projectTemplate(std::string_view name)
 {
 	if (name == "default")
-		return DEFAULT_PROJECT;
+		return { DEFAULT_PROJECT, true };
 	if (name == "nsmb")
-		return NSMB_PROJECT;
+		return { NSMB_PROJECT, false };
 	throw std::runtime_error("Unknown project template \"" + std::string(name) + "\".");
 }
 
@@ -99,7 +107,7 @@ void makeDirectory(const fs::path& path)
 
 void initialize(const fs::path& root, std::string_view templateName)
 {
-	const std::string_view document = projectDocument(templateName);
+	const ProjectTemplate project = projectTemplate(templateName);
 	requireDirectoryOrMissing(root);
 
 	for (const char* name : { "ncpatcher.yaml", "ncpatcher.yml", "ncpatcher.json" })
@@ -112,18 +120,20 @@ void initialize(const fs::path& root, std::string_view templateName)
 			throw std::runtime_error("Could not inspect " + existing.string() + ": " + error.message() + '.');
 	}
 
-	for (const char* name : { "source", "include" })
-		requireDirectoryOrMissing(root / name);
+	requireDirectoryOrMissing(root / "source");
+	if (project.hasIncludeDirectory)
+		requireDirectoryOrMissing(root / "include");
 
 	makeDirectory(root);
 	makeDirectory(root / "source");
-	makeDirectory(root / "include");
+	if (project.hasIncludeDirectory)
+		makeDirectory(root / "include");
 
 	const fs::path config = root / "ncpatcher.yaml";
 	std::ofstream file(config, std::ios::binary);
 	if (!file.is_open())
 		throw std::runtime_error("Could not create " + config.string() + '.');
-	file << document;
+	file << project.document;
 	if (!file)
 		throw std::runtime_error("Could not write " + config.string() + '.');
 }

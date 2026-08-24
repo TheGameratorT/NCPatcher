@@ -249,11 +249,13 @@ ncpatcher -C my-project init
 ncpatcher -C my-nsmb-mod init --template nsmb
 ```
 
-Both create `ncpatcher.yaml`, `source/`, and `include/`. The generated config
-uses direct ROM input and carries the published schema URL for editor
-completion. The default expects `game.nds`; `nsmb` expects `NSMB.nds` and the
-usual converted SDK/reference headers plus `symbols9.x`. Existing project
-configuration files are never overwritten; use `migrate` for a v1 project.
+Both create `ncpatcher.yaml` and `source/`, and the default also creates
+`include/`. The generated config uses direct ROM input and carries the published
+schema URL for editor completion. The default expects `game.nds`; `nsmb` expects
+`NSMB.nds` and reads the converted SDK headers, the NSMB-Code-Reference headers
+and its `symbols9.c` through the `NSMB_NITRO_ROOT` and `NSMBREF_ROOT`
+environment variables. Existing project configuration files are never
+overwritten; use `migrate` for a v1 project.
 
 This project builds ARM9 code from `code/`, patches a direct ROM, and appends
 code to both the main binary and overlay 9:
