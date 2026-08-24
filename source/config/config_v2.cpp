@@ -14,6 +14,8 @@
 
 #include "config_loader.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <initializer_list>
 #include <sstream>
 
@@ -26,21 +28,6 @@ namespace fs = std::filesystem;
 namespace ncp::config {
 
 namespace {
-
-// Sections that belong to phases this build does not have yet. Naming them
-// explicitly means a config written for a later version fails with what is
-// missing rather than with "unknown key".
-constexpr std::string_view RESERVED_KEYS[] = { "files", "hooks", "variants" };
-
-bool isReserved(std::string_view key)
-{
-	for (std::string_view reserved : RESERVED_KEYS)
-	{
-		if (key == reserved)
-			return true;
-	}
-	return false;
-}
 
 void checkKeys(const cfg::Node& node, std::string_view what,
                std::initializer_list<std::string_view> known)
@@ -60,19 +47,12 @@ void checkKeys(const cfg::Node& node, std::string_view what,
 			continue;
 
 		std::ostringstream oss;
-		if (isReserved(key))
+		oss << "Unknown key " << OSTR(key) << " in " << what << "." OREASONNL "Expected one of: ";
+		bool first = true;
+		for (std::string_view candidate : known)
 		{
-			oss << OSTR(key) << " is not supported by this version of NCPatcher.";
-		}
-		else
-		{
-			oss << "Unknown key " << OSTR(key) << " in " << what << "." OREASONNL "Expected one of: ";
-			bool first = true;
-			for (std::string_view candidate : known)
-			{
-				oss << (first ? "" : ", ") << candidate;
-				first = false;
-			}
+			oss << (first ? "" : ", ") << candidate;
+			first = false;
 		}
 		value.fail(oss.str());
 	}
@@ -92,6 +72,170 @@ std::vector<std::string> readStrings(const cfg::Node& node, const Expander& expa
 
 	for (const cfg::Node& item : node.items())
 		out.push_back(expander.expand(item.asString(), item));
+
+	return out;
+}
+
+HookWhen readHookWhen(const cfg::Node& node, const Expander& expander)
+{
+	const std::string value = expander.expand(node.asString(), node);
+	if (value == "pre-build")
+		return HookWhen::PreBuild;
+	if (value == "post-build")
+		return HookWhen::PostBuild;
+	node.fail("Invalid hook phase; expected " ANSI_bCYAN "pre-build" ANSI_RESET
+		" or " ANSI_bCYAN "post-build" ANSI_RESET ".");
+}
+
+std::vector<HookConfig> readHooks(const cfg::Node& node, const Expander& expander)
+{
+	std::vector<HookConfig> out;
+	if (!node.defined() || node.isNull())
+		return out;
+	if (!node.isSequence())
+		node.failType("a list of hooks");
+
+	for (const cfg::Node& item : node.items())
+	{
+		if (!item.isMap())
+			item.failType("a hook mapping");
+		checkKeys(item, "a hook", { "name", "run", "cwd", "env", "when" });
+
+		HookConfig hook;
+		hook.name = expander.expand(item.require("name").asString(), item["name"]);
+		hook.run = expander.expand(item.require("run").asString(), item["run"]);
+		hook.when = readHookWhen(item.require("when"), expander);
+		if (hook.name.empty())
+			item["name"].fail("A hook name cannot be empty.");
+		if (hook.run.empty())
+			item["run"].fail("A hook command cannot be empty.");
+
+		if (item.has("cwd"))
+			hook.cwd = expander.expand(item["cwd"].asString(), item["cwd"]);
+
+		const cfg::Node env = item["env"];
+		if (env.defined() && !env.isNull())
+		{
+			if (!env.isMap())
+				env.failType("a mapping of environment variables");
+			for (const auto& [name, value] : env.fields())
+			{
+				if (name.empty() || (!std::isalpha(static_cast<unsigned char>(name[0])) && name[0] != '_')
+					|| name.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_", 1)
+						!= std::string::npos)
+					value.fail("Invalid environment variable name \"" + name + "\".");
+				hook.env.emplace_back(name, expander.expand(value.asString(), value));
+			}
+		}
+
+		out.push_back(std::move(hook));
+	}
+
+	return out;
+}
+
+void appendLegacyHooks(std::vector<HookConfig>& out, const cfg::Node& node,
+	                   HookWhen when, const Expander& expander)
+{
+	const std::vector<std::string> commands = readStrings(node, expander);
+	for (std::size_t i = 0; i < commands.size(); i++)
+	{
+		HookConfig hook;
+		hook.name = std::string(hookWhenName(when)) + " #" + std::to_string(i + 1);
+		hook.run = commands[i];
+		hook.when = when;
+		out.push_back(std::move(hook));
+	}
+}
+
+void validateNitroPath(const std::string& path, const cfg::Node& node)
+{
+	if (path.empty() || path.front() == '/' || path.back() == '/' || path.find('\\') != std::string::npos)
+		node.fail("A NitroFS path must be a non-empty relative path using '/' separators.");
+	if (path == "z_new/reserved")
+		node.fail(ANSI_bCYAN "z_new/reserved" ANSI_RESET " is managed by NCPatcher.");
+
+	std::size_t start = 0;
+	while (start < path.size())
+	{
+		const std::size_t slash = path.find('/', start);
+		const std::size_t end = slash == std::string::npos ? path.size() : slash;
+		const std::string_view part(path.data() + start, end - start);
+		if (part.empty() || part == "." || part == "..")
+			node.fail("A NitroFS path cannot contain empty, '.' or '..' segments.");
+		if (part.size() > 0x7F)
+			node.fail("A NitroFS path segment cannot exceed 127 bytes.");
+		if (slash == std::string::npos)
+			break;
+		start = slash + 1;
+	}
+}
+
+std::vector<FileConfig> readFiles(const cfg::Node& node, const Expander& expander)
+{
+	std::vector<FileConfig> out;
+	if (!node.defined() || node.isNull())
+		return out;
+	if (!node.isMap())
+		node.failType("a mapping of NitroFS paths to source files");
+
+	for (const auto& [rawPath, source] : node.fields())
+	{
+		FileConfig file;
+		file.path = expander.expand(rawPath, source);
+		validateNitroPath(file.path, source);
+		file.source = expander.expand(source.asString(), source);
+		if (file.source.empty())
+			source.fail("A NitroFS source path cannot be empty.");
+
+		const auto duplicate = std::find_if(out.begin(), out.end(),
+			[&](const FileConfig& previous) { return previous.path == file.path; });
+		if (duplicate != out.end())
+			source.fail("NitroFS path \"" + file.path + "\" is configured more than once.");
+
+		out.push_back(std::move(file));
+	}
+	return out;
+}
+
+std::vector<VariantConfig> readVariants(const cfg::Node& node, const Expander& expander)
+{
+	std::vector<VariantConfig> out;
+	if (!node.defined() || node.isNull())
+		return out;
+	if (!node.isMap())
+		node.failType("a mapping of named variants");
+
+	for (const auto& [rawName, body] : node.fields())
+	{
+		if (!body.isMap())
+			body.failType("a variant mapping");
+		checkKeys(body, "a variant", { "defines", "files" });
+
+		VariantConfig variant;
+		variant.name = expander.expand(rawName, body);
+		if (variant.name.empty()
+			|| !std::isalnum(static_cast<unsigned char>(variant.name.front()))
+			|| variant.name.find_first_not_of(
+				"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-") != std::string::npos)
+			body.fail("A variant name must start with a letter or digit and contain only letters, digits, '_', '-' or '.'.");
+
+		std::string folded = variant.name;
+		std::transform(folded.begin(), folded.end(), folded.begin(),
+			[](unsigned char c) { return char(std::tolower(c)); });
+		const auto duplicate = std::find_if(out.begin(), out.end(), [&](const VariantConfig& previous) {
+			std::string previousFolded = previous.name;
+			std::transform(previousFolded.begin(), previousFolded.end(), previousFolded.begin(),
+				[](unsigned char c) { return char(std::tolower(c)); });
+			return previousFolded == folded;
+		});
+		if (duplicate != out.end())
+			body.fail("Variant name \"" + variant.name + "\" is configured more than once.");
+
+		variant.defines = readStrings(body["defines"], expander);
+		variant.files = readFiles(body["files"], expander);
+		out.push_back(std::move(variant));
+	}
 
 	return out;
 }
@@ -478,7 +622,8 @@ ProjectConfig loadV2(const fs::path& projectFile, const fs::path& projectRoot,
 
 	checkKeys(root, "the project", {
 		"version", "vars", "rom", "toolchain", "build", "modules",
-		"includes", "defines", "flags", "pre-build", "post-build", "targets" });
+		"includes", "defines", "flags", "hooks", "files", "variants",
+		"pre-build", "post-build", "targets" });
 
 	const cfg::Node version = root.require("version");
 	if (version.asInt() != 2)
@@ -610,8 +755,29 @@ ProjectConfig loadV2(const fs::path& projectFile, const fs::path& projectRoot,
 	if (modules.defined() && !modules.isNull())
 		readModules(config.modules, modules, expander);
 
-	config.preBuild = readStrings(root["pre-build"], expander);
-	config.postBuild = readStrings(root["post-build"], expander);
+	if (config.modules.dump.configured())
+	{
+		const fs::path dump = config.modules.dump.value.is_absolute()
+			? config.modules.dump.value
+			: projectRoot / config.modules.dump.value;
+		expander.setConstant("ncp.moduleDump", dump.lexically_normal().string());
+	}
+	config.files = readFiles(root["files"], expander);
+	config.variants = readVariants(root["variants"], expander);
+
+	if (root.has("hooks") && (root.has("pre-build") || root.has("post-build")))
+		root["hooks"].fail("Use either " ANSI_bCYAN "hooks" ANSI_RESET
+			" or the compatibility " ANSI_bCYAN "pre-build/post-build" ANSI_RESET
+			" keys, not both.");
+	if (root.has("hooks"))
+	{
+		config.hooks = readHooks(root["hooks"], expander);
+	}
+	else
+	{
+		appendLegacyHooks(config.hooks, root["pre-build"], HookWhen::PreBuild, expander);
+		appendLegacyHooks(config.hooks, root["post-build"], HookWhen::PostBuild, expander);
+	}
 
 	// Resolved copies of the declared vars. Nothing in the build reads these --
 	// expansion already happened -- but `config dump` and `migrate` do.

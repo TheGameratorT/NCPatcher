@@ -144,7 +144,8 @@ Running `ncpatcher` with no subcommand builds the project in the current
 directory, which is how it has always been invoked and still is.
 
 ```
-ncpatcher [build]                    compile and patch
+ncpatcher build [--variant NAME | --all-variants]
+                                      compile and patch
           clean [--backups]          delete the build directories
           restore                    put the ROM binaries back and drop the backups
           config dump [--explain] [--json]
@@ -167,6 +168,8 @@ Options, which may be written before or after the subcommand:
 | `-C, --project PATH` | Project directory, or the configuration file itself |
 | `--rom PATH` | ROM to patch: a `.nds` or an extracted directory |
 | `--out PATH` | Write the patched ROM here instead of patching in place |
+| `build --variant NAME` | Build one configured define/file variant |
+| `build --all-variants` | Build every configured variant |
 | `-D, --define NAME[=VAL]` | Define a preprocessor macro |
 | `--var NAME=VAL` | Override a `vars:` entry |
 | `--toolchain PREFIX` | Cross-compiler prefix |
@@ -333,6 +336,93 @@ Structure:
 The "$" symbol allows to define or access a variable that is for its own file scope. \
 The "$$" symbol allows a target to access a variable that is defined in the ncpatcher.json file scope. \
 The "${env:ENV_VARIABLE}" syntax allows to access a variable that is defined in the system's environment variable list.
+
+## Build hooks
+
+Version 2 projects use one named `hooks:` list. `when` chooses whether a hook
+runs before compilation or after the patched ROM has been committed:
+
+```yaml
+modules:
+  dump: build/generated/modules.json
+
+hooks:
+  - name: Generate module headers
+    run: python3 scripts/module_gen.py --graph "${ncp.moduleDump}"
+    cwd: tools
+    env:
+      GENERATED_DIR: "${project.root}/build/generated"
+    when: pre-build
+
+  - name: Summarize build
+    run: python3 scripts/report.py
+    when: post-build
+```
+
+`cwd` is relative to the project directory and defaults to that directory.
+`env` overrides variables for the child process only; all other environment
+variables are inherited. Hook `name`, `run`, `cwd`, `env` values, and `when`
+support the same `${vars.NAME}`, `${env.NAME}`, `${project.root}`, and other
+configuration references as the rest of the file. `${ncp.moduleDump}` is the
+absolute path configured by `modules.dump` and is available when that setting
+is present.
+
+The old `pre-build` and `post-build` string arrays remain accepted in both
+configuration versions. Do not combine those compatibility keys with `hooks:`
+in one version 2 file.
+
+## NitroFS files
+
+`files:` maps each path inside NitroFS to a source file. Sources are resolved
+from the project directory after pre-build hooks run, so a hook may generate
+them. Files are inserted before target resolution and compilation:
+
+```yaml
+files:
+  sp/demo/readme.txt: nitrofs/sp/demo/readme.txt
+  z_new/coop/SE_VOC_MA_SHOT.nwav: build/generated/SE_VOC_MA_SHOT.nwav
+```
+
+A destination outside `z_new/` must already exist in the ROM; a missing one is
+an error rather than an accidental new file ID. Missing paths under `z_new/`
+are added to the FNT and FAT. NCPatcher creates the established zero-byte
+`z_new/reserved` entry automatically so file IDs match the existing insertion
+workflow. Existing `z_new/` paths are replaced, making repeated builds stable.
+
+This works directly on `.nds` inputs and on complete extracted layouts that
+include `fnt.bin`, `fat.bin`, and the configured `data-dir`. NARC editing and
+banner replacement remain external hook work.
+
+## Build variants
+
+`variants:` names the define and NitroFS-file changes that distinguish builds
+of the same project. Project `files:` are the base; a variant entry with the
+same destination replaces its source:
+
+```yaml
+files:
+  sp/message/title.bin: nitrofs/en/title.bin
+
+variants:
+  en:
+    defines: GAME_LANGUAGE_EN
+  fr:
+    defines: [GAME_LANGUAGE_FR, MESSAGE_LANGUAGE=2]
+    files:
+      sp/message/title.bin: nitrofs/fr/title.bin
+```
+
+Build one with `ncpatcher build --variant fr`. When a project declares
+variants, an ordinary build requires an explicit selection so it cannot
+silently produce the wrong language. Command-line `-D` values come after the
+variant definitions and therefore retain precedence.
+
+`ncpatcher build --all-variants` builds entries in declaration order from the
+original `rom.file`. Each output adds `_<variant>` before the extension: a base
+output of `build/game.nds` produces `build/game_en.nds` and
+`build/game_fr.nds`. Without `rom.output` or `--out`, the input ROM name is the
+base. All-variant builds require direct `.nds` input because an extracted
+directory has only one in-place destination.
 
 ## Modules
 

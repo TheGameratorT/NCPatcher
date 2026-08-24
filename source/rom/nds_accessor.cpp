@@ -106,6 +106,31 @@ u32 NdsRomAccessor::createOverlay(bool /*arm9*/, u32 /*id*/, std::span<const u8>
 	return m_rom.addFile(std::vector<u8>(data.begin(), data.end()));
 }
 
+int NdsRomAccessor::findNitroFile(std::string_view path) const
+{
+	return m_rom.nitroFs().findFile(path);
+}
+
+u32 NdsRomAccessor::replaceNitroFile(std::string_view path, std::span<const u8> data)
+{
+	const int fileId = findNitroFile(path);
+	if (fileId < 0)
+		throw ncp::exception("Cannot replace a NitroFS path that does not exist.");
+	m_rom.setFile(u32(fileId), std::vector<u8>(data.begin(), data.end()));
+	return u32(fileId);
+}
+
+u32 NdsRomAccessor::addNitroFile(std::string_view path, std::span<const u8> data)
+{
+	NitroFs tree = m_rom.nitroFs();
+	const u32 predictedId = u32(m_rom.fat().size());
+	tree.addFile(path, predictedId);
+
+	const u32 fileId = m_rom.addFile(std::vector<u8>(data.begin(), data.end()));
+	m_rom.setNitroFs(tree);
+	return fileId;
+}
+
 void NdsRomAccessor::commit()
 {
 	if (!m_rom.dirty())

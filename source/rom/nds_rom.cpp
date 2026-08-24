@@ -327,6 +327,14 @@ void NdsRom::commit(u32 arm9Slack)
 			needsRebuild = true;
 	}
 
+	// addFile() grows the FAT itself, not just one of the extents it names.
+	// Treat it like FNT growth: writing a longer table over the next region is
+	// corruption, so rebuild unless the old table's gap can hold it.
+	const RomRegion fatTableRegion = m_header.fat();
+	if (fatTableRegion.size == 0 ? !m_fat.empty()
+		: u32(m_fat.byteSize()) > roomAfter(fatTableRegion.romOffset, starts))
+		needsRebuild = true;
+
 	if (needsRebuild)
 	{
 		rebuildLayout(arm9Slack);

@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "header.hpp"
@@ -54,6 +55,13 @@ public:
 	// id it was given. The caller is responsible for the overlay table row; this
 	// only settles where the bytes go.
 	virtual u32 createOverlay(bool arm9, u32 id, std::span<const u8> data) = 0;
+
+	// Loose NitroFS files, addressed by the same '/'-separated paths the game
+	// sees. New paths are deliberately separate from replacement: only z_new/
+	// destinations are allowed to call addNitroFile at the application layer.
+	[[nodiscard]] virtual int findNitroFile(std::string_view path) const = 0;
+	virtual u32 replaceNitroFile(std::string_view path, std::span<const u8> data) = 0;
+	virtual u32 addNitroFile(std::string_view path, std::span<const u8> data) = 0;
 
 	// Flushes whatever the backend has been holding. Backends that write as
 	// they go implement it as a no-op; see dir_accessor.hpp for why that

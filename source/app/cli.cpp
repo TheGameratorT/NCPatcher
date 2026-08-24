@@ -146,6 +146,13 @@ std::optional<int> parseCommandLine(int argc, char* argv[], CommandLine& out)
 	addGlobalOptions(app, out, verboseTagNames);
 
 	CLI::App* build = app.add_subcommand("build", "Compile and patch (the default)");
+	CLI::Option* variant = build->add_option("--variant", out.variant,
+		"Build one named variant")
+		->type_name("NAME");
+	CLI::Option* allVariants = build->add_flag("--all-variants", out.allVariants,
+		"Build every configured variant");
+	variant->excludes(allVariants);
+	allVariants->excludes(variant);
 
 	CLI::App* clean = app.add_subcommand("clean", "Delete the build directories");
 	clean->add_flag("--backups", out.cleanBackups,

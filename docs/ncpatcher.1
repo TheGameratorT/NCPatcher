@@ -1,5 +1,5 @@
 .\" Manual page for ncpatcher.
-.TH NCPATCHER 1 "2026" "ncpatcher" "User Commands"
+.TH NCPATCHER 1 "August 24, 2026" "ncpatcher" "User Commands"
 .SH NAME
 ncpatcher \- compile code and splice it into a Nintendo DS ROM
 .SH SYNOPSIS
@@ -19,8 +19,9 @@ With no command it builds, which is how existing projects and the level editor
 invoke it.
 .SH COMMANDS
 .TP
-.B build
-Compile and patch. The default.
+.BR build " [" \-\-variant " " \fINAME\fP " | " \-\-all\-variants "]"
+Compile and patch. The default. Select one configured variant, or build every
+variant in declaration order.
 .TP
 .BR clean " [" \-\-backups ]
 Delete the build directories. With
@@ -161,6 +162,88 @@ Do not write a log file.
 .TP
 .BR \-h ", " \-\-help
 Show the built-in help.
+.SH BUILD HOOKS
+Version 2 projects declare named commands in one
+.B hooks:
+list. Each entry has a required
+.BR name ,
+.BR run ,
+and
+.B when
+field. The phase is either
+.B pre-build
+or
+.BR post-build .
+The optional
+.B cwd
+is relative to the project directory and defaults to it. The optional
+.B env
+mapping overrides variables for the child only; the rest of the environment is
+inherited.
+.PP
+Hook fields use the normal
+.B ${...}
+configuration expansion. When
+.B modules.dump
+is configured,
+.B ${ncp.moduleDump}
+is its absolute path. The module graph is written before pre-build hooks run.
+.PP
+The older
+.B pre-build
+and
+.B post-build
+string arrays remain accepted as compatibility syntax, but cannot be combined
+with
+.B hooks:
+in one version 2 file.
+.SH NITROFS FILES
+The version 2
+.B files:
+mapping copies loose source files into NitroFS after pre-build hooks and before
+compilation. Each key is a slash-separated path inside the ROM; each value is a
+source path relative to the project directory. A pre-build hook may generate a
+source before it is read.
+.PP
+A destination outside
+.B z_new/
+must already exist. Missing paths below
+.B z_new/
+are appended to the FNT and FAT, with the conventional empty
+.B z_new/reserved
+entry created automatically. Existing paths are replaced.
+.PP
+Direct
+.B .nds
+input supports both operations. An extracted layout must include its FNT, FAT,
+and data directory. NARC editing and banner replacement remain external.
+.SH BUILD VARIANTS
+The version 2
+.B variants:
+mapping names builds that differ only in preprocessor
+.B defines
+and NitroFS
+.BR files .
+Project files form the base mapping; a variant file with the same NitroFS
+destination replaces its source. Command-line
+.B \-D
+definitions come after variant definitions.
+.PP
+.BI "ncpatcher build \-\-variant " NAME
+builds one entry. A project that declares variants requires an explicit
+selection.
+.B ncpatcher build \-\-all\-variants
+builds every entry from the original
+.BR rom.file .
+Each output adds
+.BI _ NAME
+before the base output extension. For example,
+.B build/game.nds
+becomes
+.BR build/game_en.nds .
+Without a configured output, the input ROM name is the base. Building all
+variants is unavailable for an extracted directory because it has only one
+in-place destination.
 .SH EXIT STATUS
 .TP
 .B 0
@@ -194,7 +277,7 @@ Patching failed.
 The ROM could not be read or written.
 .TP
 .B 10
-A pre-build or post-build command failed.
+A pre-build or post-build hook failed.
 .TP
 .B 130
 Interrupted.

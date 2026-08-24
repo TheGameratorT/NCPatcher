@@ -62,6 +62,11 @@ public:
 	// An empty path is the root.
 	[[nodiscard]] int findDirectory(std::string_view path) const;
 
+	// Adds a new path for a file id that was just appended to the FAT. Missing
+	// directories are created. Existing ids are never renumbered: if the file
+	// cannot be appended to its directory's consecutive id range, this refuses.
+	void addFile(std::string_view path, u32 fileId);
+
 	// Names an existing file id inside an existing directory. Used to give an
 	// overlay a name so that tools which resolve files by path can see it; the
 	// game itself loads overlays by id and never consults this.
@@ -79,6 +84,7 @@ private:
 
 	[[nodiscard]] const FsDirectory* directory(u16 id) const;
 	[[nodiscard]] FsDirectory* directory(u16 id);
+	[[nodiscard]] u16 ensureDirectory(std::string_view path);
 };
 
 } // namespace ncp::rom

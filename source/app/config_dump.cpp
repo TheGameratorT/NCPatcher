@@ -176,15 +176,39 @@ void dumpJson(std::ostream& out,
 	}
 	writer.endObject();
 
-	writer.key("pre-build").beginArray();
-	for (const std::string& command : config.preBuild)
-		writer.value(command);
+	writer.key("hooks").beginArray();
+	for (const config::HookConfig& hook : config.hooks)
+	{
+		writer.beginObject();
+		writer.field("name", hook.name);
+		writer.field("run", hook.run);
+		writer.field("cwd", hook.cwd.string());
+		writer.field("when", config::hookWhenName(hook.when));
+		writer.key("env").beginObject();
+		for (const auto& [name, value] : hook.env)
+			writer.field(name, value);
+		writer.endObject();
+		writer.endObject();
+	}
 	writer.endArray();
 
-	writer.key("post-build").beginArray();
-	for (const std::string& command : config.postBuild)
-		writer.value(command);
-	writer.endArray();
+	writer.key("files").beginObject();
+	for (const config::FileConfig& file : config.files)
+		writer.field(file.path, file.source.string());
+	writer.endObject();
+
+	writer.key("variants").beginObject();
+	for (const config::VariantConfig& variant : config.variants)
+	{
+		writer.key(variant.name).beginObject();
+		writer.field("defines", variant.defines);
+		writer.key("files").beginObject();
+		for (const config::FileConfig& file : variant.files)
+			writer.field(file.path, file.source.string());
+		writer.endObject();
+		writer.endObject();
+	}
+	writer.endObject();
 
 	writer.key("targets").beginObject();
 	for (const ResolvedTarget& entry : targets)
@@ -272,6 +296,19 @@ void dumpHuman(std::ostream& out,
 		out << "  vars:\n";
 		for (const std::string& name : names)
 			out << "    " << name << " = " << config.vars.at(name) << '\n';
+	}
+
+	if (!config.variants.empty())
+	{
+		out << "  variants:\n";
+		for (const config::VariantConfig& variant : config.variants)
+		{
+			out << "    " << variant.name << '\n';
+			for (const std::string& define : variant.defines)
+				out << "      define: " << define << '\n';
+			for (const config::FileConfig& file : variant.files)
+				out << "      file: " << file.path << " <- " << file.source.string() << '\n';
+		}
 	}
 
 	for (const ResolvedTarget& entry : targets)

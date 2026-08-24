@@ -1,7 +1,9 @@
 #include "application.hpp"
 
+#include <algorithm>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <sstream>
 
 #include "../system/ansi.hpp"
@@ -518,6 +520,45 @@ void Application::runBuild()
 	Log::out << ANSI_bWHITE " ----- Nitro Code Patcher -----" ANSI_RESET << std::endl;
 
 	loadConfigurations();
+
+	if (m_cli.allVariants)
+	{
+		if (m_config.variants.empty())
+		{
+			ScopedContext ctx(Diag::ConfigLoad, "Could not select the build variants.");
+			throw ncp::exception("This project does not configure any variants.");
+		}
+
+		const config::ProjectConfig base = m_config;
+		for (const config::VariantConfig& variant : base.variants)
+		{
+			m_config = base;
+			m_modules = {};
+			applyVariant(variant.name, true);
+			Log::out << ANSI_bWHITE " ----- Variant: " << variant.name << " -----" ANSI_RESET << std::endl;
+			runConfiguredBuild();
+		}
+		return;
+	}
+
+	if (m_cli.variant.empty())
+	{
+		if (!m_config.variants.empty())
+		{
+			ScopedContext ctx(Diag::ConfigLoad, "Could not select the build variant.");
+			throw ncp::exception("This project has variants; choose one with --variant NAME or build all with --all-variants.");
+		}
+	}
+	else
+	{
+		applyVariant(m_cli.variant, false);
+	}
+
+	runConfiguredBuild();
+}
+
+void Application::runConfiguredBuild()
+{
 	openDefaultLogFile();
 	validateToolchain();
 
@@ -528,10 +569,15 @@ void Application::runBuild()
 	loadModules();
 	writeModuleDump();
 
-	runCommandList(m_config.preBuild,
-				   "Running pre-build commands...",
-				   Diag::PreBuildCommand,
-				   "Not all pre-build commands succeeded.");
+	runHooks(config::HookWhen::PreBuild,
+			 "Running pre-build hooks...",
+			 Diag::PreBuildCommand,
+			 "Not all pre-build hooks succeeded.");
+
+	// Hooks may generate the source files. Insert them after hooks but before
+	// target resolution and compilation, so every generated file id is settled
+	// before code which refers to it is built.
+	insertFiles(*rom);
 
 	// Only now: a v1 project may have just generated its target files.
 	{
@@ -555,12 +601,60 @@ void Application::runBuild()
 
 	saveRebuildConfig();
 
-	runCommandList(m_config.postBuild,
-				   "Running post-build commands...",
-				   Diag::PostBuildCommand,
-				   "Not all post-build commands succeeded.");
+	runHooks(config::HookWhen::PostBuild,
+			 "Running post-build hooks...",
+			 Diag::PostBuildCommand,
+			 "Not all post-build hooks succeeded.");
 
 	Log::info("All tasks finished.");
+}
+
+void Application::applyVariant(const std::string& name, bool deriveOutput)
+{
+	ScopedContext ctx(Diag::ConfigLoad, "Could not select the build variant.");
+
+	const auto found = std::find_if(m_config.variants.begin(), m_config.variants.end(),
+		[&](const config::VariantConfig& variant) { return variant.name == name; });
+	if (found == m_config.variants.end())
+	{
+		std::ostringstream oss;
+		oss << "Unknown variant " << OSTR(name) << ".";
+		if (!m_config.variants.empty())
+		{
+			oss << OREASONNL "Expected one of: ";
+			for (std::size_t i = 0; i < m_config.variants.size(); i++)
+				oss << (i == 0 ? "" : ", ") << m_config.variants[i].name;
+		}
+		throw ncp::exception(oss.str());
+	}
+
+	for (const config::FileConfig& file : found->files)
+	{
+		const auto existing = std::find_if(m_config.files.begin(), m_config.files.end(),
+			[&](const config::FileConfig& base) { return base.path == file.path; });
+		if (existing == m_config.files.end())
+			m_config.files.push_back(file);
+		else
+			*existing = file;
+	}
+
+	// Command-line defines retain their normal highest precedence by coming
+	// after the selected variant's defines on the compiler command line.
+	m_options.defines = found->defines;
+	m_options.defines.insert(m_options.defines.end(), m_cli.defines.begin(), m_cli.defines.end());
+
+	if (!deriveOutput)
+		return;
+	if (!m_config.romFile.configured())
+		throw ncp::exception("--all-variants needs rom.file; an extracted directory has only one in-place output.");
+
+	const fs::path base = m_config.romOutput.configured()
+		? m_config.romOutput.value : m_config.romFile.value;
+	const fs::path output = base.parent_path()
+		/ (base.stem().string() + "_" + found->name + base.extension().string());
+	const config::Source source = m_config.romOutput.configured()
+		? m_config.romOutput.source : m_config.romFile.source;
+	m_config.romOutput.set(output, source);
 }
 
 void Application::processTarget(rom::RomAccessor& rom, bool isArm9)
@@ -597,33 +691,132 @@ void Application::processTarget(rom::RomAccessor& rom, bool isArm9)
 	m_rebuild.setTargetHash(isArm9, configHash);
 }
 
-void Application::runCommandList(const std::vector<std::string>& commands,
-								const char* message,
-								Diag code,
-								const char* errorContext)
+void Application::runHooks(config::HookWhen when,
+						   const char* message,
+						   Diag code,
+						   const char* errorContext)
 {
-	if (commands.empty()) {
+	const bool any = std::any_of(m_config.hooks.begin(), m_config.hooks.end(),
+		[when](const config::HookConfig& hook) { return hook.when == when; });
+	if (!any) {
 		return;
 	}
 
 	Log::info(message);
 	ScopedContext ctx(code, errorContext);
 
-	int commandIndex = 1;
-	for (const std::string& command : commands) {
+	for (const config::HookConfig& hook : m_config.hooks) {
+		if (hook.when != when)
+			continue;
+
 		std::ostringstream oss;
-		oss << ANSI_bWHITE "[#" << commandIndex << "] " ANSI_bYELLOW << command << ANSI_RESET;
+		oss << ANSI_bWHITE "[" << hook.name << "] " ANSI_bYELLOW << hook.run << ANSI_RESET;
 		Log::info(oss.str());
 
 		// A hook's own output is for the person watching, so in json mode it
 		// must not land in the middle of the event stream.
 		std::ostream& hookOutput = msg::isJson() ? std::cerr : std::cout;
-		int retcode = Process::start(command.c_str(), m_ctx.paths.workDir, &hookOutput);
+		const fs::path cwd = hook.cwd.empty() ? m_ctx.paths.workDir : m_ctx.paths.work(hook.cwd);
+		int retcode = Process::start(hook.run.c_str(), cwd, hook.env, &hookOutput);
 		if (retcode != 0) {
-			throw ncp::exception("Process returned: " + std::to_string(retcode));
+			throw ncp::exception("Hook \"" + hook.name + "\" returned: " + std::to_string(retcode));
 		}
-        
-		commandIndex++;
+	}
+}
+
+void Application::insertFiles(rom::RomAccessor& rom)
+{
+	if (m_config.files.empty())
+		return;
+
+	ScopedContext ctx(Diag::NitroFsInsert, "Could not insert the NitroFS files.");
+	Log::info("Inserting NitroFS files...");
+
+	struct PreparedFile
+	{
+		const config::FileConfig* config = nullptr;
+		std::vector<u8> data;
+		int existingId = -1;
+	};
+	std::vector<PreparedFile> replacements;
+	std::vector<PreparedFile> additions;
+
+	// Read and validate everything before the first write. The directory
+	// backend writes immediately, so discovering one bad source late would
+	// otherwise leave the earlier files changed.
+	for (const config::FileConfig& file : m_config.files)
+	{
+		const fs::path source = m_ctx.paths.work(file.source);
+		if (!fs::exists(source) || !fs::is_regular_file(source))
+			throw ncp::file_error(source, ncp::file_error::find);
+
+		const std::uintmax_t size = fs::file_size(source);
+		if (size > std::numeric_limits<u32>::max())
+			throw ncp::exception("NitroFS source is too large: " + source.string());
+
+		PreparedFile prepared;
+		prepared.config = &file;
+		prepared.data.resize(std::size_t(size));
+		std::ifstream input(source, std::ios::binary);
+		if (!input.is_open())
+			throw ncp::file_error(source, ncp::file_error::read);
+		if (!prepared.data.empty())
+		{
+			input.read(reinterpret_cast<char*>(prepared.data.data()), std::streamsize(prepared.data.size()));
+			if (!input)
+				throw ncp::file_error(source, ncp::file_error::read);
+		}
+
+		prepared.existingId = rom.findNitroFile(file.path);
+		if (prepared.existingId >= 0)
+		{
+			replacements.push_back(std::move(prepared));
+		}
+		else if (file.path.starts_with("z_new/"))
+		{
+			additions.push_back(std::move(prepared));
+		}
+		else
+		{
+			throw ncp::exception("Cannot replace NitroFS file \"" + file.path
+				+ "\": that path does not exist in the ROM. New files must be under z_new/.");
+		}
+	}
+
+	// File ids inside one FNT directory are consecutive. Add a directory's own
+	// files before any child directory, matching the established z_new layout.
+	std::sort(additions.begin(), additions.end(), [](const PreparedFile& left, const PreparedFile& right) {
+		auto split = [](const std::string& path) {
+			const std::size_t slash = path.rfind('/');
+			return std::pair(path.substr(0, slash), path.substr(slash + 1));
+		};
+		return split(left.config->path) < split(right.config->path);
+	});
+
+	if (!additions.empty() && rom.findNitroFile("z_new/reserved") < 0)
+		(void)rom.addNitroFile("z_new/reserved", std::span<const u8>());
+
+	auto report = [](const PreparedFile& file, u32 fileId, const char* action) {
+		Log::info(std::string(std::string_view(action) == "created" ? "Added " : "Replaced ")
+			+ file.config->path + " [" + std::to_string(fileId) + "]");
+		msg::Artifact artifact;
+		artifact.kind = "file";
+		artifact.action = action;
+		artifact.name = file.config->path;
+		artifact.size = static_cast<long long>(file.data.size());
+		artifact.fileId = int(fileId);
+		msg::artifact(std::move(artifact));
+	};
+
+	for (const PreparedFile& file : replacements)
+	{
+		const u32 fileId = rom.replaceNitroFile(file.config->path, file.data);
+		report(file, fileId, "modified");
+	}
+	for (const PreparedFile& file : additions)
+	{
+		const u32 fileId = rom.addNitroFile(file.config->path, file.data);
+		report(file, fileId, "created");
 	}
 }
 

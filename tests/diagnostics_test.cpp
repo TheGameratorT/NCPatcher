@@ -48,6 +48,7 @@ static void testCodeFormatting()
 	check(ncp::diagCode(Diag::PostBuildCommand) == "NCP0004", "NCP0004");
 	check(ncp::diagCode(Diag::TargetCompile) == "NCP1001", "four digits are not padded");
 	check(ncp::diagCode(Diag::RomHeaderLoad) == "NCP3001", "NCP3001");
+	check(ncp::diagCode(Diag::NitroFsInsert) == "NCP3004", "NCP3004");
 }
 
 static void testNormalExitLeavesNothing()
@@ -178,6 +179,7 @@ static void testExitCodes()
 	check(ncp::exitCodeFor(Diag::PatchApplication) == ExitCode::Patch, "applying patches is a patch error");
 	check(ncp::exitCodeFor(Diag::RomHeaderLoad) == ExitCode::RomIo, "reading the header is ROM I/O");
 	check(ncp::exitCodeFor(Diag::ArmBinLoad) == ExitCode::RomIo, "reading an ARM binary is ROM I/O");
+	check(ncp::exitCodeFor(Diag::NitroFsInsert) == ExitCode::RomIo, "inserting a NitroFS file is ROM I/O");
 
 	// A throw that escaped every phase is a bug here, not a category a caller
 	// can act on, so it must not be dressed up as one.

@@ -1,8 +1,11 @@
 #include "process.hpp"
 
-#include <string>
+#include <algorithm>
+#include <cctype>
+#include <cstring>
 #include <filesystem>
 #include <stdexcept>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -11,10 +14,76 @@
 #ifdef _WIN32
 
 #include <windows.h>
-#include <tchar.h>
 
-int Process::start(const char* cmd, const std::filesystem::path& cwd, std::ostream* out)
+namespace {
+
+bool sameEnvironmentName(const std::string& entry, const std::string& name)
 {
+	const std::size_t separator = entry.find('=', entry.starts_with('=') ? 1 : 0);
+	if (separator != name.size())
+		return false;
+	for (std::size_t i = 0; i < name.size(); i++)
+	{
+		if (std::tolower(static_cast<unsigned char>(entry[i]))
+			!= std::tolower(static_cast<unsigned char>(name[i])))
+			return false;
+	}
+	return true;
+}
+
+std::vector<char> makeEnvironmentBlock(const Process::Environment& overrides)
+{
+	std::vector<std::string> entries;
+	LPCH inherited = GetEnvironmentStringsA();
+	if (inherited == nullptr)
+		throw std::runtime_error("GetEnvironmentStrings");
+	for (const char* entry = inherited; *entry != '\0'; entry += std::strlen(entry) + 1)
+		entries.emplace_back(entry);
+	FreeEnvironmentStringsA(inherited);
+
+	for (const auto& [name, value] : overrides)
+	{
+		const auto found = std::find_if(entries.begin(), entries.end(),
+			[&](const std::string& entry) { return sameEnvironmentName(entry, name); });
+		const std::string replacement = name + '=' + value;
+		if (found == entries.end())
+			entries.push_back(replacement);
+		else
+			*found = replacement;
+	}
+
+	auto foldedLess = [](const std::string& left, const std::string& right) {
+		return std::lexicographical_compare(left.begin(), left.end(), right.begin(), right.end(),
+			[](char a, char b) {
+				return std::tolower(static_cast<unsigned char>(a))
+					< std::tolower(static_cast<unsigned char>(b));
+			});
+	};
+	std::sort(entries.begin(), entries.end(), foldedLess);
+
+	std::vector<char> block;
+	for (const std::string& entry : entries)
+	{
+		block.insert(block.end(), entry.begin(), entry.end());
+		block.push_back('\0');
+	}
+	// One terminator ends the last entry; the second ends the block. An empty
+	// environment still needs both.
+	if (block.empty())
+		block.push_back('\0');
+	block.push_back('\0');
+	return block;
+}
+
+} // namespace
+
+int Process::start(const char* cmd, const std::filesystem::path& cwd,
+	               const Environment& environment, std::ostream* out)
+{
+	std::vector<char> environmentBlock;
+	if (!environment.empty())
+		environmentBlock = makeEnvironmentBlock(environment);
+
 	HANDLE g_hChildStd_OUT_Rd = NULL;
 	HANDLE g_hChildStd_OUT_Wr = NULL;
 
@@ -38,9 +107,9 @@ int Process::start(const char* cmd, const std::filesystem::path& cwd, std::ostre
 	}
 
 	// Create a child process that uses the previously created pipes for STDOUT.
-	TCHAR* szCmdline = (TCHAR*)cmd;
+	std::vector<char> commandLine(cmd, cmd + std::strlen(cmd) + 1);
 	PROCESS_INFORMATION piProcInfo;
-	STARTUPINFO siStartInfo;
+	STARTUPINFOA siStartInfo;
 	BOOL bSuccess;
 
 	// Set up members of the PROCESS_INFORMATION structure.
@@ -48,8 +117,8 @@ int Process::start(const char* cmd, const std::filesystem::path& cwd, std::ostre
 
 	// Set up members of the STARTUPINFO structure.
 	// This structure specifies the STDOUT handles for redirection.
-	ZeroMemory(&siStartInfo, sizeof(STARTUPINFO));
-	siStartInfo.cb = sizeof(STARTUPINFO);
+	ZeroMemory(&siStartInfo, sizeof(STARTUPINFOA));
+	siStartInfo.cb = sizeof(STARTUPINFOA);
 	siStartInfo.hStdError = g_hChildStd_OUT_Wr;
 	siStartInfo.hStdOutput = g_hChildStd_OUT_Wr;
 	siStartInfo.dwFlags |= STARTF_USESTDHANDLES;
@@ -60,11 +129,17 @@ int Process::start(const char* cmd, const std::filesystem::path& cwd, std::ostre
 	std::string cwdStr = cwd.string();
 	const char* lpCurrentDirectory = cwdStr.empty() ? NULL : cwdStr.c_str();
 
-	bSuccess = CreateProcess(NULL, szCmdline, NULL, NULL, TRUE, 0, NULL, lpCurrentDirectory, &siStartInfo, &piProcInfo);
+	LPVOID lpEnvironment = environmentBlock.empty() ? NULL : environmentBlock.data();
+	bSuccess = CreateProcessA(NULL, commandLine.data(), NULL, NULL, TRUE, 0,
+		lpEnvironment, lpCurrentDirectory, &siStartInfo, &piProcInfo);
    
 	// If an error occurs, exit the application. 
 	if (!bSuccess)
+	{
+		CloseHandle(g_hChildStd_OUT_Rd);
+		CloseHandle(g_hChildStd_OUT_Wr);
 		throw std::runtime_error("CreateProcess");
+	}
 
 	// Close handle to the child process primary thread.
 	CloseHandle(piProcInfo.hThread);
@@ -123,7 +198,8 @@ bool Process::exists(const char* app)
 #include <sys/wait.h>
 #define SHELL "/bin/sh"
 
-int Process::start(const char* cmd, const std::filesystem::path& cwd, std::ostream* out)
+int Process::start(const char* cmd, const std::filesystem::path& cwd,
+	               const Environment& environment, std::ostream* out)
 {
 	int pipefd[2];
 	if (pipe(pipefd) < 0)
@@ -146,6 +222,12 @@ int Process::start(const char* cmd, const std::filesystem::path& cwd, std::ostre
 		// Only the child moves; the parent's cwd is left alone.
 		if (!cwd.empty() && chdir(cwd.c_str()) != 0)
 			_exit(EXIT_FAILURE);
+
+		for (const auto& [name, value] : environment)
+		{
+			if (setenv(name.c_str(), value.c_str(), 1) != 0)
+				_exit(EXIT_FAILURE);
+		}
 
 		execl(SHELL, SHELL, "-c", cmd, NULL); // Execute the shell command
 		_exit(EXIT_FAILURE);
@@ -195,6 +277,11 @@ bool Process::exists(const char* app)
 }
 
 #endif
+
+int Process::start(const char* cmd, const std::filesystem::path& cwd, std::ostream* out)
+{
+	return Process::start(cmd, cwd, Environment(), out);
+}
 
 int Process::start(const char* cmd, std::ostream* out)
 {

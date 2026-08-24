@@ -67,10 +67,43 @@
     "flags": {
       "$ref": "#/$defs/flags"
     },
+    "hooks": {
+      "description": "Named commands run before or after the build. Cannot be combined with the compatibility pre-build/post-build keys.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/hook"
+      }
+    },
+    "files": {
+      "description": "Loose files copied into NitroFS after pre-build hooks and before compilation. Each key is the '/'-separated path in the ROM; each value is a source path relative to the project. Missing destinations may only be created under z_new/.",
+      "type": "object",
+      "propertyNames": {
+        "minLength": 1,
+        "not": {
+          "const": "z_new/reserved"
+        }
+      },
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "variants": {
+      "description": "Named define/file matrices selected by `build --variant NAME`; `build --all-variants` builds every entry in declaration order.",
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/variant"
+      }
+    },
     "pre-build": {
+      "description": "Compatibility spelling for unnamed pre-build hooks.",
       "$ref": "#/$defs/commandList"
     },
     "post-build": {
+      "description": "Compatibility spelling for unnamed post-build hooks.",
       "$ref": "#/$defs/commandList"
     },
     "targets": {
@@ -153,6 +186,72 @@
           "type": "string"
         }
       ]
+    },
+    "hook": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "run",
+        "when"
+      ],
+      "properties": {
+        "name": {
+          "description": "Human-readable name shown in build output and failures.",
+          "type": "string",
+          "minLength": 1
+        },
+        "run": {
+          "description": "Command passed to the platform command runner. ${...} references are expanded before it runs.",
+          "type": "string",
+          "minLength": 1
+        },
+        "cwd": {
+          "description": "Child working directory, relative to the project root by default.",
+          "type": "string"
+        },
+        "env": {
+          "description": "Environment variables added to or overriding the child environment.",
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "when": {
+          "description": "Build phase that runs the hook.",
+          "enum": [
+            "pre-build",
+            "post-build"
+          ]
+        }
+      }
+    },
+    "variant": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "defines": {
+          "description": "Preprocessor definitions added for this variant. Command-line -D definitions still come last.",
+          "$ref": "#/$defs/commandList"
+        },
+        "files": {
+          "description": "NitroFS source overrides and additions for this variant, merged by destination path with the project files mapping.",
+          "type": "object",
+          "propertyNames": {
+            "minLength": 1,
+            "not": {
+              "const": "z_new/reserved"
+            }
+          },
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
     },
     "flags": {
       "description": "Compiler and linker flags. common reaches all three compilers; defines reach the assembler too, since assembly is compiled through -x assembler-with-cpp.",

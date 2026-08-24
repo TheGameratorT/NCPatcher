@@ -7,6 +7,7 @@
 // a consistent header, FAT and overlay table afterwards.
 
 #include "../source/rom/endian.hpp"
+#include "../source/rom/dir_accessor.hpp"
 #include "../source/rom/fat.hpp"
 #include "../source/rom/header.hpp"
 #include "../source/rom/nds_rom.hpp"
@@ -17,11 +18,14 @@
 
 #include <algorithm>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <vector>
 
 using namespace ncp::rom;
+namespace fs = std::filesystem;
 
 static int g_failures = 0;
 
@@ -195,6 +199,70 @@ static void testNitroFs()
 	bool threw = false;
 	try { named.nameFile(0xF001, "d.bin", 99); } catch (const std::exception&) { threw = true; }
 	check(threw, "naming a file that is not the directory's next id is refused");
+
+	NitroFs extended = tree;
+	extended.addFile("z_new/reserved", 3);
+	extended.addFile("z_new/root.bin", 4);
+	extended.addFile("z_new/coop/a.bin", 5);
+	extended.addFile("z_new/coop/b.bin", 6);
+	check(extended.findFile("z_new/reserved") == 3, "z_new starts at the next FAT id");
+	check(extended.findFile("z_new/coop/b.bin") == 6, "new nested directories keep consecutive ids");
+	const NitroFs extendedAgain = NitroFs::parse(extended.serialize());
+	check(extendedAgain.findFile("z_new/coop/a.bin") == 5,
+		"an extended tree survives being written and read");
+
+	threw = false;
+	try { extended.addFile("data/late.bin", 7); } catch (const std::exception&) { threw = true; }
+	check(threw, "adding to an earlier directory refuses to renumber later files");
+}
+
+static void writeFile(const fs::path& path, std::span<const u8> data)
+{
+	fs::create_directories(path.parent_path());
+	std::ofstream out(path, std::ios::binary);
+	out.write(reinterpret_cast<const char*>(data.data()), std::streamsize(data.size()));
+}
+
+static std::vector<u8> readFile(const fs::path& path)
+{
+	std::ifstream in(path, std::ios::binary);
+	return std::vector<u8>(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+}
+
+static void testExtractedNitroFs()
+{
+	const fs::path root = fs::temp_directory_path() / "ncp_extracted_nitrofs_test";
+	std::error_code ignored;
+	fs::remove_all(root, ignored);
+
+	const NitroFs tree = buildTree();
+	writeFile(root / "fnt.bin", tree.serialize());
+	Fat fat;
+	for (int i = 0; i < 3; i++)
+		fat.add(FatEntry{});
+	writeFile(root / "fat.bin", fat.serialize());
+	writeFile(root / "data/data/a.bin", std::vector<u8>({ 0x11 }));
+
+	DirRomAccessor rom(root, DirLayout{});
+	check(rom.findNitroFile("data/a.bin") == 1, "an extracted FNT resolves a replacement path");
+	check(rom.replaceNitroFile("data/a.bin", std::vector<u8>({ 0x22, 0x33 })) == 1,
+		"an extracted file keeps its id when replaced");
+	check(readFile(root / "data/data/a.bin") == std::vector<u8>({ 0x22, 0x33 }),
+		"an extracted replacement writes the loose data file");
+
+	check(rom.addNitroFile("z_new/reserved", {}) == 3, "the extracted reserved file appends to the FAT");
+	check(rom.addNitroFile("z_new/coop/new.bin", std::vector<u8>({ 0x44 })) == 4,
+		"an extracted z_new file gets the next id");
+
+	const NitroFs afterTree = NitroFs::parse(readFile(root / "fnt.bin"));
+	const Fat afterFat = Fat::parse(readFile(root / "fat.bin"));
+	check(afterTree.findFile("z_new/reserved") == 3, "the extracted FNT records reserved");
+	check(afterTree.findFile("z_new/coop/new.bin") == 4, "the extracted FNT records the new file");
+	check(afterFat.size() == 5, "the extracted FAT grows with both files");
+	check(readFile(root / "data/z_new/coop/new.bin") == std::vector<u8>({ 0x44 }),
+		"the extracted new file is written below data-dir");
+
+	fs::remove_all(root, ignored);
 }
 
 // --- the container ---------------------------------------------------------
@@ -315,6 +383,8 @@ void checkConsistent(const NdsRom& rom, const std::string& what)
 			extents.push_back({ ovt.romOffset, ovt.end() });
 	}
 	extents.push_back({ header.fat().romOffset, header.fat().end() });
+	if (header.fnt().size != 0)
+		extents.push_back({ header.fnt().romOffset, header.fnt().end() });
 	for (const FatEntry& entry : rom.fat().entries())
 	{
 		if (entry.size() != 0)
@@ -482,6 +552,28 @@ static void testFntGrowthRebuilds()
 	NdsRom rom;
 	rom.parse(source.bytes);
 	check(rom.nitroFs().empty(), "the synthetic ROM has no file name table");
+
+	NitroFs tree;
+	tree.addFile("z_new/reserved", 2);
+	check(rom.addFile({}) == 2, "the reserved file gets the next FAT id");
+	tree.addFile("z_new/coop/new.bin", 3);
+	check(rom.addFile(std::vector<u8>({ 1, 2, 3, 4 })) == 3, "a new NitroFS file follows it");
+	rom.setNitroFs(tree);
+	rom.commit(0);
+
+	check(rom.lastCommitRebuilt(), "growing FNT and FAT past their slots rebuilds the ROM");
+	check(rom.fat().size() == 4, "both new FAT entries are present");
+	check(rom.nitroFs().findFile("z_new/coop/new.bin") == 3, "the new path resolves to its FAT id");
+	check(rom.readFile(3) == std::vector<u8>({ 1, 2, 3, 4 }), "the new file data survives the rebuild");
+	check(rom.header().fnt().size == rom.nitroFs().serialize().size(), "the header records the grown FNT");
+	check(rom.header().fat().size == rom.fat().byteSize(), "the header records the grown FAT");
+	checkConsistent(rom, "after adding NitroFS files");
+
+	NdsRom again;
+	again.parse(rom.bytes());
+	check(again.nitroFs().findFile("z_new/reserved") == 2, "the reserved path reloads");
+	check(again.nitroFs().findFile("z_new/coop/new.bin") == 3, "the new path reloads");
+	check(again.readFile(3) == std::vector<u8>({ 1, 2, 3, 4 }), "the new data reloads");
 }
 
 // --- compression -----------------------------------------------------------
@@ -519,6 +611,7 @@ int main()
 	testOverlayTable();
 	testFat();
 	testNitroFs();
+	testExtractedNitroFs();
 	testHeader();
 	testRomRoundTrip();
 	testOverlayInPlace();

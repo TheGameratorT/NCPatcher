@@ -471,10 +471,19 @@ ProjectConfig loadV1(const fs::path& projectFile, const fs::path& projectRoot,
 	config.toolchain.set(readString(root.require("toolchain"), vars), Source::ProjectFile);
 	config.threadCount.set(root.require("thread-count").asInt(), Source::ProjectFile);
 
-	for (const cfg::Node& command : root.require("pre-build").items())
-		config.preBuild.push_back(readString(command, vars));
-	for (const cfg::Node& command : root.require("post-build").items())
-		config.postBuild.push_back(readString(command, vars));
+	auto readLegacyHooks = [&](const cfg::Node& commands, HookWhen when) {
+		std::size_t index = 0;
+		for (const cfg::Node& command : commands.items())
+		{
+			HookConfig hook;
+			hook.name = std::string(hookWhenName(when)) + " #" + std::to_string(++index);
+			hook.run = readString(command, vars);
+			hook.when = when;
+			config.hooks.push_back(std::move(hook));
+		}
+	};
+	readLegacyHooks(root.require("pre-build"), HookWhen::PreBuild);
+	readLegacyHooks(root.require("post-build"), HookWhen::PostBuild);
 
 	for (bool arm9 : { false, true })
 	{

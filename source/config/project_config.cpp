@@ -8,6 +8,11 @@
 
 namespace ncp::config {
 
+const char* hookWhenName(HookWhen when)
+{
+	return when == HookWhen::PreBuild ? "pre-build" : "post-build";
+}
+
 const char* sourceName(Source source)
 {
 	switch (source)

@@ -633,14 +633,15 @@ std::string emitDocument(const ProjectConfig& config, const LanguageFlags& proje
 		emitter.blank();
 	}
 
-	if (!config.preBuild.empty())
+	if (!config.hooks.empty())
 	{
-		emitter.list(0, "pre-build", config.preBuild);
-		emitter.blank();
-	}
-	if (!config.postBuild.empty())
-	{
-		emitter.list(0, "post-build", config.postBuild);
+		emitter.line(0, "hooks:");
+		for (const HookConfig& hook : config.hooks)
+		{
+			emitter.line(1, "- name: " + scalar(hook.name));
+			emitter.line(2, "run: " + scalar(hook.run));
+			emitter.line(2, std::string("when: ") + hookWhenName(hook.when));
+		}
 		emitter.blank();
 	}
 
@@ -880,8 +881,7 @@ bool migrate(const fs::path& projectFile, const fs::path& projectRoot, bool writ
 	comparison.checkEqual(original.filesystemDir.value.generic_string(),
 		converted.filesystemDir.value.generic_string(), "filesystem directory");
 	comparison.checkEqual(original.toolchain.value, converted.toolchain.value, "toolchain");
-	comparison.checkEqual(original.preBuild, converted.preBuild, "pre-build commands");
-	comparison.checkEqual(original.postBuild, converted.postBuild, "post-build commands");
+	comparison.checkEqual(original.hooks, converted.hooks, "build hooks");
 
 	for (bool arm9 : { false, true })
 	{

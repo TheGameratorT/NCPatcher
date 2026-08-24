@@ -66,6 +66,8 @@ struct CommandLine
 
 	std::vector<std::string> defines;   // -D/--define
 	std::vector<std::string> vars;      // --var NAME=VALUE
+	std::string variant;                // build --variant NAME
+	bool allVariants = false;           // build --all-variants
 
 	std::string toolchain;              // --toolchain / NCPATCHER_TOOLCHAIN
 	config::Source toolchainSource = config::Source::Default;

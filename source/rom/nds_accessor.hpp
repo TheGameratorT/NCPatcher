@@ -45,6 +45,10 @@ public:
 
 	u32 createOverlay(bool arm9, u32 id, std::span<const u8> data) override;
 
+	[[nodiscard]] int findNitroFile(std::string_view path) const override;
+	u32 replaceNitroFile(std::string_view path, std::span<const u8> data) override;
+	u32 addNitroFile(std::string_view path, std::span<const u8> data) override;
+
 	void commit() override;
 
 private:

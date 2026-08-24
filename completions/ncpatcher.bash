@@ -51,6 +51,9 @@ _ncpatcher()
 			COMPREPLY=($(compgen -W 'build section elf patch library linking symbols nolib all' -- "$cur"))
 			return
 			;;
+		--variant)
+			return
+			;;
 		-j|--jobs|-D|--define|--var|--toolchain)
 			return
 			;;
@@ -81,6 +84,7 @@ _ncpatcher()
 
 	local extra=''
 	case "$command" in
+		build)   extra='--variant --all-variants' ;;
 		clean)   extra='--backups' ;;
 		migrate) extra='--write' ;;
 		config)

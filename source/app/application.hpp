@@ -50,6 +50,7 @@ private:
 
 	// Subcommands
 	void runBuild();
+	void runConfiguredBuild();
 	int runClean();
 	int runRestore();
 	int runConfigDump();
@@ -68,10 +69,11 @@ private:
 	// second implementation of the same rules.
 	[[nodiscard]] ResolvedTarget resolveTarget(bool isArm9, Context& targetCtx) const;
 
-	void runCommandList(const std::vector<std::string>& commands,
-					   const char* message,
-					   Diag code,
-					   const char* errorContext);
+	void runHooks(config::HookWhen when,
+				  const char* message,
+				  Diag code,
+				  const char* errorContext);
+	void insertFiles(ncp::rom::RomAccessor& rom);
 
 	// Initialization helpers
 	void initializePaths();
@@ -93,6 +95,7 @@ private:
 	void writeModuleDump();
 
 	void applyCommandLineOverrides();
+	void applyVariant(const std::string& name, bool deriveOutput);
 	void resolveRomDir();
 
 	// How much room to leave after the ARM9 binary when a .nds has to be laid

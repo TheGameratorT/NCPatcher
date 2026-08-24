@@ -4,6 +4,7 @@
 #include <sstream>
 
 #include "fat.hpp"
+#include "nitro_fs.hpp"
 #include "../system/except.hpp"
 #include "../system/log.hpp"
 
@@ -261,6 +262,49 @@ u32 DirRomAccessor::createOverlay(bool arm9, u32 id, std::span<const u8> data)
 	const u32 fileId = fat.add(FatEntry{ 0, u32(data.size()) });
 	writeWholeFile(fatFile, fat.serialize());
 	writeOverlay(arm9, id, data);
+	return fileId;
+}
+
+int DirRomAccessor::findNitroFile(std::string_view nitroPath) const
+{
+	const NitroFs tree = NitroFs::parse(readWholeFile(path(m_layout.fnt)));
+	return tree.findFile(nitroPath);
+}
+
+u32 DirRomAccessor::replaceNitroFile(std::string_view nitroPath, std::span<const u8> data)
+{
+	const int fileId = findNitroFile(nitroPath);
+	if (fileId < 0)
+		throw ncp::exception("Cannot replace a NitroFS path that does not exist.");
+
+	const fs::path file = path(m_layout.dataDir) / fs::path(std::string(nitroPath));
+	if (!fs::exists(file))
+	{
+		std::ostringstream oss;
+		oss << "Cannot replace " << OSTR(std::string(nitroPath)) << ": "
+		    << OSTR(file.string()) << " is missing from the extracted ROM.";
+		throw ncp::exception(oss.str());
+	}
+	writeWholeFile(file, data);
+	return u32(fileId);
+}
+
+u32 DirRomAccessor::addNitroFile(std::string_view nitroPath, std::span<const u8> data)
+{
+	const fs::path fntFile = path(m_layout.fnt);
+	const fs::path fatFile = path(m_layout.fat);
+	NitroFs tree = NitroFs::parse(readWholeFile(fntFile));
+	Fat fat = Fat::parse(readWholeFile(fatFile));
+
+	const u32 predictedId = u32(fat.size());
+	tree.addFile(nitroPath, predictedId);
+	const u32 fileId = fat.add(FatEntry{ 0, u32(data.size()) });
+
+	const fs::path file = path(m_layout.dataDir) / fs::path(std::string(nitroPath));
+	fs::create_directories(file.parent_path());
+	writeWholeFile(file, data);
+	writeWholeFile(fntFile, tree.serialize());
+	writeWholeFile(fatFile, fat.serialize());
 	return fileId;
 }
 

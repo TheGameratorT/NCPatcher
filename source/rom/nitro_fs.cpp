@@ -214,6 +214,74 @@ int NitroFs::findFile(std::string_view path) const
 	return it == dir->entries.end() ? -1 : int(it->id);
 }
 
+u16 NitroFs::ensureDirectory(std::string_view path)
+{
+	if (m_directories.empty())
+		m_directories.push_back(FsDirectory{});
+
+	u16 current = FIRST_DIR_ID;
+	for (std::string_view part : splitPath(path))
+	{
+		FsDirectory* parent = directory(current);
+		const auto existing = std::find_if(parent->entries.begin(), parent->entries.end(),
+			[&](const FsEntry& entry) { return entry.isDirectory && namesEqual(entry.name, part); });
+		if (existing != parent->entries.end())
+		{
+			current = existing->id;
+			continue;
+		}
+
+		if (part.empty() || part.size() > 0x7F)
+			throw ncp::exception("Cannot create a NitroFS directory with an invalid name.");
+		if (m_directories.size() >= 0x1000)
+			throw ncp::exception("Cannot create another NitroFS directory: all 4096 ids are in use.");
+
+		const u16 childId = u16(FIRST_DIR_ID + m_directories.size());
+		FsDirectory child;
+		child.id = childId;
+		child.parentId = current;
+		m_directories.push_back(std::move(child));
+
+		FsEntry entry;
+		entry.name = std::string(part);
+		entry.isDirectory = true;
+		entry.id = childId;
+		directory(current)->entries.push_back(std::move(entry));
+		current = childId;
+	}
+	return current;
+}
+
+void NitroFs::addFile(std::string_view path, u32 fileId)
+{
+	if (path.empty() || path.front() == '/' || path.back() == '/'
+		|| path.find("//") != std::string_view::npos || path.find('\\') != std::string_view::npos)
+		throw ncp::exception("Cannot add an invalid NitroFS path.");
+	for (std::string_view part : splitPath(path))
+		if (part == "." || part == "..")
+			throw ncp::exception("Cannot add an invalid NitroFS path.");
+	if (fileId > 0xFFFF)
+		throw ncp::exception("Cannot add another named NitroFS file: all 65536 ids are in use.");
+	if (findFile(path) >= 0)
+		throw ncp::exception("Cannot add a NitroFS file whose path already exists.");
+
+	const std::size_t slash = path.rfind('/');
+	const std::string_view dirPath = slash == std::string_view::npos ? std::string_view() : path.substr(0, slash);
+	const std::string_view name = slash == std::string_view::npos ? path : path.substr(slash + 1);
+	if (name.empty() || name == "." || name == ".." || name.size() > 0x7F)
+		throw ncp::exception("Cannot add a NitroFS file with an invalid name.");
+
+	const u16 dirId = ensureDirectory(dirPath);
+	FsDirectory* dir = directory(dirId);
+	std::size_t count = 0;
+	for (const FsEntry& entry : dir->entries)
+		count += entry.isDirectory ? 0 : 1;
+	if (count == 0)
+		dir->firstFileId = u16(fileId);
+
+	nameFile(dirId, std::string(name), u16(fileId));
+}
+
 void NitroFs::nameFile(u16 directoryId, const std::string& name, u16 fileId)
 {
 	FsDirectory* dir = directory(directoryId);

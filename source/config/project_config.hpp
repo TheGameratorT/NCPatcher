@@ -258,6 +258,46 @@ struct ModulesConfig
 	[[nodiscard]] bool empty() const { return selections.empty(); }
 };
 
+enum class HookWhen
+{
+	PreBuild,
+	PostBuild
+};
+
+[[nodiscard]] const char* hookWhenName(HookWhen when);
+
+// One external command attached to a build phase. The v1 pre-build/post-build
+// arrays and their v2 compatibility aliases are normalized to this shape too,
+// so execution has one path regardless of which spelling the project used.
+struct HookConfig
+{
+	std::string name;
+	std::string run;
+	std::filesystem::path cwd;
+	std::vector<std::pair<std::string, std::string>> env;
+	HookWhen when = HookWhen::PreBuild;
+
+	bool operator==(const HookConfig&) const = default;
+};
+
+// One loose file copied into NitroFS. `path` is always a '/'-separated ROM
+// path; `source` is resolved against the project directory when the hook phase
+// is over, so a pre-build hook may generate it.
+struct FileConfig
+{
+	std::string path;
+	std::filesystem::path source;
+};
+
+// One named build from the same project. Defines join the normal command-line
+// define path, while files override the project mapping by NitroFS destination.
+struct VariantConfig
+{
+	std::string name;
+	std::vector<std::string> defines;
+	std::vector<FileConfig> files;
+};
+
 struct TargetConfig
 {
 	std::string name;          // "arm9" or "arm7"
@@ -336,8 +376,9 @@ struct ProjectConfig
 
 	ModulesConfig modules;
 
-	std::vector<std::string> preBuild;
-	std::vector<std::string> postBuild;
+	std::vector<HookConfig> hooks;
+	std::vector<FileConfig> files;
+	std::vector<VariantConfig> variants;
 
 	TargetConfig arm7;
 	TargetConfig arm9;

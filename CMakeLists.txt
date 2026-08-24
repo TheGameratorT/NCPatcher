@@ -274,6 +274,12 @@ if (NCP_BUILD_TESTS)
 		source/system/diagnostics.cpp source/system/exit_code.cpp)
 	ncp_add_test(json_test tests/json_test.cpp source/utils/json.cpp)
 	ncp_add_test(ansi_test tests/ansi_test.cpp source/system/ansi.cpp)
+	ncp_add_test(cli_test tests/cli_test.cpp source/app/cli.cpp)
+	target_link_libraries(cli_test PRIVATE ${YAML_CPP_TARGET})
+	ncp_add_test(process_test tests/process_test.cpp source/system/process.cpp)
+	if (NOT WIN32)
+		target_link_libraries(process_test PRIVATE Threads::Threads)
+	endif()
 
 	# The ROM tests reach into the container, which reports failures the same
 	# way the rest of the program does, so they need the diagnostics and log
@@ -281,6 +287,7 @@ if (NCP_BUILD_TESTS)
 	ncp_add_test(rom_test
 		tests/rom_test.cpp
 		source/formats/blz.cpp
+		source/rom/dir_accessor.cpp
 		source/rom/endian.cpp
 		source/rom/fat.cpp
 		source/rom/header.cpp

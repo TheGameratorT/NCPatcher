@@ -47,6 +47,7 @@ ExitCode exitCodeFor(Diag code)
 	case Diag::PatchFileSystemSetup:
 	case Diag::RomHeaderLoad:
 	case Diag::RomAccess:
+	case Diag::NitroFsInsert:
 	case Diag::ArmBinLoad:
 	case Diag::CleanFailed:
 	case Diag::RestoreFailed:

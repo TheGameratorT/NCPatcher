@@ -253,8 +253,8 @@ static const char* V1_PROJECT = R"({
 	"toolchain": "arm-none-eabi-",
 	"arm7": {},
 	"arm9": { "target": "code/arm9.json", "build": "code/build" },
-	"pre-build": [],
-	"post-build": [],
+	"pre-build": ["echo legacy pre"],
+	"post-build": ["echo legacy post"],
 	"thread-count": 0
 })";
 
@@ -302,6 +302,9 @@ static void testV1Reader(const fs::path& root)
 	check(!config.arm7.enabled, "an empty target object means the target is off");
 	check(config.arm9.enabled, "a populated target object means it is on");
 	checkEqual(config.toolchain.value, "arm-none-eabi-", "the toolchain reads back");
+	check(config.hooks.size() == 2, "v1 command arrays become hooks");
+	checkEqual(config.hooks[0].name, "pre-build #1", "a legacy hook gets a stable name");
+	check(config.hooks[1].when == HookWhen::PostBuild, "the legacy post-build phase survives");
 
 	// The [path, recursive] pair form: six shipped projects still use it, and
 	// the glob rewrite would have thrown on every one of them.
@@ -345,6 +348,37 @@ rom:
 
 toolchain: { prefix: arm-none-eabi- }
 
+modules:
+  dump: build/generated/modules.json
+  enabled: []
+
+hooks:
+  - name: Generate module headers
+    run: generate ${ncp.moduleDump}
+    cwd: ${project.root}/tools
+    env:
+      MODULE_DUMP: ${ncp.moduleDump}
+      HOOK_MODE: ${env.NCP_HOOK_MODE:-portable}
+    when: pre-build
+  - name: Report result
+    run: report
+    when: post-build
+
+files:
+  sp/demo/readme.txt: ${project.root}/nitrofs/readme.txt
+  z_new/coop/new.bin: generated/new.bin
+
+variants:
+  en:
+    defines: GAME_LANGUAGE_EN
+    files:
+      sp/demo/readme.txt: nitrofs/en/readme.txt
+  fr:
+    defines: [GAME_LANGUAGE_FR, MESSAGE_LANGUAGE=2]
+    files:
+      sp/demo/readme.txt: nitrofs/fr/readme.txt
+      z_new/coop/localized.bin: generated/fr.bin
+
 defines: [SDK_GCC]
 flags:
   common: [-mabi=aapcs]
@@ -382,6 +416,34 @@ static void testV2Reader(const fs::path& root)
 	check(config.version == 2, "the version key is read");
 	check(!config.arm7.enabled, "enabled: false turns a target off");
 	checkEqual(config.filesystemDir.value.generic_string(), "__tmp", "rom.dir reads back");
+	check(config.hooks.size() == 2, "structured hooks read back");
+	checkEqual(config.hooks[0].name, "Generate module headers", "a hook keeps its name");
+	check(config.hooks[0].when == HookWhen::PreBuild, "a hook keeps its phase");
+	checkEqual(config.hooks[0].cwd.generic_string(), (root / "tools").generic_string(),
+		"hook cwd expands project.root");
+	const std::string moduleDump = (root / "build/generated/modules.json").generic_string();
+	checkEqual(config.hooks[0].run, "generate " + moduleDump,
+		"ncp.moduleDump expands to the absolute dump path");
+	check(config.hooks[0].env.size() == 2, "a hook reads environment overrides");
+	checkEqual(config.hooks[0].env[0].second, moduleDump,
+		"hook environment values expand ncp.moduleDump");
+	checkEqual(config.hooks[0].env[1].second, "portable",
+		"hook environment values use normal env fallback expansion");
+	check(config.hooks[1].when == HookWhen::PostBuild, "post-build is a hook phase");
+	check(config.files.size() == 2, "NitroFS files read back");
+	checkEqual(config.files[0].path, "sp/demo/readme.txt", "a NitroFS destination keeps '/' separators");
+	checkEqual(config.files[0].source.generic_string(), (root / "nitrofs/readme.txt").generic_string(),
+		"a NitroFS source expands project.root");
+	checkEqual(config.files[1].source.generic_string(), "generated/new.bin",
+		"a relative NitroFS source stays relative to the project");
+	check(config.variants.size() == 2, "variants preserve their declaration order");
+	checkEqual(config.variants[0].name, "en", "a variant keeps its name");
+	check(config.variants[0].defines == std::vector<std::string>({ "GAME_LANGUAGE_EN" }),
+		"a scalar variant define becomes a one-entry list");
+	checkEqual(config.variants[0].files[0].source.generic_string(), "nitrofs/en/readme.txt",
+		"a variant reads its file override");
+	check(config.variants[1].defines.size() == 2 && config.variants[1].files.size() == 2,
+		"a variant carries its complete define/file matrix");
 
 	PathContext paths;
 	paths.workDir = root;
@@ -427,11 +489,44 @@ static void testV2RejectsTypos(const fs::path& root)
 	check(contains(error, "maxsze"), "an unknown key is named");
 	check(contains(error, "Expected one of"), "an unknown key lists what was expected");
 
-	// The reserved sections belong to phases that do not exist yet; saying so
-	// beats "unknown key" when someone tries a config written for a later one.
-	write(root / "future.yaml", std::string(V2_PROJECT) + "\nhooks:\n  - name: gen\n");
-	const std::string reserved = errorFrom([&] { (void)loadV2(root / "future.yaml", root); });
-	check(contains(reserved, "not supported by this version"), "a reserved section says so");
+	std::string badVariant = V2_PROJECT;
+	const std::string variantDefine = "defines: GAME_LANGUAGE_EN";
+	badVariant.replace(badVariant.find(variantDefine), variantDefine.size(),
+		variantDefine + "\n    output: build/en.nds");
+	write(root / "bad-variant-key.yaml", badVariant);
+	const std::string variantKey = errorFrom([&] { (void)loadV2(root / "bad-variant-key.yaml", root); });
+	check(contains(variantKey, "output"), "an unknown variant key is rejected");
+
+	std::string badVariantName = V2_PROJECT;
+	badVariantName.replace(badVariantName.find("  en:\n"), 6, "  ../en:\n");
+	write(root / "bad-variant-name.yaml", badVariantName);
+	const std::string variantName = errorFrom([&] { (void)loadV2(root / "bad-variant-name.yaml", root); });
+	check(contains(variantName, "variant name"), "a variant name cannot become a path");
+
+	std::string duplicateVariant = V2_PROJECT;
+	duplicateVariant.insert(duplicateVariant.find("\ndefines: [SDK_GCC]"),
+		"  EN:\n    defines: DUPLICATE\n");
+	write(root / "duplicate-variant.yaml", duplicateVariant);
+	const std::string duplicate = errorFrom([&] { (void)loadV2(root / "duplicate-variant.yaml", root); });
+	check(contains(duplicate, "more than once"), "variant names cannot collide by case");
+
+	std::string badWhen = V2_PROJECT;
+	const std::string phaseText = "when: pre-build";
+	badWhen.replace(badWhen.find(phaseText), phaseText.size(), "when: during");
+	write(root / "bad-hook-phase.yaml", badWhen);
+	const std::string phase = errorFrom([&] { (void)loadV2(root / "bad-hook-phase.yaml", root); });
+	check(contains(phase, "Invalid hook phase"), "an unknown hook phase is rejected");
+
+	write(root / "mixed-hooks.yaml", std::string(V2_PROJECT) + "\npre-build: echo old\n");
+	const std::string mixed = errorFrom([&] { (void)loadV2(root / "mixed-hooks.yaml", root); });
+	check(contains(mixed, "not both"), "structured and compatibility hooks cannot be mixed");
+
+	std::string unsafeFile = V2_PROJECT;
+	const std::string safePath = "sp/demo/readme.txt";
+	unsafeFile.replace(unsafeFile.find(safePath), safePath.size(), "../outside.bin");
+	write(root / "unsafe-file.yaml", unsafeFile);
+	const std::string unsafe = errorFrom([&] { (void)loadV2(root / "unsafe-file.yaml", root); });
+	check(contains(unsafe, "cannot contain"), "a NitroFS path cannot escape through '..'");
 }
 
 // Migration ==============================================================
