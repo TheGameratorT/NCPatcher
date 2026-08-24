@@ -110,6 +110,36 @@ components:
 	return root;
 }
 
+static const char* CATALOG = R"YAML(version: 1
+regions:
+  - dest: ov9
+    maxsize: 0x4000
+  - dest: ov12
+    maxsize: 0x8000
+  - dest: ov40
+    maxsize: 0x1000
+)YAML";
+
+// The same project, but taking its overlays from a catalog instead of naming
+// every one of them. This is the shape a module-driven project actually has.
+static const char* PROJECT_HEAD_CATALOG = R"YAML(version: 2
+rom:
+  dir: rom
+  backup: backup
+targets:
+  arm9:
+    build: build/arm9
+    region-catalog: overlays9.yaml
+    regions:
+      - dest: main
+        sources: []
+  arm7:
+    build: build/arm7
+    regions:
+      - dest: main
+        sources: []
+)YAML";
+
 static const char* PROJECT_HEAD = R"YAML(version: 2
 rom:
   dir: rom
@@ -130,6 +160,14 @@ targets:
 static config::ProjectConfig load(const fs::path& root, const std::string& modulesSection)
 {
 	write(root / "ncpatcher.yaml", std::string(PROJECT_HEAD) + modulesSection);
+	return config::load(root / "ncpatcher.yaml", root, {});
+}
+
+static config::ProjectConfig loadWithCatalog(const fs::path& root, const std::string& modulesSection,
+                                             const char* catalog = CATALOG)
+{
+	write(root / "overlays9.yaml", catalog);
+	write(root / "ncpatcher.yaml", std::string(PROJECT_HEAD_CATALOG) + modulesSection);
 	return config::load(root / "ncpatcher.yaml", root, {});
 }
 
@@ -196,8 +234,7 @@ static void testResolvesTheGraph(const fs::path& root)
 static void testFoldsIntoTheTarget(const fs::path& root)
 {
 	makeProject(root);
-	const config::ProjectConfig config = load(root, R"YAML(modules:
-  auto-create-regions: true
+	const config::ProjectConfig config = loadWithCatalog(root, R"YAML(modules:
   enabled: [alpha, beta]
 )YAML");
 	const ModuleGraph graph = resolveQuiet(config, root);
@@ -212,7 +249,11 @@ static void testFoldsIntoTheTarget(const fs::path& root)
 		config::TargetResolver::resolve(config, config.arm9, paths, &graph, quiet);
 
 	check(target.regions.size() == 3, "the overlays a module targeted became regions");
-	check(target.getRegionByDestination(9) != nullptr, "an auto-created region carries its overlay id");
+	check(target.getRegionByDestination(9) != nullptr, "a catalog region carries its overlay id");
+	check(target.getRegionByDestination(9)->maxsize == 0x4000,
+		"and the limit the catalog gave it");
+	check(target.getRegionByDestination(40) == nullptr,
+		"a catalog overlay nothing was built into is not a region at all");
 	check(contains(target.cppFlags, "-DMODULE_ALPHA"), "module defines reach the compiler flags");
 
 	// Absolute in the graph, relative in the target: object files are laid out
@@ -278,7 +319,6 @@ static void testProjectOverrides(const fs::path& root)
 {
 	makeProject(root);
 	const config::ProjectConfig config = load(root, R"YAML(modules:
-  auto-create-regions: true
   enabled:
     - alpha:
         components:
@@ -325,7 +365,6 @@ static void testLockedTargetRefusesOverride(const fs::path& root)
 {
 	makeProject(root);
 	const config::ProjectConfig config = load(root, R"YAML(modules:
-  auto-create-regions: true
   enabled:
     - alpha:
         components:
@@ -476,7 +515,125 @@ static void testUndeclaredRegionIsAnError(const fs::path& root)
 		(void)config::TargetResolver::resolve(config, config.arm9, paths, &graph, quiet);
 	});
 	check(contains(error, "ov9"), "the overlay nobody declared is named");
-	check(contains(error, "auto-create-regions"), "the way to allow it is offered");
+	check(contains(error, "region-catalog"), "the way to declare it is offered");
+}
+
+// The region catalog ------------------------------------------------------
+
+// The point of the catalog: the project says where code goes, the catalog says
+// how far it may grow, and neither has to restate the other.
+static void testCatalogSuppliesTheLimit(const fs::path& root)
+{
+	makeProject(root);
+	const config::ProjectConfig config = loadWithCatalog(root, R"YAML(modules:
+  enabled: [alpha]
+)YAML");
+	const ModuleGraph graph = resolveQuiet(config, root);
+
+	PathContext paths;
+	paths.workDir = root;
+	paths.targetWorkDir = root;
+	config::TargetResolver::Options quiet;
+	quiet.quiet = true;
+
+	const BuildTarget target =
+		config::TargetResolver::resolve(config, config.arm9, paths, &graph, quiet);
+
+	const BuildTarget::Region* ov9 = target.getRegionByDestination(9);
+	check(ov9 != nullptr, "the module's overlay came from the catalog");
+	check(ov9->maxsize == 0x4000, "with the catalog's limit rather than a default");
+
+	// The catalog lists three overlays and the modules reach two of them. The
+	// third must not survive: an empty region with a real limit is still an
+	// overlay the patcher would go and write.
+	check(target.getRegionByDestination(40) == nullptr, "an unused catalog entry is dropped");
+}
+
+// A project that disagrees with the catalog wins, because it is the one that
+// knows what it is building.
+static void testTargetOverridesTheCatalog(const fs::path& root)
+{
+	makeProject(root);
+	const config::ProjectConfig config = loadWithCatalog(root, R"YAML(modules:
+  enabled: [alpha]
+)YAML");
+
+	// Re-read with the target naming ov9 itself, at a size the catalog does not
+	// give it.
+	write(root / "ncpatcher.yaml", std::string(R"YAML(version: 2
+rom:
+  dir: rom
+  backup: backup
+targets:
+  arm9:
+    build: build/arm9
+    region-catalog: overlays9.yaml
+    regions:
+      - dest: main
+        sources: []
+      - dest: ov9
+        maxsize: 0x2000
+  arm7:
+    build: build/arm7
+    regions:
+      - dest: main
+        sources: []
+)YAML") + "modules:\n  enabled: [alpha]\n");
+
+	const config::ProjectConfig overridden = config::load(root / "ncpatcher.yaml", root, {});
+	const ModuleGraph graph = resolveQuiet(overridden, root);
+
+	PathContext paths;
+	paths.workDir = root;
+	paths.targetWorkDir = root;
+	config::TargetResolver::Options quiet;
+	quiet.quiet = true;
+
+	const BuildTarget target =
+		config::TargetResolver::resolve(overridden, overridden.arm9, paths, &graph, quiet);
+
+	const BuildTarget::Region* ov9 = target.getRegionByDestination(9);
+	check(ov9 != nullptr && ov9->maxsize == 0x2000, "the target's own maxsize wins");
+	check(config.arm9.regions.size() > 0, "the catalog-only load still resolved");
+}
+
+// An overlay in neither the catalog nor the target is still an error. This is
+// the case auto-create-regions used to paper over, and papering over it is how
+// code ends up running off the end of an overlay into its neighbour.
+static void testOverlayMissingFromCatalogIsAnError(const fs::path& root)
+{
+	makeProject(root);
+	const config::ProjectConfig config = loadWithCatalog(root, R"YAML(modules:
+  enabled: [alpha]
+)YAML", R"YAML(version: 1
+regions:
+  - dest: ov12
+    maxsize: 0x8000
+)YAML");
+	const ModuleGraph graph = resolveQuiet(config, root);
+
+	PathContext paths;
+	paths.workDir = root;
+	paths.targetWorkDir = root;
+	config::TargetResolver::Options quiet;
+	quiet.quiet = true;
+
+	const std::string error = errorFrom([&] {
+		(void)config::TargetResolver::resolve(config, config.arm9, paths, &graph, quiet);
+	});
+	check(contains(error, "ov9"), "the overlay nobody listed is named");
+	check(contains(error, "overlays9.yaml"), "the catalog that failed to list it is named");
+}
+
+static void testMissingCatalogFileIsAnError(const fs::path& root)
+{
+	makeProject(root);
+	const std::string error = errorFrom([&] {
+		write(root / "ncpatcher.yaml", std::string(PROJECT_HEAD_CATALOG) + "modules:\n  enabled: [alpha]\n");
+		fs::remove(root / "overlays9.yaml");
+		(void)config::load(root / "ncpatcher.yaml", root, {});
+	});
+	check(contains(error, "overlays9.yaml"), "the catalog it could not find is named");
 }
 
 // The dump ---------------------------------------------------------------
@@ -485,7 +642,6 @@ static void testDumpCarriesUnknownKeys(const fs::path& root)
 {
 	makeProject(root);
 	const config::ProjectConfig config = load(root, R"YAML(modules:
-  auto-create-regions: true
   enabled: [alpha, beta]
 )YAML");
 	const ModuleGraph graph = resolveQuiet(config, root);
@@ -525,6 +681,10 @@ int main()
 	testDisabledRequirementIsAnError(root / "requires");
 	testInvalidIdIsAnError(root / "id");
 	testUndeclaredRegionIsAnError(root / "undeclared");
+	testCatalogSuppliesTheLimit(root / "catalog");
+	testTargetOverridesTheCatalog(root / "catalog-override");
+	testOverlayMissingFromCatalogIsAnError(root / "catalog-missing-entry");
+	testMissingCatalogFileIsAnError(root / "catalog-missing-file");
 	testDumpCarriesUnknownKeys(root / "dump");
 
 	fs::remove_all(root);

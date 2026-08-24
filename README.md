@@ -485,7 +485,6 @@ The project side:
 modules:
   dir: modules                        # default
   dump: build/generated/modules.json  # optional; see below
-  auto-create-regions: false
   enabled:
     - coop
     - mini-hacks
@@ -508,15 +507,61 @@ whether a module is present without the project having to say so twice.
 
 A component targeting `arm9(58)` needs the ARM9 target to have an `ov58` region.
 It is an error if it does not — a mistyped overlay id would otherwise become an
-overlay full of code the game never loads. `modules.auto-create-regions: true`
-lifts that, creating an appending region with the target's own flags; declare
-the region yourself when you want a `maxsize` enforced, because an auto-created
-one gets the 1 MiB default.
+overlay full of code the game never loads, and an invented region has no size
+limit worth the name, so the first thing it would do is let that code run past
+the end of its overlay into the next one.
 
-For a project that uses modules, a declared region that nothing ended up in is
-dropped rather than written as an empty overlay — but only when it does nothing
-but append. A `replace` region reserves space and an `overwrites` region blanks
-code, and both mean something with no sources at all.
+Declaring one region per overlay a module might ever reach is not the answer
+either. That is what `region-catalog` is for.
+
+## Region catalogs
+
+Which overlays a game has, and how far each one may grow before it runs into
+whatever the game placed after it, is a property of the game — not of your
+project. One table serves every project built against that game, so it lives
+outside the project and is referenced rather than copied. A copied table goes
+stale silently, and a stale ceiling is an overlay that overruns its neighbour.
+
+```yaml
+targets:
+  arm9:
+    region-catalog: ${env.NSMBREF_ROOT}/overlays9.yaml
+    regions:
+      - dest: main
+        overwrites: [[0x02026CE0, 0x02039170]]
+      - dest: ov58
+        maxsize: 0x4000      # this project knows better than the catalog
+```
+
+The catalog itself holds nothing but the overlays:
+
+```yaml
+version: 1
+regions:
+  - dest: ov0
+    maxsize: 0x33C00
+  - dest: ov1
+    maxsize: 0x56400
+```
+
+Only `dest`, `address`, `maxsize` and `compress` are accepted there. Sources,
+flags and defines are the project's business, so a catalog cannot smuggle them
+in.
+
+**A catalog entry is an offer, not a declaration.** An overlay nothing is built
+into is dropped rather than written out, which is what makes listing all 131 of
+them cost nothing. Name a region in the target and it is yours: whatever you say
+wins, and whatever you leave out still comes from the catalog — so naming an
+overlay to put sources in it does not mean restating a size limit you have no
+opinion about.
+
+An overlay in neither the catalog nor the target is still an error, naming the
+overlay and the catalog that failed to list it.
+
+For a project that uses modules, a region the target declared itself and that
+nothing ended up in is dropped too — but only when it does nothing but append.
+A `replace` region reserves space and an `overwrites` region blanks code, and
+both mean something with no sources at all.
 
 ### The dump
 

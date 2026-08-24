@@ -217,6 +217,7 @@ install(FILES ${RUNTIME_FILES} DESTINATION "${NCP_INSTALL_DATADIR}")
 install(FILES
 	"${PROJECT_SOURCE_DIR}/schema/ncpatcher.schema.json"
 	"${PROJECT_SOURCE_DIR}/schema/module.schema.json"
+	"${PROJECT_SOURCE_DIR}/schema/regions.schema.json"
 	DESTINATION "${NCP_INSTALL_DATADIR}")
 
 if (NOT NCP_PORTABLE_LAYOUT)

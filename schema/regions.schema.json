@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/TheGameratorT/NCPatcher/main/schema/regions.schema.json",
+  "title": "NCPatcher region catalog",
+  "description": "The overlays a game has and how large each one may grow. Shared game knowledge: one catalog serves every project built against that game, and a target points at it with region-catalog.",
+  "type": "object",
+  "required": ["version", "regions"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": 1,
+      "description": "Catalog schema version."
+    },
+    "regions": {
+      "type": "array",
+      "description": "One entry per overlay. An entry nothing lands in is dropped rather than built.",
+      "items": { "$ref": "#/$defs/entry" }
+    }
+  },
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "required": ["dest"],
+      "additionalProperties": false,
+      "properties": {
+        "dest": {
+          "type": "string",
+          "pattern": "^(main|ov[0-9]+)$",
+          "description": "\"main\" for the ARM binary, or \"ovNN\" for an overlay."
+        },
+        "address": {
+          "type": ["string", "integer"],
+          "description": "Where the overlay is loaded in RAM."
+        },
+        "maxsize": {
+          "type": ["string", "integer"],
+          "description": "How far this overlay may grow before it runs into whatever the game placed after it. Exceeding it is an error, not a warning."
+        },
+        "compress": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the overlay is stored compressed."
+        }
+      }
+    }
+  }
+}

@@ -149,8 +149,7 @@ void applyDefines(DefineSet& defines, const ListOp& op, const char* origin)
 // module targeting an overlay nobody declared is a question the target has to
 // answer, not the module.
 void foldModuleSources(BuildTarget& out, const modules::TargetContribution& contribution,
-                       const ProjectConfig& config, const TargetConfig& target,
-                       const PathContext& paths, const TargetResolver::Options& options)
+                       const TargetConfig& target, const PathContext& paths)
 {
 	std::vector<int> missing;
 
@@ -169,59 +168,65 @@ void foldModuleSources(BuildTarget& out, const modules::TargetContribution& cont
 
 	if (!missing.empty())
 	{
-		if (!config.modules.autoCreateRegions)
-		{
-			// Silently inventing the region is how a mistyped overlay id becomes
-			// an overlay full of code the game never loads.
-			std::ostringstream oss;
-			oss << "Modules put code in ";
-			bool first = true;
-			for (int destination : missing)
-			{
-				oss << (first ? "" : ", ")
-				    << OSTR(destination < 0 ? std::string("main") : "ov" + std::to_string(destination));
-				first = false;
-			}
-			oss << ", which the " << OSTR(target.name) << " target does not declare."
-			    << OREASONNL "Add the region, or set " << OSTRa("modules.auto-create-regions")
-			    << " to let a module's target stand on its own.";
-			throw ncp::exception(oss.str());
-		}
-
-		// The template every declared region would have had: the target's own
-		// flags, appended to whatever the overlay already holds.
+		// Silently inventing the region is how a mistyped overlay id becomes
+		// an overlay full of code the game never loads -- and an invented
+		// region has no size limit worth the name, so the first thing it would
+		// do is let that code run past the end of its overlay into the next.
+		std::ostringstream oss;
+		oss << "Modules put code in ";
+		bool first = true;
 		for (int destination : missing)
 		{
-			BuildTarget::Region region;
-			region.destination = destination;
-			region.mode = BuildTarget::Mode::Append;
-			region.compress = false;
-			region.address = 0;
-			region.maxsize = 0x100000;
-			region.cFlags = out.cFlags;
-			region.cppFlags = out.cppFlags;
-			region.asmFlags = out.asmFlags;
-
-			for (const fs::path& source : contribution.regionSources.at(destination))
-				appendUnique(region.sources, relativeTo(paths.targetWorkDir, source));
-
-			out.regions.push_back(std::move(region));
+			oss << (first ? "" : ", ")
+			    << OSTR(destination < 0 ? std::string("main") : "ov" + std::to_string(destination));
+			first = false;
 		}
-	}
+		oss << ", which the " << OSTR(target.name) << " target does not declare.";
 
-	// Regions that nothing ended up in.
-	//
-	// Only for a project that uses modules, and only where the region does
-	// nothing but append: a `replace` region reserves space and an `overwrites`
-	// region blanks code, and both are meaningful with no sources at all. This
-	// is what lets a module-driven project stop pre-declaring one region per
-	// overlay it might ever touch.
+		if (target.regionCatalog.configured())
+		{
+			oss << OREASONNL "Its " << OSTRa("region-catalog") << ", "
+			    << OSTR(target.regionCatalog.value.string())
+			    << ", does not list it either. Add it there if the game has that overlay, "
+			    << "or declare the region in the target with the size it may grow to.";
+		}
+		else
+		{
+			oss << OREASONNL "Add the region, or point " << OSTRa("region-catalog")
+			    << " at a file listing the overlays this game has.";
+		}
+		throw ncp::exception(oss.str());
+	}
+}
+
+// Regions that nothing ended up in.
+//
+// Only where the region does nothing but append: a `replace` region reserves
+// space and an `overwrites` region blanks code, and both are meaningful with no
+// sources at all.
+//
+// A catalog entry is dropped whenever it stays empty, because a catalog lists
+// what the game has rather than what this project builds. A region the target
+// wrote out itself is only dropped when modules are in play, where declaring
+// one region per overlay a module might reach is exactly the chore the module
+// system exists to remove.
+void pruneEmptyRegions(BuildTarget& out, const TargetConfig& target,
+                       bool usingModules, const TargetResolver::Options& options)
+{
 	const std::size_t before = out.regions.size();
+	std::size_t index = 0;
+
 	out.regions.erase(std::remove_if(out.regions.begin(), out.regions.end(),
-		[](const BuildTarget::Region& region) {
+		[&](const BuildTarget::Region& region) {
+			// out.regions is built one-for-one from target.regions, in order.
+			const bool fromCatalog = index < target.regions.size()
+				&& target.regions[index].fromCatalog;
+			index++;
+
 			return region.sources.empty()
 				&& region.mode == BuildTarget::Mode::Append
-				&& region.overwrites.empty();
+				&& region.overwrites.empty()
+				&& (fromCatalog || usingModules);
 		}), out.regions.end());
 
 	if (!options.quiet && out.regions.size() != before)
@@ -349,7 +354,9 @@ BuildTarget TargetResolver::resolve(const ProjectConfig& config, const TargetCon
 	}
 
 	if (contribution != nullptr)
-		foldModuleSources(out, *contribution, config, target, paths, options);
+		foldModuleSources(out, *contribution, target, paths);
+
+	pruneEmptyRegions(out, target, contribution != nullptr, options);
 
 	return out;
 }

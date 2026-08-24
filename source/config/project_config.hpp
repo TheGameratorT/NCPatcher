@@ -173,6 +173,12 @@ struct RegionConfig
 	RegionMode mode = RegionMode::Append;
 	bool compress = false;
 
+	// True for a region the target did not write out itself, but took from the
+	// catalog its `region-catalog` names. A catalog lists what the game has,
+	// not what this project builds, so an entry nothing lands in is dropped
+	// rather than emitted as an empty region.
+	bool fromCatalog = false;
+
 	Setting<u32> address;
 	Setting<u32> maxsize;
 
@@ -251,7 +257,6 @@ struct ModulesConfig
 	// Lets a component target an overlay the target never declared a region
 	// for. Off by default: a typo in an overlay id would otherwise produce a
 	// silently empty overlay instead of an error.
-	bool autoCreateRegions = false;
 
 	std::vector<ModuleSelection> selections;
 
@@ -321,6 +326,12 @@ struct TargetConfig
 	Setting<std::filesystem::path> workDir;
 	Setting<std::filesystem::path> symbols;
 	Setting<u32> arenaLo;
+
+	// A file listing the overlays this game has and how large each may grow.
+	// It is shared game knowledge -- the same table serves every project built
+	// against one game -- so it lives outside the project, and the target's own
+	// `regions` override whatever it says.
+	Setting<std::filesystem::path> regionCatalog;
 
 	ListOp includes;
 	FlagOps flags;

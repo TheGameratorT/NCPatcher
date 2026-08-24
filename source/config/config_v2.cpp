@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cctype>
 #include <initializer_list>
+#include <set>
 #include <sstream>
 
 #include "expander.hpp"
@@ -399,6 +400,123 @@ void readRegion(RegionConfig& region, const cfg::Node& node, const Expander& exp
 	readOverwrites(region, node);
 }
 
+// Reads the overlay catalog a target points at.
+//
+// The catalog is game knowledge, not project configuration: it says which
+// overlays the game has and how far each one may grow before it runs into
+// whatever the game put after it. One table serves every project built against
+// that game, which is why it lives outside the project and is referenced
+// rather than copied -- a copied table goes stale silently, and a stale ceiling
+// is an overlay that overruns its neighbour.
+//
+// Only the fields that describe the overlay itself are accepted here. Sources,
+// flags and defines are the project's business, so the catalog cannot smuggle
+// them in.
+std::vector<RegionConfig> readRegionCatalog(const fs::path& file, const cfg::Node& where)
+{
+	std::vector<RegionConfig> entries;
+	if (!fs::exists(file))
+	{
+		std::ostringstream oss;
+		oss << "The region catalog " << OSTR(file.string()) << " does not exist.";
+		where.fail(oss.str());
+	}
+
+	const cfg::Document doc(file);
+	const cfg::Node root = doc.root();
+	if (!root.isMap())
+		root.failType("a mapping");
+
+	checkKeys(root, "the region catalog", { "version", "regions" });
+
+	const cfg::Node version = root.require("version");
+	if (version.asInt() != 1)
+		version.fail("Unsupported region catalog version; this NCPatcher reads version 1.");
+
+	const cfg::Node regions = root.require("regions");
+	if (!regions.isSequence())
+		regions.failType("a list of regions");
+
+	std::set<int> seen;
+	for (const cfg::Node& regionNode : regions.items())
+	{
+		if (!regionNode.isMap())
+			regionNode.failType("a mapping");
+
+		checkKeys(regionNode, "a catalog entry", { "dest", "address", "maxsize", "compress" });
+
+		RegionConfig region;
+		region.fromCatalog = true;
+		region.mark = regionNode.mark();
+		readDestination(region, regionNode.require("dest"));
+
+		if (!seen.insert(region.destination).second)
+		{
+			std::ostringstream oss;
+			oss << "The region catalog lists " << OSTR(region.dest) << " more than once.";
+			regionNode.fail(oss.str());
+		}
+
+		if (regionNode.has("address"))
+			region.address.set(regionNode["address"].asU32(), Source::RegionSection);
+		if (regionNode.has("maxsize"))
+			region.maxsize.set(regionNode["maxsize"].asU32(), Source::RegionSection);
+		region.compress = regionNode["compress"].asBool(false);
+
+		entries.push_back(std::move(region));
+	}
+
+	return entries;
+}
+
+// Lays one of the target's own regions over the catalog.
+//
+// The target always wins where it says something. Where it stays silent the
+// catalog's value survives, which is the whole point: a project names an
+// overlay to put sources in it, not to restate a size limit it has no opinion
+// about.
+void mergeRegion(TargetConfig& target, RegionConfig&& region, const cfg::Node& node)
+{
+	const auto existing = std::find_if(target.regions.begin(), target.regions.end(),
+		[&](const RegionConfig& candidate) { return candidate.destination == region.destination; });
+
+	if (existing != target.regions.end())
+	{
+		std::ostringstream oss;
+		oss << "Region " << OSTR(region.dest) << " is declared more than once.";
+		node.fail(oss.str());
+	}
+
+	target.regions.push_back(std::move(region));
+}
+
+// Lays the catalog under the regions the target wrote out itself.
+//
+// The target always wins where it says something. Where it stays silent the
+// catalog's value survives, which is the whole point: a project names an
+// overlay to put sources in it, not to restate a size limit it has no opinion
+// about. Entries the target never mentioned are appended, in catalog order, so
+// the regions a project actually wrote stay where it put them.
+void applyCatalog(TargetConfig& target, std::vector<RegionConfig>&& catalog)
+{
+	for (RegionConfig& entry : catalog)
+	{
+		const auto declared = std::find_if(target.regions.begin(), target.regions.end(),
+			[&](const RegionConfig& candidate) { return candidate.destination == entry.destination; });
+
+		if (declared == target.regions.end())
+		{
+			target.regions.push_back(std::move(entry));
+			continue;
+		}
+
+		if (!declared->address.configured() && entry.address.configured())
+			declared->address = entry.address;
+		if (!declared->maxsize.configured() && entry.maxsize.configured())
+			declared->maxsize = entry.maxsize;
+	}
+}
+
 // The project's half of the module system: which modules, and what the project
 // wants changed about them.
 //
@@ -503,7 +621,7 @@ void readModules(ModulesConfig& modules, const cfg::Node& node, const Expander& 
 	if (!node.isMap())
 		node.failType("a mapping");
 
-	checkKeys(node, "modules", { "dir", "dump", "auto-create-regions", "enabled" });
+	checkKeys(node, "modules", { "dir", "dump", "enabled" });
 
 	modules.dir.set(node.has("dir")
 		? fs::path(expander.expand(node["dir"].asString(), node["dir"]))
@@ -512,8 +630,6 @@ void readModules(ModulesConfig& modules, const cfg::Node& node, const Expander& 
 
 	if (node.has("dump"))
 		modules.dump.set(expander.expand(node["dump"].asString(), node["dump"]), Source::ProjectFile);
-
-	modules.autoCreateRegions = node["auto-create-regions"].asBool(false);
 
 	const cfg::Node enabled = node["enabled"];
 	if (!enabled.defined() || enabled.isNull())
@@ -556,7 +672,7 @@ void readTarget(TargetConfig& target, const cfg::Node& node, Expander expander,
 
 	checkKeys(node, "a target", {
 		"enabled", "build", "workdir", "arena-lo", "symbols",
-		"includes", "defines", "flags", "regions" });
+		"includes", "defines", "flags", "region-catalog", "regions" });
 
 	target.enabled = node["enabled"].asBool(true);
 	if (!target.enabled)
@@ -590,16 +706,31 @@ void readTarget(TargetConfig& target, const cfg::Node& node, Expander expander,
 	target.defines = readListOp(node["defines"], expander);
 	target.flags = readFlagOps(node["flags"], expander);
 
+	std::vector<RegionConfig> catalogEntries;
+	if (node.has("region-catalog"))
+	{
+		fs::path catalog = expander.expand(node["region-catalog"].asString(), node["region-catalog"]);
+		if (catalog.is_relative())
+			catalog = projectFile.parent_path() / catalog;
+		catalog = catalog.lexically_normal();
+		catalog.make_preferred();
+		target.regionCatalog.set(catalog, Source::TargetSection);
+		catalogEntries = readRegionCatalog(catalog, node["region-catalog"]);
+	}
+
 	const cfg::Node regions = node["regions"];
-	if (!regions.defined() || regions.isNull())
-		node.fail("A target needs at least one region.");
+	if ((!regions.defined() || regions.isNull()) && catalogEntries.empty())
+		node.fail("A target needs at least one region, or a "
+			ANSI_bCYAN "region-catalog" ANSI_RESET " to take them from.");
 
 	for (const cfg::Node& regionNode : regions.items())
 	{
 		RegionConfig region;
 		readRegion(region, regionNode, expander);
-		target.regions.push_back(std::move(region));
+		mergeRegion(target, std::move(region), regionNode);
 	}
+
+	applyCatalog(target, std::move(catalogEntries));
 
 	if (target.regions.empty())
 		regions.fail("A target needs at least one region.");

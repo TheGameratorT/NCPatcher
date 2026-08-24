@@ -403,6 +403,10 @@
         "flags": {
           "$ref": "#/$defs/flags"
         },
+        "region-catalog": {
+          "type": "string",
+          "description": "Path to a file listing the overlays this game has and how large each may grow. Shared game knowledge, so it usually lives outside the project. Entries nothing lands in are dropped, and the target's own regions override what it says."
+        },
         "regions": {
           "type": "array",
           "items": {
@@ -478,11 +482,6 @@
         "dump": {
           "type": "string",
           "description": "Where to write the resolved module graph as JSON, before the pre-build commands run."
-        },
-        "auto-create-regions": {
-          "type": "boolean",
-          "default": false,
-          "description": "Let a component target an overlay the target declares no region for. Off by default, so a mistyped overlay id is an error rather than an overlay the game never loads."
         },
         "enabled": {
           "type": "array",
