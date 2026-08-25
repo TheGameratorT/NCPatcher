@@ -8,6 +8,7 @@
 #include "../system/log.hpp"
 #include "../system/except.hpp"
 #include "../utils/util.hpp"
+#include "../utils/unicode.hpp"
 #include "../system/process.hpp"
 
 namespace ncp::patch {
@@ -198,7 +199,7 @@ void Linker::createLinkerScript(
     if (!symbolsFile.empty())
     {
         o += "INCLUDE \"";
-        o += Util::relativeIfSubpath(symbolsFile, m_paths->workDir).string();
+        o += ncp::pathToUtf8(Util::relativeIfSubpath(symbolsFile, m_paths->workDir));
         o += "\"\n\n";
     }
     
@@ -206,12 +207,12 @@ void Linker::createLinkerScript(
     for (const auto* unit : m_compilationUnitMgr->getUserUnits())
     {
         o += "\t\"";
-        o += Util::relativeIfSubpath(unit->getObjectPath(), m_paths->workDir).string();
+        o += ncp::pathToUtf8(Util::relativeIfSubpath(unit->getObjectPath(), m_paths->workDir));
         o += "\"\n";
     }
 
     o += ")\n\nOUTPUT (\"";
-    o += Util::relativeIfSubpath(m_elfPath, m_paths->workDir).string();
+    o += ncp::pathToUtf8(Util::relativeIfSubpath(m_elfPath, m_paths->workDir));
     o += "\")\n\n";
     
     o += "MEMORY {\n";
@@ -246,7 +247,7 @@ void Linker::createLinkerScript(
 		{
 			u32 forcedAlignment = 4;
             
-            std::string objPath = Util::relativeIfSubpath(section->unit->getObjectPath(), m_paths->workDir).string();
+            std::string objPath = ncp::pathToUtf8(Util::relativeIfSubpath(section->unit->getObjectPath(), m_paths->workDir));
 			o += "\t\t. = ALIGN(";
 			o += std::to_string(forcedAlignment);
 			o += ");\n\t\t\"";
@@ -317,7 +318,7 @@ void Linker::createLinkerScript(
             {
                 if (unit->getTargetRegion() == s->region)
                 {
-                    std::string objPath = Util::relativeIfSubpath(unit->getObjectPath(), m_paths->workDir).string();
+                    std::string objPath = ncp::pathToUtf8(Util::relativeIfSubpath(unit->getObjectPath(), m_paths->workDir));
 					static const char* secIncs[] = {
 						"text",
 						"rodata",
@@ -364,7 +365,7 @@ void Linker::createLinkerScript(
             {
                 if (unit->getTargetRegion() == s->region)
                 {
-                    std::string objPath = Util::relativeIfSubpath(unit->getObjectPath(), m_paths->workDir).string();
+                    std::string objPath = ncp::pathToUtf8(Util::relativeIfSubpath(unit->getObjectPath(), m_paths->workDir));
                     addSectionInclude(o, objPath, "bss");
                     addSectionInclude(o, objPath, "bss.*");
                 }
@@ -398,7 +399,7 @@ void Linker::createLinkerScript(
 			o += '\t';
 			o += info->symbol; // This is the section name like .ncp_setjump_0x02000000
 			o += " : { KEEP(\"";
-			o += Util::relativeIfSubpath(info->unit->getObjectPath(), m_paths->workDir).string();
+			o += ncp::pathToUtf8(Util::relativeIfSubpath(info->unit->getObjectPath(), m_paths->workDir));
 			o += "\" (";
 			o += info->symbol;
 			o += ")) } > ncp_set AT > bin\n";
@@ -511,7 +512,7 @@ void Linker::linkElfFile()
     ccmd.reserve(128);
     ccmd += m_ctx->toolchain();
     ccmd += "gcc -nostartfiles -Wl,--gc-sections,-T\"";
-    ccmd += Util::relativeIfSubpath(m_ldscriptPath, m_paths->workDir).string();
+    ccmd += ncp::pathToUtf8(Util::relativeIfSubpath(m_ldscriptPath, m_paths->workDir));
     ccmd += '\"';
     std::string targetFlags = ldFlagsToGccFlags(m_target->ldFlags);
     if (!targetFlags.empty())

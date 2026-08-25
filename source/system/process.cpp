@@ -2,12 +2,16 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cwchar>
+#include <cwctype>
 #include <cstring>
 #include <filesystem>
 #include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
+
+#include "../utils/unicode.hpp"
 
 #define BUFSIZE 4096
 
@@ -17,9 +21,9 @@
 
 namespace {
 
-bool sameEnvironmentName(const std::string& entry, const std::string& name)
+bool sameEnvironmentName(const std::wstring& entry, const std::wstring& name)
 {
-	const std::size_t separator = entry.find('=', entry.starts_with('=') ? 1 : 0);
+	const std::size_t separator = entry.find(L'=', entry.starts_with(L'=') ? 1 : 0);
 	if (separator != name.size())
 		return false;
 	for (std::size_t i = 0; i < name.size(); i++)
@@ -31,47 +35,49 @@ bool sameEnvironmentName(const std::string& entry, const std::string& name)
 	return true;
 }
 
-std::vector<char> makeEnvironmentBlock(const Process::Environment& overrides)
+// Wide, because the block is handed to CreateProcessW with
+// CREATE_UNICODE_ENVIRONMENT. A narrow block would put every inherited variable
+// through the ANSI code page on the way in and out, which is how a perfectly
+// good PATH comes back with question marks in it.
+std::vector<wchar_t> makeEnvironmentBlock(const Process::Environment& overrides)
 {
-	std::vector<std::string> entries;
-	LPCH inherited = GetEnvironmentStringsA();
+	std::vector<std::wstring> entries;
+	LPWCH inherited = GetEnvironmentStringsW();
 	if (inherited == nullptr)
 		throw std::runtime_error("GetEnvironmentStrings");
-	for (const char* entry = inherited; *entry != '\0'; entry += std::strlen(entry) + 1)
+	for (const wchar_t* entry = inherited; *entry != L'\0'; entry += std::wcslen(entry) + 1)
 		entries.emplace_back(entry);
-	FreeEnvironmentStringsA(inherited);
+	FreeEnvironmentStringsW(inherited);
 
 	for (const auto& [name, value] : overrides)
 	{
+		const std::wstring wideName = ncp::toWide(name);
 		const auto found = std::find_if(entries.begin(), entries.end(),
-			[&](const std::string& entry) { return sameEnvironmentName(entry, name); });
-		const std::string replacement = name + '=' + value;
+			[&](const std::wstring& entry) { return sameEnvironmentName(entry, wideName); });
+		const std::wstring replacement = wideName + L'=' + ncp::toWide(value);
 		if (found == entries.end())
 			entries.push_back(replacement);
 		else
 			*found = replacement;
 	}
 
-	auto foldedLess = [](const std::string& left, const std::string& right) {
+	auto foldedLess = [](const std::wstring& left, const std::wstring& right) {
 		return std::lexicographical_compare(left.begin(), left.end(), right.begin(), right.end(),
-			[](char a, char b) {
-				return std::tolower(static_cast<unsigned char>(a))
-					< std::tolower(static_cast<unsigned char>(b));
-			});
+			[](wchar_t a, wchar_t b) { return std::towlower(a) < std::towlower(b); });
 	};
 	std::sort(entries.begin(), entries.end(), foldedLess);
 
-	std::vector<char> block;
-	for (const std::string& entry : entries)
+	std::vector<wchar_t> block;
+	for (const std::wstring& entry : entries)
 	{
 		block.insert(block.end(), entry.begin(), entry.end());
-		block.push_back('\0');
+		block.push_back(L'\0');
 	}
 	// One terminator ends the last entry; the second ends the block. An empty
 	// environment still needs both.
 	if (block.empty())
-		block.push_back('\0');
-	block.push_back('\0');
+		block.push_back(L'\0');
+	block.push_back(L'\0');
 	return block;
 }
 
@@ -80,7 +86,7 @@ std::vector<char> makeEnvironmentBlock(const Process::Environment& overrides)
 int Process::start(const char* cmd, const std::filesystem::path& cwd,
 	               const Environment& environment, std::ostream* out)
 {
-	std::vector<char> environmentBlock;
+	std::vector<wchar_t> environmentBlock;
 	if (!environment.empty())
 		environmentBlock = makeEnvironmentBlock(environment);
 
@@ -107,9 +113,17 @@ int Process::start(const char* cmd, const std::filesystem::path& cwd,
 	}
 
 	// Create a child process that uses the previously created pipes for STDOUT.
-	std::vector<char> commandLine(cmd, cmd + std::strlen(cmd) + 1);
+	//
+	// Wide, and CreateProcessW below. The narrow half of the pair encodes
+	// through the machine's ANSI code page, which on an install whose user name
+	// is not ASCII cannot spell the paths in a compiler command line at all --
+	// and `cmd` is UTF-8 because every path in it came through ncp::pathToUtf8.
+	const std::wstring wideCommand = ncp::toWide(cmd);
+	std::vector<wchar_t> commandLine(wideCommand.begin(), wideCommand.end());
+	commandLine.push_back(L'\0');
+
 	PROCESS_INFORMATION piProcInfo;
-	STARTUPINFOA siStartInfo;
+	STARTUPINFOW siStartInfo;
 	BOOL bSuccess;
 
 	// Set up members of the PROCESS_INFORMATION structure.
@@ -117,20 +131,21 @@ int Process::start(const char* cmd, const std::filesystem::path& cwd,
 
 	// Set up members of the STARTUPINFO structure.
 	// This structure specifies the STDOUT handles for redirection.
-	ZeroMemory(&siStartInfo, sizeof(STARTUPINFOA));
-	siStartInfo.cb = sizeof(STARTUPINFOA);
+	ZeroMemory(&siStartInfo, sizeof(STARTUPINFOW));
+	siStartInfo.cb = sizeof(STARTUPINFOW);
 	siStartInfo.hStdError = g_hChildStd_OUT_Wr;
 	siStartInfo.hStdOutput = g_hChildStd_OUT_Wr;
 	siStartInfo.dwFlags |= STARTF_USESTDHANDLES;
 
 	// Create the child process. An empty cwd means "inherit ours".
-	// Narrow, not native(): the cast of `cmd` above already commits this to the
-	// ANSI CreateProcess, whose lpCurrentDirectory is LPCSTR.
-	std::string cwdStr = cwd.string();
-	const char* lpCurrentDirectory = cwdStr.empty() ? NULL : cwdStr.c_str();
+	// native(), because a path is already UTF-16 here: this is the one string
+	// in the call that needs no conversion at all.
+	const std::wstring cwdStr = cwd.wstring();
+	const wchar_t* lpCurrentDirectory = cwdStr.empty() ? NULL : cwdStr.c_str();
 
 	LPVOID lpEnvironment = environmentBlock.empty() ? NULL : environmentBlock.data();
-	bSuccess = CreateProcessA(NULL, commandLine.data(), NULL, NULL, TRUE, 0,
+	const DWORD flags = environmentBlock.empty() ? 0 : CREATE_UNICODE_ENVIRONMENT;
+	bSuccess = CreateProcessW(NULL, commandLine.data(), NULL, NULL, TRUE, flags,
 		lpEnvironment, lpCurrentDirectory, &siStartInfo, &piProcInfo);
    
 	// If an error occurs, exit the application. 
@@ -186,8 +201,8 @@ int Process::start(const char* cmd, const std::filesystem::path& cwd,
 
 bool Process::exists(const char* app)
 {
-	char fullPath[MAX_PATH];
-	return SearchPathA(nullptr, app, ".exe", MAX_PATH, fullPath, nullptr) > 0;
+	wchar_t fullPath[MAX_PATH];
+	return SearchPathW(nullptr, ncp::toWide(app).c_str(), L".exe", MAX_PATH, fullPath, nullptr) > 0;
 }
 
 #else

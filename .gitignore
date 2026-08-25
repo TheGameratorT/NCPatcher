@@ -1,6 +1,7 @@
 /.idea
 /.vscode
 /build
+/build-*
 /other
 /dist
 /stage

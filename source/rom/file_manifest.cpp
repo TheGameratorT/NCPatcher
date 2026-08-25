@@ -1,4 +1,5 @@
 #include "file_manifest.hpp"
+#include "../utils/unicode.hpp"
 
 #include <algorithm>
 #include <unordered_map>
@@ -33,9 +34,16 @@ std::string sourceText(const fs::path& source, const fs::path& projectRoot)
 
 	std::error_code error;
 	const fs::path relative = fs::relative(source, projectRoot, error);
-	if (error || relative.empty() || relative.native().starts_with(".."))
-		return source.generic_string();
-	return relative.generic_string();
+
+	// The first component, not a prefix of the whole string: `..` is a path
+	// element, and a directory genuinely named `..config` is not an escape from
+	// the project. Comparing components also sidesteps native() being wide on
+	// Windows, where the string comparison would not even compile.
+	const bool escapes = !relative.empty() && *relative.begin() == "..";
+
+	if (error || relative.empty() || escapes)
+		return pathToUtf8Generic(source);
+	return pathToUtf8Generic(relative);
 }
 
 } // namespace

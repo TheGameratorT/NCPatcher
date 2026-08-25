@@ -1,4 +1,5 @@
 #include "library_manager.hpp"
+#include "../utils/unicode.hpp"
 
 #include <algorithm>
 #include <sstream>
@@ -161,7 +162,8 @@ void LibraryManager::findLibraryFiles()
             {
                 // A -L path may be relative, and it is written relative to the
                 // project, not to wherever ncpatcher was launched from.
-                std::filesystem::path candidatePath = m_paths->work(searchPath) / fileName;
+                std::filesystem::path candidatePath =
+                    m_paths->work(ncp::utf8ToPath(searchPath)) / fileName;
                 if (std::filesystem::exists(candidatePath))
                 {
                     foundPath = candidatePath;
@@ -230,7 +232,10 @@ void LibraryManager::getToolchainLibraryPaths()
                     path.erase(0, path.find_first_not_of(" \t"));
                     path.erase(path.find_last_not_of(" \t") + 1);
                     
-                    if (!path.empty() && std::filesystem::exists(path))
+                    // Kept as the UTF-8 string gcc wrote, like the -L paths from
+                    // the configuration; utf8ToPath is what turns either back
+                    // into a path, here and at the one place they are searched.
+                    if (!path.empty() && std::filesystem::exists(ncp::utf8ToPath(path)))
                     {
                         m_librarySearchPaths.push_back(path);
                     }

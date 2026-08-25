@@ -21,6 +21,7 @@
 #include "../core/compilation_unit_manager.hpp"
 #include "../utils/base32.hpp"
 #include "../utils/util.hpp"
+#include "../utils/unicode.hpp"
 #include "buildlogger.hpp"
 #include "gcc_diagnostics.hpp"
 
@@ -73,9 +74,9 @@ void ObjMaker::makeTarget(
 	}
 
 	m_includeFlags.reserve(256);
-	m_includeFlags += "-include\"" + ncpInclude.string() + "\" ";
+	m_includeFlags += "-include\"" + ncp::pathToUtf8(ncpInclude) + "\" ";
 	for (const fs::path& include : m_target->includes)
-		m_includeFlags += "-I\"" + include.string() + "\" ";
+		m_includeFlags += "-I\"" + ncp::pathToUtf8(include) + "\" ";
 
 	// Build define flags from command line arguments
 	m_defineFlags.clear();
@@ -342,9 +343,9 @@ void ObjMaker::compileSources()
 				return retcode;
 			};
 
-			std::string srcS = unit->getSourcePath().string();
-			std::string objS = unit->getObjectPath().string();
-			std::string depS = buildInfo.dependencyPath.string();
+			std::string srcS = ncp::pathToUtf8(unit->getSourcePath());
+			std::string objS = ncp::pathToUtf8(unit->getObjectPath());
+			std::string depS = ncp::pathToUtf8(buildInfo.dependencyPath);
 
 			const BuildTarget::Region* region = unit->getTargetRegion();
 
@@ -412,7 +413,7 @@ void ObjMaker::compileSources()
 
 			if (buildInfo.fileType != SourceFileType::ASM)
 			{
-				std::string asmS = buildInfo.assemblyPath.string();
+				std::string asmS = ncp::pathToUtf8(buildInfo.assemblyPath);
 
 				std::string ccmd = makeBuildCmd(true, buildInfo.fileType, srcS, asmS);
 

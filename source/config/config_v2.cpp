@@ -13,6 +13,7 @@
 // it; there is no reason to keep offering that.
 
 #include "config_loader.hpp"
+#include "../utils/unicode.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -798,7 +799,7 @@ void readTarget(TargetConfig& target, const cfg::Node& node, Expander expander,
 
 	// Set before anything else in the target is expanded, so a region can say
 	// ${target.build}/generated without depending on key order.
-	expander.setConstant("target.build", target.buildDir.value.string());
+	expander.setConstant("target.build", pathToUtf8Generic(target.buildDir.value));
 
 	if (node.has("workdir"))
 		target.workDir.set(expander.expand(node["workdir"].asString(), node["workdir"]), Source::TargetSection);
@@ -881,8 +882,8 @@ ProjectConfig loadV2(const fs::path& projectFile, const fs::path& projectRoot,
 	expander.setDeferred("variant.name");
 	expander.setDeferred("rom.output");
 
-	expander.setConstant("project.root", projectRoot.string());
-	expander.setConstant("config.dir", projectFile.parent_path().string());
+	expander.setConstant("project.root", pathToUtf8Generic(projectRoot));
+	expander.setConstant("config.dir", pathToUtf8Generic(projectFile.parent_path()));
 
 	const cfg::Node vars = root["vars"];
 	if (vars.defined() && !vars.isNull())
@@ -913,12 +914,12 @@ ProjectConfig loadV2(const fs::path& projectFile, const fs::path& projectRoot,
 	if (hasFile)
 	{
 		config.romFile.set(expander.expand(rom["file"].asString(), rom["file"]), Source::ProjectFile);
-		expander.setConstant("rom.dir", config.romFile.value.parent_path().string());
+		expander.setConstant("rom.dir", pathToUtf8Generic(config.romFile.value.parent_path()));
 	}
 	else
 	{
 		config.filesystemDir.set(expander.expand(rom["dir"].asString(), rom["dir"]), Source::ProjectFile);
-		expander.setConstant("rom.dir", config.filesystemDir.value.string());
+		expander.setConstant("rom.dir", pathToUtf8Generic(config.filesystemDir.value));
 	}
 
 	config.backupDir.set(expander.expand(rom.require("backup").asString(), rom["backup"]), Source::ProjectFile);
@@ -1018,7 +1019,7 @@ ProjectConfig loadV2(const fs::path& projectFile, const fs::path& projectRoot,
 		const fs::path dump = config.modules.dump.value.is_absolute()
 			? config.modules.dump.value
 			: projectRoot / config.modules.dump.value;
-		expander.setConstant("ncp.moduleDump", dump.lexically_normal().string());
+		expander.setConstant("ncp.moduleDump", pathToUtf8Generic(dump.lexically_normal()));
 	}
 	if (const cfg::Node& reserve = root["files-reserve"]; reserve.defined() && !reserve.isNull())
 	{
@@ -1049,7 +1050,7 @@ ProjectConfig loadV2(const fs::path& projectFile, const fs::path& projectRoot,
 		const fs::path resolved = config.filesDump.value.is_absolute()
 			? config.filesDump.value
 			: projectRoot / config.filesDump.value;
-		expander.setConstant("ncp.fileDump", resolved.lexically_normal().string());
+		expander.setConstant("ncp.fileDump", pathToUtf8Generic(resolved.lexically_normal()));
 	}
 	config.variants = readVariants(root["variants"], expander, config.filesReserve.value);
 

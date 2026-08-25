@@ -93,6 +93,14 @@ if (NOT yaml-cpp_FOUND)
 	# CMake 4 no longer accepts yaml-cpp 0.8's declared pre-3.5 policy set.
 	set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 	FetchContent_MakeAvailable(yaml-cpp)
+
+	# 0.8.0's emitterutils.cpp names uint16_t without including <cstdint>, which
+	# GCC 13 stopped pulling in transitively. The fetch is what a machine with no
+	# system package falls back to, so it has to build on a current compiler
+	# rather than only on the one the CI image happens to ship.
+	if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+		target_compile_options(yaml-cpp PRIVATE -include cstdint)
+	endif()
 endif()
 
 # 0.8 exports yaml-cpp::yaml-cpp; older packages export a bare yaml-cpp.
@@ -179,6 +187,7 @@ set(SOURCES
 	source/utils/base32.cpp
 	source/utils/glob.cpp
 	source/utils/json.cpp
+	source/utils/unicode.cpp
 	source/utils/util.cpp
 )
 
@@ -273,6 +282,14 @@ if (NCP_BUILD_TESTS)
 		add_executable(${name} ${ARGN})
 		set_property(TARGET ${name} PROPERTY CXX_STANDARD 20)
 		set_property(TARGET ${name} PROPERTY CXX_STANDARD_REQUIRED ON)
+
+		# Every test, whether or not it parses anything: several of them pull in
+		# a header that includes yaml-cpp's, and the link is what carries its
+		# include directory. A system package hides the omission by sitting in
+		# /usr/include, so it only surfaces where yaml-cpp was fetched -- which
+		# is every machine without the package, and every cross-build.
+		target_link_libraries(${name} PRIVATE ${YAML_CPP_TARGET})
+
 		add_test(NAME ${name} COMMAND ${name})
 	endfunction()
 
@@ -283,7 +300,8 @@ if (NCP_BUILD_TESTS)
 	ncp_add_test(ansi_test tests/ansi_test.cpp source/system/ansi.cpp)
 	ncp_add_test(cli_test tests/cli_test.cpp source/app/cli.cpp)
 	target_link_libraries(cli_test PRIVATE ${YAML_CPP_TARGET})
-	ncp_add_test(process_test tests/process_test.cpp source/system/process.cpp)
+	ncp_add_test(process_test tests/process_test.cpp
+		source/system/process.cpp source/utils/unicode.cpp)
 	if (NOT WIN32)
 		target_link_libraries(process_test PRIVATE Threads::Threads)
 	endif()
@@ -340,6 +358,7 @@ if (NCP_BUILD_TESTS)
 		source/config/project_config.cpp
 		source/rom/endian.cpp
 		source/rom/file_manifest.cpp
+		source/utils/unicode.cpp
 		source/rom/header.cpp
 		source/system/ansi.cpp
 		source/system/diagnostics.cpp
@@ -400,6 +419,7 @@ if (NCP_BUILD_TESTS)
 		source/config/config_loader.cpp
 		source/config/config_v1.cpp
 		source/config/config_v2.cpp
+		source/utils/unicode.cpp
 		source/config/target_resolver.cpp
 		source/config/buildtarget.cpp
 		source/config/migrate.cpp
@@ -434,6 +454,7 @@ if (NCP_BUILD_TESTS)
 		source/config/config_loader.cpp
 		source/config/config_v1.cpp
 		source/config/config_v2.cpp
+		source/utils/unicode.cpp
 		source/config/target_resolver.cpp
 		source/config/buildtarget.cpp
 		source/config/migrate.cpp

@@ -19,6 +19,7 @@
 #include "../system/message.hpp"
 #include "../system/paths.hpp"
 #include "../utils/types.hpp"
+#include "../utils/unicode.hpp"
 #include "../utils/json.hpp"
 #include "../config/buildtarget.hpp"
 #include "../config/config_loader.hpp"
@@ -784,7 +785,7 @@ void Application::runHooks(config::HookWhen when,
 		std::ostream& hookOutput = msg::isJson() ? std::cerr : std::cout;
 		const fs::path cwd = hook.cwd.empty()
 			? m_ctx.paths.workDir
-			: m_ctx.paths.work(fs::path(resolveDeferred(hook.cwd.string())));
+			: m_ctx.paths.work(utf8ToPath(resolveDeferred(pathToUtf8(hook.cwd))));
 
 		// The project's .ncpatcher.env describes the environment this project
 		// builds in, so a hook builds in it too: a generator that resolves the
