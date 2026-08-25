@@ -72,6 +72,13 @@ name: Alpha
 description: The first one.
 authors: [someone]
 defines: [ALPHA_ON]
+level-data:
+  canFly: flag
+  canDie: u32
+nitrofs:
+  dir: nitrofs
+  layered: true
+  base-variant: en
 targets:
   - arm9:
       includes: "include"
@@ -656,6 +663,18 @@ static void testDumpCarriesUnknownKeys(const fs::path& root)
 	// "object" is, and the generator downstream cannot work without them.
 	check(contains(text, "SceneObject"), "an unknown component key survives into the dump");
 	check(contains(text, "\"extra\""), "unknown keys are grouped under extra");
+
+	// The same rule at module level. A generator declares whole-module things
+	// there -- level-data: is the motivating case -- and rejecting them as
+	// typos would make the boundary a fiction.
+	check(contains(text, "level-data"), "an unknown module-level key survives into the dump");
+	check(contains(text, "canFly"), "its contents are carried through verbatim");
+
+	// nitrofs: is a known key, not extra, because NCPatcher acts on it. It is
+	// still reported, since the whole point of the dump is that a consumer does
+	// not have to re-read the module files.
+	check(contains(text, "\"nitrofs\""), "a module's NitroFS tree reaches the dump");
+	check(contains(text, "\"base-variant\": \"en\""), "with the layering it declared");
 
 	check(contains(text, "data/scene.bin"), "a component's files are emitted untouched");
 	check(contains(text, "\"requires\""), "requirements are emitted");

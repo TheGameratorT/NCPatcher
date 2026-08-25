@@ -17,7 +17,7 @@ _ncpatcher()
 
 	local globals='-C --project --rom --out -D --define --var --toolchain -j --jobs
 		-v --verbose --verbose-tag --color --message-format --result
-		--log --no-log -h --help --version'
+		--log --no-log --no-env-file -h --help --version'
 	local commands='build init clean restore config migrate modules rom version'
 
 	# Options taking a value are completed from the value, not the option list.
@@ -79,7 +79,7 @@ _ncpatcher()
 			list|explain)
 				[[ $command == modules ]] && sub="${words[i]}"
 				;;
-			info|extract|pack)
+			info|files|extract|pack)
 				[[ $command == rom ]] && sub="${words[i]}"
 				;;
 		esac
@@ -108,9 +108,10 @@ _ncpatcher()
 			;;
 		rom)
 			if [[ -z $sub ]]; then
-				COMPREPLY=($(compgen -W 'info extract pack' -- "$cur"))
+				COMPREPLY=($(compgen -W 'info files extract pack' -- "$cur"))
 				return
 			fi
+			[[ $sub == files ]] && extra='--json'
 			# extract and pack each take a directory.
 			if [[ $sub == extract || $sub == pack ]] && [[ $cur != -* ]]; then
 				_filedir -d

@@ -316,6 +316,110 @@ void NitroFs::nameFile(u16 directoryId, const std::string& name, u16 fileId)
 	dir->entries.push_back(std::move(entry));
 }
 
+void NitroFs::renameFile(u32 fileId, std::string_view path)
+{
+	const std::size_t slash = path.rfind('/');
+	const std::string_view dirPath = (slash == std::string_view::npos) ? std::string_view() : path.substr(0, slash);
+	const std::string_view name = (slash == std::string_view::npos) ? path : path.substr(slash + 1);
+	if (name.empty() || name.size() > 0x7F)
+		throw ncp::exception("Cannot rename a NitroFS file to an invalid name.");
+
+	// Where the id lives now. Not findFile: the caller has an id, and the whole
+	// point is that the name it currently carries is not the wanted one.
+	FsDirectory* owner = nullptr;
+	FsEntry* current = nullptr;
+	for (FsDirectory& dir : m_directories)
+	{
+		for (FsEntry& entry : dir.entries)
+		{
+			if (!entry.isDirectory && entry.id == fileId)
+			{
+				owner = &dir;
+				current = &entry;
+				break;
+			}
+		}
+		if (owner != nullptr)
+			break;
+	}
+
+	if (owner == nullptr)
+	{
+		std::ostringstream oss;
+		oss << "No NitroFS file has id " << fileId << ".";
+		throw ncp::exception(oss.str());
+	}
+
+	const int destinationDir = findDirectory(dirPath);
+	if (destinationDir < 0)
+	{
+		std::ostringstream oss;
+		oss << "Cannot rename file id " << fileId << ": no such directory "
+		    << OSTR(std::string(dirPath)) << " in the ROM.";
+		throw ncp::exception(oss.str());
+	}
+
+	if (u16(destinationDir) != owner->id)
+	{
+		std::ostringstream oss;
+		oss << "Cannot rename file id " << fileId << " to " << OSTR(std::string(path))
+		    << ": it belongs to " << OSTR(pathOfFile(fileId))
+		    << OREASONNL "A file id is fixed inside its own directory's consecutive range, so it can be "
+		       "renamed but not moved. Pick an id from the destination directory.";
+		throw ncp::exception(oss.str());
+	}
+
+	const auto clash = std::find_if(owner->entries.begin(), owner->entries.end(),
+		[&](const FsEntry& entry) { return &entry != current && namesEqual(entry.name, name); });
+	if (clash != owner->entries.end())
+	{
+		std::ostringstream oss;
+		oss << "Cannot rename file id " << fileId << " to " << OSTR(std::string(path))
+		    << ": that name is already taken in the same directory.";
+		throw ncp::exception(oss.str());
+	}
+
+	current->name = std::string(name);
+}
+
+std::vector<std::pair<u32, std::string>> NitroFs::allFiles() const
+{
+	std::vector<std::pair<u32, std::string>> out;
+
+	for (const FsDirectory& dir : m_directories)
+	{
+		// Once per directory rather than once per file: pathOf walks back up to
+		// the root, so paying it per entry would re-walk the same chain for
+		// every file in a directory.
+		const std::string prefix = pathOf(dir.id);
+		for (const FsEntry& entry : dir.entries)
+		{
+			if (entry.isDirectory)
+				continue;
+			out.emplace_back(u32(entry.id), prefix.empty() ? entry.name : prefix + "/" + entry.name);
+		}
+	}
+
+	std::sort(out.begin(), out.end(),
+		[](const auto& left, const auto& right) { return left.first < right.first; });
+	return out;
+}
+
+std::string NitroFs::pathOfFile(u32 fileId) const
+{
+	for (const FsDirectory& dir : m_directories)
+	{
+		for (const FsEntry& entry : dir.entries)
+		{
+			if (entry.isDirectory || entry.id != fileId)
+				continue;
+			const std::string parent = pathOf(dir.id);
+			return parent.empty() ? entry.name : parent + "/" + entry.name;
+		}
+	}
+	return {};
+}
+
 std::string NitroFs::pathOf(u16 directoryId) const
 {
 	std::vector<std::string> parts;

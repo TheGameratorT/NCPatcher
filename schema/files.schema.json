@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/TheGameratorT/NCPatcher/main/schema/files.schema.json",
+  "title": "NCPatcher file manifest",
+  "description": "The ROM's NitroFS table after a build, with per-entry provenance. Written by files-dump, or by `ncpatcher rom files --json`. Consumers turn file ids into constants, or show what a project changes about a ROM.",
+  "type": "object",
+  "required": ["schema", "count", "files"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "ncpatcher.files/1",
+      "description": "Format identifier and version."
+    },
+    "variant": {
+      "type": "string",
+      "description": "The variant this build produced. Absent when the run had no variant, which includes `rom files --json` reading a ROM off disk."
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "How many entries `files` holds."
+    },
+    "files": {
+      "type": "array",
+      "description": "Every file in the table, not only the ones this run wrote: a generator naming files by id needs the whole table, and most of it is whatever the ROM already had. Sorted by id.",
+      "items": { "$ref": "#/$defs/file" }
+    }
+  },
+  "$defs": {
+    "file": {
+      "type": "object",
+      "required": ["id", "path", "size", "action"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The FAT index, exactly as the ROM stores it. A game that offsets file ids at run time -- NSMB subtracts its overlay count -- applies that itself; it is a property of that game, not of the ROM. Existing ids are never renumbered by a build."
+        },
+        "path": {
+          "type": "string",
+          "description": "Slash-separated path inside NitroFS, with no leading slash. This is the name the file has now: an entry that claimed an id was renamed on the way in."
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Size in bytes."
+        },
+        "action": {
+          "enum": ["unchanged", "modified", "created"],
+          "description": "What this run did to the file, relative to the ROM that came in. `created` means the build appended it, which only happens under z_new/."
+        },
+        "source": {
+          "type": "string",
+          "description": "Where the bytes came from, relative to the project directory when the file is inside it. Present only when this run wrote the file, and absent for z_new/reserved, which NCPatcher creates out of nothing."
+        },
+        "module": {
+          "type": "string",
+          "description": "The module whose tree supplied the file. Absent for a project-level files: entry."
+        },
+        "component": {
+          "type": "string",
+          "description": "The component that names this destination in its files: patterns. Ownership only: a disabled component's files are subtracted before insertion, so nothing here is ever attributed to one."
+        },
+        "from-variant": {
+          "type": "string",
+          "description": "Which layer of a layered tree supplied the file -- the built variant, or the base variant underneath it. Grouping by path across manifests answers which variants translate a file."
+        }
+      }
+    }
+  }
+}

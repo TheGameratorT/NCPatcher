@@ -7,7 +7,7 @@
   "required": [
     "id"
   ],
-  "additionalProperties": false,
+  "additionalProperties": true,
   "properties": {
     "id": {
       "description": "Stable module identifier used by MODULE_<ID> defines and cross-module requirements.",
@@ -31,6 +31,35 @@
     },
     "targets": {
       "$ref": "#/$defs/targets"
+    },
+    "nitrofs": {
+      "description": "A directory this module sweeps into NitroFS, so its assets are declared once rather than listed file by file. Two rules settle a path two modules both provide: a file chosen for the built variant beats one that applies to every variant, and within one layer the module listed first in the project's `modules.enabled` keeps the path. A directory whose name ends in `_narc` means the Nitro archive beside it, and everything below it is a path inside that archive: `ARCHIVE/menu_title_narc/menu/title/USA/vs.bmg` replaces that member of `ARCHIVE/menu_title.narc`.",
+      "type": "object",
+      "required": [
+        "dir"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "dir": {
+          "description": "The source directory, relative to this module.",
+          "type": "string",
+          "minLength": 1
+        },
+        "layered": {
+          "description": "Read the first path segment under `dir` as a variant name rather than part of the ROM path. A variant this module has no directory for contributes nothing, which is how a module ships assets for some languages and not others.",
+          "type": "boolean",
+          "default": false
+        },
+        "base-variant": {
+          "description": "A layer applied underneath the built variant. Requires `layered`.",
+          "type": "string",
+          "minLength": 1
+        },
+        "into": {
+          "description": "A ROM path prefix for everything the tree produces.",
+          "type": "string"
+        }
+      }
     },
     "components": {
       "$ref": "#/$defs/components"
@@ -171,6 +200,7 @@
               "$ref": "#/$defs/defines"
             },
             "files": {
+              "description": "Glob patterns naming the ROM destinations this component owns, matched against the NitroFS path with any variant segment already stripped. While the component is enabled they only record ownership; when it is disabled they subtract those files from this module's `nitrofs` tree, so switching a feature off removes its assets along with its code.",
               "$ref": "#/$defs/stringList"
             },
             "requires": {

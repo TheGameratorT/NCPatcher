@@ -24,6 +24,7 @@ ExitCode exitCodeFor(Diag code)
 		return ExitCode::Modules;
 
 	case Diag::PreBuildCommand:
+	case Diag::PostFilesCommand:
 	case Diag::PostBuildCommand:
 		return ExitCode::Hook;
 

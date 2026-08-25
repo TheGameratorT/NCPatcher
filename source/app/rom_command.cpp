@@ -3,8 +3,11 @@
 #include <algorithm>
 #include <fstream>
 #include <iomanip>
+#include <memory>
 #include <sstream>
 
+#include "../rom/file_manifest.hpp"
+#include "../rom/nds_accessor.hpp"
 #include "../rom/nds_rom.hpp"
 #include "../system/except.hpp"
 #include "../system/log.hpp"
@@ -134,6 +137,51 @@ void info(const fs::path& path, const rom::DirLayout& layout)
 		Log::out << "  file size:    " << humanSize(nds.bytes().size()) << '\n';
 
 	Log::out << std::flush;
+}
+
+void files(const fs::path& path, const rom::DirLayout& layout, bool json)
+{
+	std::unique_ptr<rom::RomAccessor> accessor;
+	if (fs::is_directory(path))
+	{
+		auto dir = std::make_unique<rom::DirRomAccessor>(path, layout);
+		dir->loadHeader();
+		accessor = std::move(dir);
+	}
+	else
+	{
+		auto nds = std::make_unique<rom::NdsRomAccessor>(path, fs::path(), 0);
+		nds->loadRom();
+		accessor = std::move(nds);
+	}
+
+	std::vector<rom::ManifestEntry> entries;
+	for (const rom::NitroFileInfo& file : accessor->listNitroFiles())
+	{
+		rom::ManifestEntry entry;
+		entry.id = file.id;
+		entry.path = file.path;
+		entry.size = file.size;
+		entries.push_back(std::move(entry));
+	}
+	std::sort(entries.begin(), entries.end(),
+		[](const rom::ManifestEntry& left, const rom::ManifestEntry& right) { return left.id < right.id; });
+
+	if (json)
+	{
+		// No variant: a ROM on disk is the result of a build, not a build.
+		rom::writeManifest(Log::out, entries, std::string_view());
+		Log::out << std::flush;
+		return;
+	}
+
+	Log::out << ANSI_bWHITE << path.string() << ANSI_RESET << '\n';
+	for (const rom::ManifestEntry& entry : entries)
+	{
+		Log::out << std::setw(5) << entry.id << "  "
+		         << std::setw(9) << entry.size << "  " << entry.path << '\n';
+	}
+	Log::out << entries.size() << " files\n" << std::flush;
 }
 
 std::size_t extract(const fs::path& romFile, const fs::path& directory, const rom::DirLayout& layout)

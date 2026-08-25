@@ -263,9 +263,18 @@ struct ModulesConfig
 	[[nodiscard]] bool empty() const { return selections.empty(); }
 };
 
+// Declaration order is execution order.
 enum class HookWhen
 {
 	PreBuild,
+
+	// After NitroFS insertion, before target resolution and compilation. This
+	// is the only point at which a generator can see the file ids the build
+	// just assigned and still have its output compiled: `pre-build` is too
+	// early, because nothing has been inserted, and `post-build` is too late,
+	// because the code that refers to those ids has already been built.
+	PostFiles,
+
 	PostBuild
 };
 
@@ -285,6 +294,38 @@ struct HookConfig
 	bool operator==(const HookConfig&) const = default;
 };
 
+// Checks a '/'-separated NitroFS destination path. Returns an empty string
+// when it is usable, or the reason it is not.
+//
+// A free function because two very different callers need the same rule: the
+// config reader, which can point at the line the path was written on, and the
+// file-tree sweeper, where the path came off the filesystem and there is no
+// line to point at.
+[[nodiscard]] std::string nitroPathProblem(std::string_view path);
+
+// A destination may name a file *inside* a Nitro archive rather than a loose
+// NitroFS file, and that takes two coordinates instead of one: which archive,
+// and which member of it. They are written in a single string separated by
+// `!`, the way jar: and zip: URIs separate the same two things.
+//
+//     ARCHIVE/menu_title.narc!menu/title/USA/vs.bmg
+//
+// Both halves are ordinary NitroFS paths, so the same rules apply to each.
+struct NitroDestination
+{
+	// The loose NitroFS file: the archive itself when `inArchive`.
+	std::string path;
+	// '/'-separated path within the archive. Empty unless `inArchive`.
+	std::string inner;
+	bool inArchive = false;
+};
+
+[[nodiscard]] NitroDestination splitNitroDestination(std::string_view destination);
+
+// Checks a destination in either form. Returns an empty string when it is
+// usable, or the reason it is not.
+[[nodiscard]] std::string nitroDestinationProblem(std::string_view destination);
+
 // One loose file copied into NitroFS. `path` is always a '/'-separated ROM
 // path; `source` is resolved against the project directory when the hook phase
 // is over, so a pre-build hook may generate it.
@@ -292,6 +333,43 @@ struct FileConfig
 {
 	std::string path;
 	std::filesystem::path source;
+
+	// Claim an existing file id and rename it to `path`, rather than replacing
+	// a path that already exists or appending a new one. -1 means the ordinary
+	// two operations. See rom/accessor.hpp for why this third one exists.
+	int id = -1;
+
+	// Where this entry came from. Empty for a file written in the project's own
+	// `files:`; otherwise the module, and the component whose `files:` patterns
+	// claimed it. `fromVariant` is the layer of a layered tree that supplied
+	// the bytes, which is not always the variant being built -- a base layer
+	// supplies everything a variant does not override.
+	std::string module;
+	std::string component;
+	std::string fromVariant;
+};
+
+// One directory swept wholesale into NitroFS, so that adding a file to a
+// project is adding a file rather than editing a list. See rom/file_tree.hpp.
+struct FileTreeConfig
+{
+	// Source directory. Project-relative for `file-trees:`, module-relative for
+	// a module's `nitrofs:`.
+	std::filesystem::path dir;
+
+	// When set, the first path segment under `dir` is a variant name rather
+	// than part of the ROM path, and only the built variant's subtree applies.
+	bool layered = false;
+
+	// Layer applied underneath the built variant, so that the common case can
+	// be written once. Only meaningful when layered.
+	std::string baseVariant;
+
+	// ROM path prefix. Empty is the ROM root.
+	std::string into;
+
+	// Set when the tree came from a module rather than the project.
+	std::string module;
 };
 
 // One named build from the same project. Defines join the normal command-line
@@ -301,6 +379,21 @@ struct VariantConfig
 	std::string name;
 	std::vector<std::string> defines;
 	std::vector<FileConfig> files;
+
+	// Which layer of a module's NitroFS tree this variant selects, for modules
+	// that do not name their layers the way the project names its variants.
+	//
+	// A module is written without knowing which project will use it, so its
+	// tree may be split by region where the project splits by language, or use
+	// `french` where the project says `fr`. Without a mapping the two simply
+	// fail to meet and the module contributes nothing, silently, which is the
+	// worst available outcome. Keyed by module key, in declaration order.
+	std::vector<std::pair<std::string, std::string>> moduleVariants;
+
+	// Overrides `rom.banner` for this variant. Empty means the project's, which
+	// is the usual case -- a banner holds a title in all six console languages
+	// at once, so one of them normally serves every build.
+	std::filesystem::path banner;
 };
 
 struct TargetConfig
@@ -378,6 +471,11 @@ struct ProjectConfig
 	// Unset means "choose one"; see rom/nds_rom.cpp.
 	Setting<u32> romArm9Slack;
 
+	// A replacement icon/title banner. Deliberately not part of `files:`: the
+	// banner is a region of its own that the header points at rather than a
+	// NitroFS file, so there is no path that would name it.
+	Setting<std::filesystem::path> romBanner;
+
 	Setting<std::string> toolchain;
 	Setting<int> threadCount;
 
@@ -389,6 +487,31 @@ struct ProjectConfig
 
 	std::vector<HookConfig> hooks;
 	std::vector<FileConfig> files;
+	std::vector<FileTreeConfig> fileTrees;
+
+	// Where to write the ROM's file table after insertion. See
+	// rom/file_manifest.hpp for what it is for.
+	//
+	// A top-level key rather than `files.dump`, because `files:` is a mapping
+	// of ROM paths and a ROM is perfectly entitled to contain a file called
+	// `dump` -- there would be no way to tell the two apart.
+	Setting<std::filesystem::path> filesDump;
+
+	// A zero-byte placeholder created before any z_new/ addition, to burn the
+	// first file id an addition would otherwise be given.
+	//
+	// It exists because a game's compiled code can hold arrays of file ids
+	// terminated by a sentinel, and the sentinel a compiler picked is the id
+	// one past the last file the ROM shipped with -- exactly the id NCPatcher
+	// hands to the first file it adds. Putting real content there gives the
+	// game a loadable file at an id its own code reads as "stop", so the id has
+	// to be spent on nothing.
+	//
+	// Which id that is, and whether a game does this at all, is a fact about
+	// the game rather than about NitroFS, so nothing here assumes it: unset
+	// means no placeholder. New Super Mario Bros. needs one, and that is what
+	// `init --template nsmb` writes.
+	Setting<std::string> filesReserve;
 	std::vector<VariantConfig> variants;
 
 	TargetConfig arm7;

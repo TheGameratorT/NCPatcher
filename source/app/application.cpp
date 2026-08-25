@@ -1,10 +1,13 @@
 #include "application.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <sstream>
+#include <tuple>
 
 #include "../system/ansi.hpp"
 #include "../system/log.hpp"
@@ -28,6 +31,9 @@
 #include "../rom/dir_accessor.hpp"
 #include "../rom/nds_accessor.hpp"
 #include "../rom/backup_store.hpp"
+#include "../rom/file_tree.hpp"
+#include "../rom/file_manifest.hpp"
+#include "../rom/narc.hpp"
 #include "rom_command.hpp"
 #include "project_init.hpp"
 #include "../build/objmaker.hpp"
@@ -110,6 +116,7 @@ int Application::run()
 		case Command::ModulesDump:
 		case Command::ModulesExplain: code = runModulesCommand(); break;
 		case Command::RomInfo:
+		case Command::RomFiles:
 		case Command::RomExtract:
 		case Command::RomPack:        code = runRomCommand(); break;
 		default:                      runBuild(); break;
@@ -207,6 +214,9 @@ int Application::runRomCommand()
 	case Command::RomInfo:
 		romcmd::info(target, layout);
 		break;
+	case Command::RomFiles:
+		romcmd::files(target, layout, m_cli.dumpJson);
+		break;
 	case Command::RomExtract:
 		romcmd::extract(target, fs::absolute(m_cli.romDirArgument), layout);
 		break;
@@ -234,7 +244,9 @@ fs::path Application::romTarget()
 	if (!m_romFile.empty())
 		return m_romFile;
 
-	if (m_cli.command == Command::RomInfo)
+	// Both read an extracted directory perfectly well; the two that move code
+	// binaries between a .nds and a directory are the ones that need a .nds.
+	if (m_cli.command == Command::RomInfo || m_cli.command == Command::RomFiles)
 		return m_ctx.paths.romDir;
 
 	std::ostringstream oss;
@@ -285,7 +297,7 @@ int Application::runConfigValidate()
 
 	{
 		ScopedContext ctx(Diag::TargetConfigLoad, "Could not load the target configuration.");
-		config::loadTargets(m_config);
+		config::loadTargets(m_config, targetLoadOptions());
 	}
 
 	resolveRomDir();
@@ -312,7 +324,7 @@ int Application::runConfigDump()
 
 	{
 		ScopedContext ctx(Diag::TargetConfigLoad, "Could not load the target configuration.");
-		config::loadTargets(m_config);
+		config::loadTargets(m_config, targetLoadOptions());
 	}
 
 	resolveRomDir();
@@ -348,7 +360,7 @@ int Application::runClean()
 	loadModules(true);
 	{
 		ScopedContext targetCtx(Diag::TargetConfigLoad, "Could not load the target configuration.");
-		config::loadTargets(m_config);
+		config::loadTargets(m_config, targetLoadOptions());
 	}
 
 	// Needed only for the warning below, but resolved unconditionally so that
@@ -587,12 +599,23 @@ void Application::runConfiguredBuild()
 	// Hooks may generate the source files. Insert them after hooks but before
 	// target resolution and compilation, so every generated file id is settled
 	// before code which refers to it is built.
-	insertFiles(*rom);
+	const InsertedFiles inserted = insertFiles(*rom);
+	insertBanner(*rom);
+
+	// Before the post-files hooks: a generator that turns file ids into
+	// constants is exactly what that phase is for, and it has to be able to
+	// read them.
+	writeFileDump(*rom, inserted);
+
+	runHooks(config::HookWhen::PostFiles,
+			 "Running post-files hooks...",
+			 Diag::PostFilesCommand,
+			 "Not all post-files hooks succeeded.");
 
 	// Only now: a v1 project may have just generated its target files.
 	{
 		ScopedContext ctx(Diag::TargetConfigLoad, "Could not load the target configuration.");
-		config::loadTargets(m_config);
+		config::loadTargets(m_config, targetLoadOptions());
 	}
 	openDefaultLogFile();
 
@@ -622,6 +645,8 @@ void Application::runConfiguredBuild()
 void Application::applyVariant(const std::string& name, bool deriveOutput)
 {
 	ScopedContext ctx(Diag::ConfigLoad, "Could not select the build variant.");
+
+	m_variant = name;
 
 	const auto found = std::find_if(m_config.variants.begin(), m_config.variants.end(),
 		[&](const config::VariantConfig& variant) { return variant.name == name; });
@@ -701,6 +726,35 @@ void Application::processTarget(rom::RomAccessor& rom, bool isArm9)
 	m_rebuild.setTargetHash(isArm9, configHash);
 }
 
+// Finishes the expansion the configuration reader deliberately left alone.
+//
+// `${variant.name}` and `${rom.output}` are not knowable when the file is read:
+// the variant has not been chosen and --out has not been applied. The reader
+// registers them as deferred, so they survive as literal text, and this
+// substitutes them when a hook actually runs. Only those exact tokens are
+// touched, so this is not a second general expansion pass over the text.
+std::string Application::resolveDeferred(std::string text) const
+{
+	const fs::path outputPath = m_config.romOutput.configured()
+		? m_ctx.paths.work(m_config.romOutput.value)
+		: (m_config.romFile.configured() ? m_ctx.paths.work(m_config.romFile.value) : fs::path());
+
+	const std::pair<std::string_view, std::string> replacements[] = {
+		{ "${variant.name}", m_variant },
+		{ "${rom.output}", outputPath.string() },
+	};
+
+	for (const auto& [token, value] : replacements)
+	{
+		for (std::size_t pos = text.find(token); pos != std::string::npos;
+		     pos = text.find(token, pos + value.size()))
+		{
+			text.replace(pos, token.size(), value);
+		}
+	}
+	return text;
+}
+
 void Application::runHooks(config::HookWhen when,
 						   const char* message,
 						   Diag code,
@@ -719,27 +773,174 @@ void Application::runHooks(config::HookWhen when,
 		if (hook.when != when)
 			continue;
 
+		const std::string run = resolveDeferred(hook.run);
+
 		std::ostringstream oss;
-		oss << ANSI_bWHITE "[" << hook.name << "] " ANSI_bYELLOW << hook.run << ANSI_RESET;
+		oss << ANSI_bWHITE "[" << hook.name << "] " ANSI_bYELLOW << run << ANSI_RESET;
 		Log::info(oss.str());
 
 		// A hook's own output is for the person watching, so in json mode it
 		// must not land in the middle of the event stream.
 		std::ostream& hookOutput = msg::isJson() ? std::cerr : std::cout;
-		const fs::path cwd = hook.cwd.empty() ? m_ctx.paths.workDir : m_ctx.paths.work(hook.cwd);
-		int retcode = Process::start(hook.run.c_str(), cwd, hook.env, &hookOutput);
+		const fs::path cwd = hook.cwd.empty()
+			? m_ctx.paths.workDir
+			: m_ctx.paths.work(fs::path(resolveDeferred(hook.cwd.string())));
+
+		// The project's .ncpatcher.env describes the environment this project
+		// builds in, so a hook builds in it too: a generator that resolves the
+		// same variable would otherwise read the stale ambient one and disagree
+		// with the configuration it was handed. The hook's own `env:` comes
+		// after, and therefore wins.
+		std::vector<std::pair<std::string, std::string>> env = m_envFile.entries();
+		for (const auto& [name, value] : hook.env)
+			env.emplace_back(name, resolveDeferred(value));
+
+		int retcode = Process::start(run.c_str(), cwd, env, &hookOutput);
 		if (retcode != 0) {
 			throw ncp::exception("Hook \"" + hook.name + "\" returned: " + std::to_string(retcode));
 		}
 	}
 }
 
-void Application::insertFiles(rom::RomAccessor& rom)
+std::vector<config::FileConfig> Application::resolveNitroFiles() const
 {
-	if (m_config.files.empty())
-		return;
+	std::vector<rom::FileTree> trees;
 
+	for (const config::FileTreeConfig& declared : m_config.fileTrees)
+	{
+		rom::FileTree tree;
+		tree.dir = m_ctx.paths.work(declared.dir);
+		tree.layered = declared.layered;
+		tree.baseVariant = declared.baseVariant;
+		tree.into = declared.into;
+		tree.origin = "the project";
+		trees.push_back(std::move(tree));
+	}
+
+	// The layer mapping belongs to the variant being built, if any.
+	const std::vector<std::pair<std::string, std::string>>* mapped = nullptr;
+	if (!m_variant.empty())
+	{
+		const auto variant = std::find_if(m_config.variants.begin(), m_config.variants.end(),
+			[&](const config::VariantConfig& candidate) { return candidate.name == m_variant; });
+		if (variant != m_config.variants.end())
+			mapped = &variant->moduleVariants;
+	}
+
+	// Modules contribute in `modules.enabled` order, which is the order the
+	// graph resolved them in, so a conflict message names them the way the
+	// project lists them.
+	for (const modules::ResolvedModule& module : m_modules.modules())
+	{
+		if (module.def == nullptr || !module.def->nitrofs.declared)
+			continue;
+
+		const modules::NitroFsDef& declared = module.def->nitrofs;
+
+		rom::FileTree tree;
+		tree.dir = module.dir / fs::path(declared.dir);
+		tree.layered = declared.layered;
+		tree.baseVariant = declared.baseVariant;
+		tree.into = declared.into;
+		tree.module = module.key;
+		tree.origin = "module " + module.key;
+
+		if (mapped != nullptr)
+		{
+			const auto found = std::find_if(mapped->begin(), mapped->end(),
+				[&](const auto& entry) { return entry.first == module.key || entry.first == module.id; });
+			if (found != mapped->end())
+			{
+				if (!declared.layered)
+				{
+					throw ncp::exception("Variant \"" + m_variant + "\" maps module \"" + module.key
+						+ "\" to \"" + found->second + "\", but that module's NitroFS tree is not "
+						ANSI_bCYAN "layered" ANSI_RESET "."
+						OREASONNL "An unlayered tree contributes the same files to every variant.");
+				}
+				tree.variantLayer = found->second;
+			}
+		}
+
+		// A disabled component subtracts its own patterns; an enabled one only
+		// labels what it owns. This is the single place the component `files:`
+		// key is acted on.
+		for (const modules::ResolvedComponent& component : module.components)
+		{
+			if (component.files.empty())
+				continue;
+			tree.components.push_back(rom::FileTree::Component{
+				component.name, component.enabled, component.files });
+		}
+
+		trees.push_back(std::move(tree));
+	}
+
+	// A mapping that matched no module is a typo, and a silent one: the module
+	// it meant to redirect would keep using the variant's own name and quietly
+	// contribute nothing.
+	if (mapped != nullptr)
+	{
+		for (const auto& [name, layer] : *mapped)
+		{
+			const modules::ResolvedModule* module = m_modules.find(name);
+			if (module == nullptr)
+			{
+				throw ncp::exception("Variant \"" + m_variant + "\" maps module \"" + name
+					+ "\" to \"" + layer + "\", but no such module is enabled.");
+			}
+			if (module->def == nullptr || !module->def->nitrofs.declared)
+			{
+				throw ncp::exception("Variant \"" + m_variant + "\" maps module \"" + name
+					+ "\" to \"" + layer + "\", but that module declares no "
+					ANSI_bCYAN "nitrofs" ANSI_RESET " tree.");
+			}
+		}
+	}
+
+	std::vector<config::FileConfig> files = trees.empty()
+		? std::vector<config::FileConfig>()
+		: rom::sweepFileTrees(trees, m_variant);
+
+	if (m_config.filesReserve.configured())
+	{
+		const std::string& reserved = m_config.filesReserve.value;
+		const auto claimed = std::find_if(files.begin(), files.end(),
+			[&](const config::FileConfig& file) { return file.path == reserved; });
+		if (claimed != files.end())
+		{
+			throw ncp::exception("A NitroFS tree supplies \"" + reserved + "\", which "
+				ANSI_bCYAN "files-reserve" ANSI_RESET " keeps empty."
+				OREASONNL + claimed->source.string() + " would be given the file id the "
+				"reservation exists to leave unused.");
+		}
+	}
+
+	// An explicit `files:` entry is the project overruling the sweep, so it
+	// replaces rather than collides.
+	for (const config::FileConfig& file : m_config.files)
+	{
+		const auto existing = std::find_if(files.begin(), files.end(),
+			[&](const config::FileConfig& swept) { return swept.path == file.path; });
+		if (existing == files.end())
+			files.push_back(file);
+		else
+			*existing = file;
+	}
+
+	return files;
+}
+
+Application::InsertedFiles Application::insertFiles(rom::RomAccessor& rom)
+{
 	ScopedContext ctx(Diag::NitroFsInsert, "Could not insert the NitroFS files.");
+
+	InsertedFiles inserted;
+	inserted.files = resolveNitroFiles();
+	const std::vector<config::FileConfig>& files = inserted.files;
+	if (files.empty())
+		return inserted;
+
 	Log::info("Inserting NitroFS files...");
 
 	struct PreparedFile
@@ -747,14 +948,24 @@ void Application::insertFiles(rom::RomAccessor& rom)
 		const config::FileConfig* config = nullptr;
 		std::vector<u8> data;
 		int existingId = -1;
+
+		// '/'-separated path within a Nitro archive, empty for a loose file.
+		std::string inner;
 	};
 	std::vector<PreparedFile> replacements;
 	std::vector<PreparedFile> additions;
+	std::vector<PreparedFile> claims;
+
+	// Members to write into archives, grouped by the archive's own ROM path.
+	// Grouped because one archive has to be opened, edited and written back
+	// once however many of its members the build replaces -- and ordered, so
+	// that two runs of the same project produce the same bytes.
+	std::map<std::string, std::vector<PreparedFile>> archives;
 
 	// Read and validate everything before the first write. The directory
 	// backend writes immediately, so discovering one bad source late would
 	// otherwise leave the earlier files changed.
-	for (const config::FileConfig& file : m_config.files)
+	for (const config::FileConfig& file : files)
 	{
 		const fs::path source = m_ctx.paths.work(file.source);
 		if (!fs::exists(source) || !fs::is_regular_file(source))
@@ -777,8 +988,67 @@ void Application::insertFiles(rom::RomAccessor& rom)
 				throw ncp::file_error(source, ncp::file_error::read);
 		}
 
-		prepared.existingId = rom.findNitroFile(file.path);
-		if (prepared.existingId >= 0)
+		const config::NitroDestination destination = config::splitNitroDestination(file.path);
+		prepared.existingId = rom.findNitroFile(destination.path);
+
+		if (destination.inArchive)
+		{
+			// The archive has to be there: this opens a container and replaces
+			// one of its members, which is a different operation from creating
+			// a file, and z_new/ is where new files go.
+			if (prepared.existingId < 0)
+			{
+				throw ncp::exception("Cannot write \"" + destination.inner + "\" into \""
+					+ destination.path + "\": the ROM has no such archive.");
+			}
+			if (file.id >= 0)
+			{
+				throw ncp::exception("Cannot claim a NitroFS file id for \"" + file.path
+					+ "\": " ANSI_bCYAN "id" ANSI_RESET " renames a loose file, and this entry names "
+					"a member of an archive.");
+			}
+
+			prepared.inner = destination.inner;
+			archives[destination.path].push_back(std::move(prepared));
+			continue;
+		}
+
+		if (file.id >= 0)
+		{
+			// Claiming an existing id. Everything the FNT will not catch is
+			// checked here, because the failure mode of getting it wrong is a
+			// quietly renamed neighbour rather than an error.
+			const std::string current = rom.nitroFilePath(u32(file.id));
+			if (current.empty())
+			{
+				throw ncp::exception("Cannot claim NitroFS file id " + std::to_string(file.id)
+					+ " for \"" + file.path + "\": the ROM has no file with that id.");
+			}
+			if (prepared.existingId >= 0 && prepared.existingId != file.id)
+			{
+				throw ncp::exception("Cannot claim NitroFS file id " + std::to_string(file.id)
+					+ " for \"" + file.path + "\": that path already exists as id "
+					+ std::to_string(prepared.existingId) + "."
+					OREASONNL "Drop the id to replace it in place.");
+			}
+
+			const auto shadowed = std::find_if(files.begin(), files.end(),
+				[&](const config::FileConfig& other) {
+					return &other != &file && other.id < 0 && other.path == current;
+				});
+			if (shadowed != files.end())
+			{
+				throw ncp::exception("Cannot claim NitroFS file id " + std::to_string(file.id)
+					+ " for \"" + file.path + "\": \"" + current
+					+ "\" is that id's current name and is also written in "
+					ANSI_bCYAN "files" ANSI_RESET "."
+					OREASONNL "One of the two would silently win depending on insertion order.");
+			}
+
+			prepared.existingId = file.id;
+			claims.push_back(std::move(prepared));
+		}
+		else if (prepared.existingId >= 0)
 		{
 			replacements.push_back(std::move(prepared));
 		}
@@ -793,18 +1063,159 @@ void Application::insertFiles(rom::RomAccessor& rom)
 		}
 	}
 
+	// Archives, resolved before anything is written -- like every other source
+	// above, and for the same reason: the directory backend writes as it goes,
+	// so a container that turns out not to be an archive has to be found before
+	// its neighbour has already been repacked on disk.
+	//
+	// A plain replacement of the archive itself, if the build has one, is what
+	// the members are applied on top of. That is the layered case working the
+	// way it reads: a module supplies a whole container and another edits one
+	// file inside it, and neither has to know about the other.
+	struct RepackedArchive
+	{
+		std::string path;
+		std::vector<u8> data;
+		config::FileConfig summary;
+		bool summarize = true;
+	};
+	std::vector<RepackedArchive> repacked;
+
+	// What the manifest should say about an archive the build edited. The
+	// entries that did the editing name members, which are not ROM files, so
+	// the archive needs a record of its own -- and it can only carry the
+	// provenance its members agree on. One member gives the whole answer; five
+	// from three modules give the honest one, which is that no single source
+	// stands behind the file.
+	auto archiveProvenance = [](const std::string& archivePath,
+	                            const std::vector<PreparedFile>& edits) {
+		config::FileConfig summary;
+		summary.path = archivePath;
+		if (edits.size() == 1)
+			summary.source = edits.front().config->source;
+
+		auto agreed = [&](std::string config::FileConfig::* field) {
+			const std::string& first = edits.front().config->*field;
+			for (const PreparedFile& edit : edits)
+			{
+				if (edit.config->*field != first)
+					return std::string();
+			}
+			return first;
+		};
+		summary.module = agreed(&config::FileConfig::module);
+		summary.component = agreed(&config::FileConfig::component);
+		summary.fromVariant = agreed(&config::FileConfig::fromVariant);
+		return summary;
+	};
+
+	for (const auto& [archivePath, edits] : archives)
+	{
+		RepackedArchive entry;
+		entry.path = archivePath;
+
+		// A wholesale replacement of the archive is folded in here rather than
+		// written and then overwritten, and it is the entry the manifest should
+		// credit: it supplied the file, the members only edited it.
+		const auto wholesale = std::find_if(replacements.begin(), replacements.end(),
+			[&](const PreparedFile& file) { return file.config->path == archivePath; });
+
+		std::vector<u8> bytes;
+		if (wholesale != replacements.end())
+		{
+			bytes = wholesale->data;
+			entry.summarize = false;
+		}
+		else
+		{
+			bytes = rom.readNitroFile(archivePath);
+			entry.summary = archiveProvenance(archivePath, edits);
+		}
+
+		if (!rom::isNarc(bytes))
+		{
+			std::ostringstream oss;
+			oss << OSTRa(archivePath) << " is not a Nitro archive.";
+			throw ncp::exception(oss.str());
+		}
+
+		rom::Narc narc = [&] {
+			try
+			{
+				return rom::Narc::parse(bytes);
+			}
+			catch (const std::exception& e)
+			{
+				std::ostringstream oss;
+				oss << "Could not read the Nitro archive " << OSTRa(archivePath) << "."
+				    << OREASONNL << e.what();
+				throw ncp::exception(oss.str());
+			}
+		}();
+
+		for (const PreparedFile& edit : edits)
+		{
+			const int index = narc.findFile(edit.inner);
+			if (index < 0)
+			{
+				// An error rather than a warning. A missing member means the
+				// replacement silently did not happen, and the way that ships
+				// is a ROM with the translation still in the wrong language.
+				std::ostringstream oss;
+				oss << OSTRa(archivePath) << " has no member " << OSTR(edit.inner) << "."
+				    << OREASONNL << "It holds " << narc.fileCount() << " file(s)"
+				    << (narc.allFiles().empty() ? ", none of them named." : ".");
+				throw ncp::exception(oss.str());
+			}
+			narc.replaceFile(std::size_t(index), edit.data);
+		}
+
+		entry.data = narc.serialize();
+		repacked.push_back(std::move(entry));
+
+		if (wholesale != replacements.end())
+			replacements.erase(wholesale);
+	}
+
 	// File ids inside one FNT directory are consecutive. Add a directory's own
 	// files before any child directory, matching the established z_new layout.
+	//
+	// Ordered case-insensitively, with the raw path breaking ties so the order
+	// is still total.
+	//
+	// This is a different question from how a path is looked up. Lookup has a
+	// right answer -- the FNT stores bytes, and NitroFs::findFile compares them
+	// exactly so that a config naming one entry can never resolve to a
+	// differently-cased neighbour. Ordering has no right answer: nothing reads
+	// the order, it only has to be stable, so the rule to pick is the one a
+	// person browsing an extracted ROM expects, which is the case-insensitive
+	// one every mainstream desktop filesystem presents. It is also what already
+	// shipped -- sorting bytewise instead puts SE_VOC_LU_SHOT ahead of
+	// desyncwarn_top and renumbers five z_new files.
 	std::sort(additions.begin(), additions.end(), [](const PreparedFile& left, const PreparedFile& right) {
-		auto split = [](const std::string& path) {
+		auto key = [](const std::string& path) {
 			const std::size_t slash = path.rfind('/');
-			return std::pair(path.substr(0, slash), path.substr(slash + 1));
+			const std::string directory = path.substr(0, slash);
+			const std::string name = path.substr(slash + 1);
+			auto folded = [](std::string text) {
+				std::transform(text.begin(), text.end(), text.begin(),
+					[](unsigned char c) { return char(std::tolower(c)); });
+				return text;
+			};
+			return std::tuple(folded(directory), folded(name), directory, name);
 		};
-		return split(left.config->path) < split(right.config->path);
+		return key(left.config->path) < key(right.config->path);
 	});
 
-	if (!additions.empty() && rom.findNitroFile("z_new/reserved") < 0)
-		(void)rom.addNitroFile("z_new/reserved", std::span<const u8>());
+	// The reserved placeholder, when the game needs one, goes in before any of
+	// them: the whole point is to be given the first id an addition would
+	// otherwise get. See ProjectConfig::filesReserve for why a game would.
+	if (!additions.empty() && m_config.filesReserve.configured())
+	{
+		const std::string& reserved = m_config.filesReserve.value;
+		if (rom.findNitroFile(reserved) < 0)
+			inserted.createdIds.push_back(rom.addNitroFile(reserved, std::span<const u8>()));
+	}
 
 	auto report = [](const PreparedFile& file, u32 fileId, const char* action) {
 		Log::info(std::string(std::string_view(action) == "created" ? "Added " : "Replaced ")
@@ -818,16 +1229,160 @@ void Application::insertFiles(rom::RomAccessor& rom)
 		msg::artifact(std::move(artifact));
 	};
 
+	// Renames first: after this a claimed id answers to its new path, which is
+	// what the ordinary replace below needs in order to find it.
+	for (const PreparedFile& file : claims)
+	{
+		const u32 fileId = u32(file.existingId);
+		if (rom.findNitroFile(file.config->path) != file.existingId)
+			rom.renameNitroFile(fileId, file.config->path);
+		(void)rom.replaceNitroFile(file.config->path, file.data);
+		report(file, fileId, "modified");
+	}
 	for (const PreparedFile& file : replacements)
 	{
 		const u32 fileId = rom.replaceNitroFile(file.config->path, file.data);
 		report(file, fileId, "modified");
 	}
+
+	for (const RepackedArchive& archive : repacked)
+	{
+		// The members first, then the file the ROM actually holds: that is the
+		// order the work happened in, and it reads as one archive at a time
+		// however many the build touched.
+		for (const PreparedFile& edit : archives.at(archive.path))
+		{
+			Log::info("Replaced " + edit.config->path);
+			msg::Artifact member;
+			member.kind = "archive-file";
+			member.action = "modified";
+			member.name = edit.config->path;
+			member.size = static_cast<long long>(edit.data.size());
+			msg::artifact(std::move(member));
+		}
+
+		const u32 fileId = rom.replaceNitroFile(archive.path, archive.data);
+
+		Log::info("Repacked " + archive.path + " [" + std::to_string(fileId) + "]");
+		msg::Artifact artifact;
+		artifact.kind = "file";
+		artifact.action = "modified";
+		artifact.name = archive.path;
+		artifact.size = static_cast<long long>(archive.data.size());
+		artifact.fileId = int(fileId);
+		msg::artifact(std::move(artifact));
+	}
+
 	for (const PreparedFile& file : additions)
 	{
 		const u32 fileId = rom.addNitroFile(file.config->path, file.data);
+		inserted.createdIds.push_back(fileId);
 		report(file, fileId, "created");
 	}
+
+	// Last, because every PreparedFile above points into `inserted.files` and
+	// growing it would move what those pointers name. The manifest reports ROM
+	// files, and an edited archive is one: without a record of its own it would
+	// come out as untouched, since the entries that changed it name members
+	// rather than the file the ROM holds.
+	for (RepackedArchive& archive : repacked)
+	{
+		if (archive.summarize)
+			inserted.files.push_back(std::move(archive.summary));
+	}
+
+	return inserted;
+}
+
+void Application::insertBanner(rom::RomAccessor& rom) const
+{
+	fs::path configured = m_config.romBanner.value;
+
+	// A variant may override it, though in practice one banner serves every
+	// build: the region holds a title in all six console languages at once.
+	const auto variant = std::find_if(m_config.variants.begin(), m_config.variants.end(),
+		[&](const config::VariantConfig& candidate) { return candidate.name == m_variant; });
+	if (variant != m_config.variants.end() && !variant->banner.empty())
+		configured = variant->banner;
+
+	if (configured.empty())
+		return;
+
+	ScopedContext ctx(Diag::NitroFsInsert, "Could not replace the ROM banner.");
+
+	const fs::path source = m_ctx.paths.work(configured);
+	if (!fs::exists(source) || !fs::is_regular_file(source))
+		throw ncp::file_error(source, ncp::file_error::find);
+
+	if (!rom.hasBanner())
+	{
+		std::ostringstream oss;
+		oss << "This ROM has no icon/title banner to replace." << OREASONNL
+		    << OSTR(rom.location().string()) << " does not have one.";
+		throw ncp::exception(oss.str());
+	}
+
+	std::vector<u8> data(std::size_t(fs::file_size(source)));
+	std::ifstream input(source, std::ios::binary);
+	if (!input.is_open())
+		throw ncp::file_error(source, ncp::file_error::read);
+	if (!data.empty())
+	{
+		input.read(reinterpret_cast<char*>(data.data()), std::streamsize(data.size()));
+		if (!input)
+			throw ncp::file_error(source, ncp::file_error::read);
+	}
+
+	// The same refusal on both backends, so that a project which switches
+	// between an extracted directory and a .nds does not discover the rule only
+	// once it packs one. A banner's length is fixed by the version word it
+	// starts with; a different length is a different banner format, not a
+	// bigger one, and quietly relaying the container out around it would be the
+	// wrong answer to a configuration mistake.
+	const std::size_t current = rom.readBanner().size();
+	if (data.size() != current)
+	{
+		std::ostringstream oss;
+		oss << "Cannot replace the banner with " << OSTR(source.string()) << "." << OREASONNL
+		    << "It is " << data.size() << " bytes and the ROM's banner is " << current << ".";
+		throw ncp::exception(oss.str());
+	}
+
+	rom.writeBanner(data);
+
+	Log::info("Replaced the ROM banner.");
+	msg::Artifact artifact;
+	artifact.kind = "banner";
+	artifact.action = "modified";
+	artifact.name = "banner";
+	artifact.size = static_cast<long long>(data.size());
+	msg::artifact(std::move(artifact));
+}
+
+void Application::writeFileDump(const rom::RomAccessor& rom, const InsertedFiles& inserted) const
+{
+	if (!m_config.filesDump.configured())
+		return;
+
+	ScopedContext ctx(Diag::NitroFsInsert, "Could not write the file manifest.");
+
+	const fs::path path = m_ctx.paths.work(m_config.filesDump.value);
+
+	std::error_code error;
+	fs::create_directories(path.parent_path(), error);
+
+	std::ofstream file(path);
+	if (!file.is_open())
+	{
+		std::ostringstream oss;
+		oss << "Could not open " << OSTR(path.string()) << " for writing.";
+		throw ncp::exception(oss.str());
+	}
+
+	const std::vector<rom::ManifestEntry> entries =
+		rom::buildManifest(rom, inserted.files, inserted.createdIds, m_ctx.paths.workDir);
+	rom::writeManifest(file, entries, m_variant);
+	Log::info("Wrote the file manifest.");
 }
 
 // The per-target half of resolution, in one place because `config dump` has to
@@ -870,6 +1425,17 @@ std::filesystem::path Application::projectFile() const
 	return file;
 }
 
+// v1 projects keep their targets in separate files, read later than the project
+// file itself. They must see the same .ncpatcher.env the project file saw, or a
+// pinned reference would apply to `includes` at the project level and not at the
+// target level -- which is where v1 projects actually put theirs.
+config::V1Options Application::targetLoadOptions() const
+{
+	config::V1Options options;
+	options.envFile = &m_envFile;
+	return options;
+}
+
 void Application::loadConfigurations()
 {
 	ScopedContext ctx(Diag::ConfigLoad, "Could not load the build configuration.");
@@ -888,7 +1454,22 @@ void Application::loadConfigurations()
 		overrides.emplace_back(assignment.substr(0, separator), assignment.substr(separator + 1));
 	}
 
-	m_config = config::load(projectFile(), m_ctx.paths.workDir, overrides);
+	// Before the configuration, because ${env.NAME} in it may resolve here.
+	if (!m_cli.noEnvFile)
+	{
+		m_envFile.load(m_ctx.paths.workDir / fs::path(config::EnvFile::DEFAULT_NAME));
+		if (m_envFile.loaded() && !m_envFile.empty())
+		{
+			std::ostringstream oss;
+			oss << "Read " << m_envFile.entries().size() << " variable(s) from "
+			    << OSTRa(m_envFile.file().filename().string()) << ":";
+			for (const auto& [name, value] : m_envFile.entries())
+				oss << OREASONNL << name << "=" << value;
+			Log::info(oss.str());
+		}
+	}
+
+	m_config = config::load(projectFile(), m_ctx.paths.workDir, overrides, &m_envFile);
 
 	applyCommandLineOverrides();
 

@@ -173,6 +173,15 @@ bool NdsRom::hasFile(u32 fileId) const
 	return fileId < m_fat.size();
 }
 
+u32 NdsRom::fileSize(u32 fileId) const
+{
+	const auto pending = m_pendingFiles.find(fileId);
+	if (pending != m_pendingFiles.end())
+		return u32(pending->second.size());
+
+	return hasFile(fileId) ? m_fat.entries()[fileId].size() : 0;
+}
+
 std::vector<u8> NdsRom::readFile(u32 fileId) const
 {
 	const auto pending = m_pendingFiles.find(fileId);
@@ -199,6 +208,32 @@ void NdsRom::setArm(bool arm9, std::vector<u8> data)
 void NdsRom::setOverlayTable(bool arm9, OverlayTable table)
 {
 	m_pendingOvt[arm9 ? 1 : 0] = std::move(table);
+}
+
+std::vector<u8> NdsRom::readBanner() const
+{
+	if (m_pendingBanner.has_value())
+		return *m_pendingBanner;
+
+	const u32 size = bannerSize();
+	return size != 0 ? slice(m_header.bannerOffset(), size) : std::vector<u8>();
+}
+
+void NdsRom::setBanner(std::vector<u8> data)
+{
+	const u32 size = bannerSize();
+	if (size == 0)
+		throw ncp::exception("This ROM has no icon/title banner to replace.");
+	if (data.size() != size)
+	{
+		std::ostringstream oss;
+		oss << "Cannot replace the banner with " << data.size() << " bytes: the ROM's is "
+		    << size << "." OREASONNL
+		    << "A banner's length is fixed by the version it declares, and growing the region "
+		       "would mean laying the whole container out again.";
+		throw ncp::exception(oss.str());
+	}
+	m_pendingBanner = std::move(data);
 }
 
 void NdsRom::setFile(u32 fileId, std::vector<u8> data)
@@ -230,7 +265,8 @@ bool NdsRom::dirty() const
 {
 	return m_pendingArm[0].has_value() || m_pendingArm[1].has_value()
 	    || m_pendingOvt[0].has_value() || m_pendingOvt[1].has_value()
-	    || !m_pendingFiles.empty() || m_pendingFnt.has_value();
+	    || !m_pendingFiles.empty() || m_pendingFnt.has_value()
+	    || m_pendingBanner.has_value();
 }
 
 void NdsRom::writeRegion(u32 offset, std::span<const u8> data)
@@ -376,6 +412,12 @@ void NdsRom::commit(u32 arm9Slack)
 		m_header.setFnt(RomRegion{ fnt.romOffset, u32(m_pendingFnt->size()) });
 	}
 
+	// The banner is the one region that can never need moving: setBanner
+	// refuses a length change, so the replacement fits exactly where the old
+	// one was and the header keeps pointing at it.
+	if (m_pendingBanner.has_value())
+		writeRegion(m_header.bannerOffset(), *m_pendingBanner);
+
 	// Files: back into their own extent when they still fit, appended to the
 	// end of the used ROM when they do not. The abandoned extent becomes dead
 	// space, which `ncpatcher rom pack` reclaims.
@@ -465,8 +507,7 @@ void NdsRom::rebuildLayout(u32 arm9Slack)
 		? *m_pendingFnt
 		: (fntRegion.size != 0 ? slice(fntRegion.romOffset, fntRegion.size) : std::vector<u8>());
 
-	const u32 bannerLength = bannerSize();
-	const std::vector<u8> bannerData = bannerLength != 0 ? slice(m_header.bannerOffset(), bannerLength) : std::vector<u8>();
+	const std::vector<u8> bannerData = readBanner();
 
 	std::vector<std::vector<u8>> files(m_fat.size());
 	for (std::size_t i = 0; i < m_fat.size(); i++)

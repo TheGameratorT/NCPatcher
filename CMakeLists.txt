@@ -125,6 +125,7 @@ set(SOURCES
 	source/config/config_loader.cpp
 	source/config/config_v1.cpp
 	source/config/config_v2.cpp
+	source/config/env_file.cpp
 	source/config/expander.cpp
 	source/config/migrate.cpp
 	source/config/node.cpp
@@ -157,6 +158,9 @@ set(SOURCES
 	source/rom/dir_accessor.cpp
 	source/rom/endian.cpp
 	source/rom/fat.cpp
+	source/rom/file_manifest.cpp
+	source/rom/narc.cpp
+	source/rom/file_tree.cpp
 	source/rom/header.cpp
 	source/rom/nds_accessor.cpp
 	source/rom/nds_rom.cpp
@@ -304,6 +308,46 @@ if (NCP_BUILD_TESTS)
 		source/system/log.cpp
 		source/system/log_sink.cpp)
 
+	# The file-tree resolver pulls in config/project_config for FileConfig and
+	# the NitroFS path rule, and Glob for the component patterns.
+	ncp_add_test(file_tree_test
+		tests/file_tree_test.cpp
+		source/config/project_config.cpp
+		source/rom/file_tree.cpp
+		source/system/ansi.cpp
+		source/system/except.cpp
+		source/system/log.cpp
+		source/system/log_sink.cpp
+		source/utils/glob.cpp)
+
+	# The archive reader borrows nitro_fs for the name table inside a NARC, so
+	# it needs the same endian and diagnostics support that parser does.
+	ncp_add_test(narc_test
+		tests/narc_test.cpp
+		source/rom/endian.cpp
+		source/rom/narc.cpp
+		source/rom/nitro_fs.cpp
+		source/system/ansi.cpp
+		source/system/diagnostics.cpp
+		source/system/except.cpp
+		source/system/log.cpp
+		source/system/log_sink.cpp)
+
+	# The manifest folds the accessor's file list together with the insertion
+	# list, so it needs project_config for FileConfig and the Json writer.
+	ncp_add_test(file_manifest_test
+		tests/file_manifest_test.cpp
+		source/config/project_config.cpp
+		source/rom/endian.cpp
+		source/rom/file_manifest.cpp
+		source/rom/header.cpp
+		source/system/ansi.cpp
+		source/system/diagnostics.cpp
+		source/system/except.cpp
+		source/system/log.cpp
+		source/system/log_sink.cpp
+		source/utils/json.cpp)
+
 	ncp_add_test(overlay_create_test
 		tests/overlay_create_test.cpp
 		source/app/context.cpp
@@ -351,6 +395,7 @@ if (NCP_BUILD_TESTS)
 		tests/config_test.cpp
 		source/config/node.cpp
 		source/config/project_config.cpp
+		source/config/env_file.cpp
 		source/config/expander.cpp
 		source/config/config_loader.cpp
 		source/config/config_v1.cpp
@@ -384,6 +429,7 @@ if (NCP_BUILD_TESTS)
 		tests/modules_test.cpp
 		source/config/node.cpp
 		source/config/project_config.cpp
+		source/config/env_file.cpp
 		source/config/expander.cpp
 		source/config/config_loader.cpp
 		source/config/config_v1.cpp

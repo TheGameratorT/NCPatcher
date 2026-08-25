@@ -1,6 +1,6 @@
 #pragma once
 
-// `ncpatcher rom info | extract | pack`.
+// `ncpatcher rom info | files | extract | pack`.
 //
 // extract and pack move the *code* binaries between a .nds and a directory --
 // the header, the two ARM binaries, the two overlay tables and the overlay
@@ -17,6 +17,11 @@ namespace ncp::romcmd {
 // Prints what the header says. `path` may be a .nds or a directory holding an
 // extracted header.
 void info(const std::filesystem::path& path, const rom::DirLayout& layout);
+
+// Prints the ROM's NitroFS table: every file, its id, its size and its path.
+// `json` emits `ncpatcher.files/1` instead, with every entry `unchanged` --
+// this reads a ROM rather than building one, so nothing here has provenance.
+void files(const std::filesystem::path& path, const rom::DirLayout& layout, bool json);
 
 // Writes the code binaries of `romFile` into `directory`.
 // Returns how many files were written.

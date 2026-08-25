@@ -10,7 +10,13 @@ namespace ncp::config {
 
 const char* hookWhenName(HookWhen when)
 {
-	return when == HookWhen::PreBuild ? "pre-build" : "post-build";
+	switch (when)
+	{
+	case HookWhen::PreBuild:  return "pre-build";
+	case HookWhen::PostFiles: return "post-files";
+	case HookWhen::PostBuild: return "post-build";
+	}
+	return "pre-build";
 }
 
 const char* sourceName(Source source)
@@ -167,6 +173,62 @@ FlagLists FlagLists::inheritedBy(const FlagOps& ops) const
 	out.asm_ = ops.asm_.applyTo(asm_);
 	out.ld = ops.ld.applyTo(ld);
 	return out;
+}
+
+std::string nitroPathProblem(std::string_view path)
+{
+	if (path.empty() || path.front() == '/' || path.back() == '/' || path.find('\\') != std::string_view::npos)
+		return "A NitroFS path must be a non-empty relative path using '/' separators.";
+
+	std::size_t start = 0;
+	while (start < path.size())
+	{
+		const std::size_t slash = path.find('/', start);
+		const std::size_t end = slash == std::string_view::npos ? path.size() : slash;
+		const std::string_view part = path.substr(start, end - start);
+		if (part.empty() || part == "." || part == "..")
+			return "A NitroFS path cannot contain empty, '.' or '..' segments.";
+		if (part.size() > 0x7F)
+			return "A NitroFS path segment cannot exceed 127 bytes.";
+		if (slash == std::string_view::npos)
+			break;
+		start = slash + 1;
+	}
+	return {};
+}
+
+NitroDestination splitNitroDestination(std::string_view destination)
+{
+	NitroDestination out;
+	const std::size_t bang = destination.find('!');
+	if (bang == std::string_view::npos)
+	{
+		out.path = destination;
+		return out;
+	}
+
+	out.path = destination.substr(0, bang);
+	out.inner = destination.substr(bang + 1);
+	out.inArchive = true;
+	return out;
+}
+
+std::string nitroDestinationProblem(std::string_view destination)
+{
+	// A second '!' would make the split ambiguous, and an archive inside an
+	// archive is not something this opens.
+	if (destination.find('!') != destination.rfind('!'))
+		return "A NitroFS destination can name at most one archive, so it cannot contain two '!'.";
+
+	const NitroDestination split = splitNitroDestination(destination);
+	if (const std::string problem = nitroPathProblem(split.path); !problem.empty())
+		return problem;
+	if (!split.inArchive)
+		return {};
+
+	if (const std::string problem = nitroPathProblem(split.inner); !problem.empty())
+		return problem;
+	return {};
 }
 
 } // namespace ncp::config

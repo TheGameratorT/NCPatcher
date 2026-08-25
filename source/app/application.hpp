@@ -9,6 +9,8 @@
 #include "config_dump.hpp"
 #include "context.hpp"
 #include "../config/project_config.hpp"
+#include "../config/config_loader.hpp"
+#include "../config/env_file.hpp"
 #include "../config/rebuild_store.hpp"
 #include "../modules/module_graph.hpp"
 #include "../system/diagnostics.hpp"
@@ -42,6 +44,15 @@ private:
 	Options m_options;
 	config::ProjectConfig m_config;
 	config::RebuildStore m_rebuild;
+
+	// Loaded before the configuration and kept for the whole run: the config
+	// expander borrows it, and hook children inherit its entries.
+	config::EnvFile m_envFile;
+
+	// The variant this build is for, empty when the project has none. Kept
+	// because hooks name it: see resolveDeferred().
+	std::string m_variant;
+
 	Context m_ctx;
 
 	// What the enabled modules add up to. Empty for a project without a
@@ -74,7 +85,26 @@ private:
 				  const char* message,
 				  Diag code,
 				  const char* errorContext);
-	void insertFiles(ncp::rom::RomAccessor& rom);
+	// What one insertion pass did. The manifest needs both halves: the
+	// resolved list says where a file's bytes came from, and the ids say which
+	// of those files the ROM did not already have -- by the time the manifest
+	// is written, a created file and a replaced one look alike.
+	struct InsertedFiles
+	{
+		std::vector<config::FileConfig> files;
+		std::vector<u32> createdIds;
+	};
+
+	InsertedFiles insertFiles(ncp::rom::RomAccessor& rom);
+	void writeFileDump(const ncp::rom::RomAccessor& rom, const InsertedFiles& inserted) const;
+
+	// Overwrites the ROM's icon/title banner, if the project supplies one. Its
+	// own step because a banner is not a NitroFS file: it is a region the
+	// header points at, so no path names it and `files:` cannot carry it.
+	void insertBanner(ncp::rom::RomAccessor& rom) const;
+
+	// The project's `files:` folded onto whatever the file trees sweep up.
+	[[nodiscard]] std::vector<config::FileConfig> resolveNitroFiles() const;
 
 	// Initialization helpers
 	void initializePaths();
@@ -85,6 +115,8 @@ private:
 
 	// Configuration management
 	[[nodiscard]] std::filesystem::path projectFile() const;
+	[[nodiscard]] config::V1Options targetLoadOptions() const;
+	[[nodiscard]] std::string resolveDeferred(std::string text) const;
 	void loadConfigurations();
 
 	// Reads the module.yaml files and folds them into m_modules.

@@ -10,6 +10,7 @@
 // Run via ctest, or directly: ./config_test
 
 #include "../source/config/config_loader.hpp"
+#include "../source/config/env_file.hpp"
 #include "../source/config/expander.hpp"
 #include "../source/config/migrate.hpp"
 #include "../source/config/node.hpp"
@@ -243,6 +244,99 @@ static void testExpanderEnvironment()
 	check(contains(unknown, "${vars.ref}"), "a bare name is pointed at the vars namespace");
 }
 
+// Environment file =======================================================
+
+static void testEnvFileParsing(const fs::path& root)
+{
+	write(root / "ok.env",
+		"# a comment\n"
+		"\n"
+		"  SPACED  =  /padded/path  \n"
+		"QUOTED=\"/with spaces/\"\n"
+		"EMPTY=\n"
+		"DUP=first\n"
+		"DUP=second\n");
+
+	EnvFile env;
+	env.load(root / "ok.env");
+	check(env.loaded(), "an existing env file reports loaded");
+	checkEqual(*env.find("SPACED"), "/padded/path", "surrounding whitespace is trimmed");
+	checkEqual(*env.find("QUOTED"), "/with spaces/", "one layer of quotes is stripped");
+	checkEqual(*env.find("EMPTY"), "", "an empty value is allowed");
+	checkEqual(*env.find("DUP"), "second", "a repeated name takes the last assignment");
+	check(env.find("MISSING") == nullptr, "an absent name is null");
+
+	// A file that is not there is not an error; most projects have none.
+	EnvFile absent;
+	absent.load(root / "nope.env");
+	check(!absent.loaded(), "a missing env file is not loaded");
+	check(absent.empty(), "a missing env file is empty");
+
+	write(root / "bad.env", "NAME=ok\nthis is not an assignment\n");
+	const std::string malformed = errorFrom([&] { EnvFile bad; bad.load(root / "bad.env"); });
+	check(contains(malformed, "bad.env:2"), "a malformed line is reported with its line number");
+
+	write(root / "shell.env", "export NAME=ok\n");
+	const std::string exported = errorFrom([&] { EnvFile bad; bad.load(root / "shell.env"); });
+	check(contains(exported, "export"), "the export keyword is diagnosed by name");
+
+	write(root / "name.env", "9LIVES=ok\n");
+	const std::string badName = errorFrom([&] { EnvFile bad; bad.load(root / "name.env"); });
+	check(contains(badName, "Invalid variable name"), "a name that cannot be a variable is an error");
+}
+
+static void testEnvFileBeatsTheEnvironment(const fs::path& root)
+{
+	// The whole point: a value in the project's file wins over one exported by
+	// whatever shell happens to be running the build.
+	write(root / "pinned.env", "NCP_TEST_REF=/from/the/file\n");
+	EnvFile env;
+	env.load(root / "pinned.env");
+
+	const Document doc("a: x\n", "t.yaml");
+	const Node origin = doc.root()["a"];
+
+	Expander expander;
+	expander.setEnvFile(&env);
+	checkEqual(expander.expand("${env.NCP_TEST_REF}", origin), "/from/the/file",
+		"the env file supplies a variable the environment does not have");
+
+	// And it still wins when the environment does have one.
+#ifdef _WIN32
+	_putenv_s("NCP_TEST_REF", "/from/the/shell");
+#else
+	setenv("NCP_TEST_REF", "/from/the/shell", 1);
+#endif
+	checkEqual(expander.expand("${env.NCP_TEST_REF}", origin), "/from/the/file",
+		"the env file overrides the ambient environment");
+
+	Expander plain;
+	checkEqual(plain.expand("${env.NCP_TEST_REF}", origin), "/from/the/shell",
+		"without the file, the ambient environment is used");
+#ifdef _WIN32
+	_putenv_s("NCP_TEST_REF", "");
+#else
+	unsetenv("NCP_TEST_REF");
+#endif
+}
+
+static void testExpanderDefersNames()
+{
+	const Document doc("a: x\n", "t.yaml");
+	const Node origin = doc.root()["a"];
+
+	Expander expander;
+	expander.setDeferred("variant.name");
+
+	// A deferred name expands to itself, so a later pass can finish it. It must
+	// not be reported as unknown, and must not consume the surrounding text.
+	checkEqual(expander.expand("out/${variant.name}.xdelta", origin), "out/${variant.name}.xdelta",
+		"a deferred reference survives expansion verbatim");
+
+	const std::string unknown = errorFrom([&] { (void)expander.expand("${variant.other}", origin); });
+	check(contains(unknown, "Unknown reference"), "deferring one name does not defer its neighbours");
+}
+
 // v1 reader ==============================================================
 
 static const char* V1_PROJECT = R"({
@@ -345,6 +439,7 @@ vars:
 rom:
   dir: __tmp
   backup: backup
+  banner: nitrofs/banner.bin
 
 toolchain: { prefix: arm-none-eabi- }
 
@@ -360,13 +455,28 @@ hooks:
       MODULE_DUMP: ${ncp.moduleDump}
       HOOK_MODE: ${env.NCP_HOOK_MODE:-portable}
     when: pre-build
+  - name: Generate file ids
+    run: fid --variant ${variant.name} --manifest ${ncp.fileDump}
+    when: post-files
   - name: Report result
-    run: report
+    run: report ${rom.output}
     when: post-build
 
 files:
   sp/demo/readme.txt: ${project.root}/nitrofs/readme.txt
   z_new/coop/new.bin: generated/new.bin
+  demo/boot_sub_bg_ncg.bin:
+    source: nitrofs/demo/boot_sub_bg_ncg.bin
+    id: 1209
+  ARCHIVE/menu_title.narc!menu/title/USA/vs.bmg: nitrofs/fr/vs.bmg
+
+file-trees:
+  - dir: nitrofs
+    layered: true
+    base-variant: en
+
+files-dump: build/generated/files.json
+files-reserve: z_new/reserved
 
 variants:
   en:
@@ -375,9 +485,12 @@ variants:
       sp/demo/readme.txt: nitrofs/en/readme.txt
   fr:
     defines: [GAME_LANGUAGE_FR, MESSAGE_LANGUAGE=2]
+    banner: nitrofs/fr/banner.bin
     files:
       sp/demo/readme.txt: nitrofs/fr/readme.txt
       z_new/coop/localized.bin: generated/fr.bin
+    module-variants:
+      thirdparty: french
 
 defines: [SDK_GCC]
 flags:
@@ -416,7 +529,7 @@ static void testV2Reader(const fs::path& root)
 	check(config.version == 2, "the version key is read");
 	check(!config.arm7.enabled, "enabled: false turns a target off");
 	checkEqual(config.filesystemDir.value.generic_string(), "__tmp", "rom.dir reads back");
-	check(config.hooks.size() == 2, "structured hooks read back");
+	check(config.hooks.size() == 3, "structured hooks read back");
 	checkEqual(config.hooks[0].name, "Generate module headers", "a hook keeps its name");
 	check(config.hooks[0].when == HookWhen::PreBuild, "a hook keeps its phase");
 	checkEqual(config.hooks[0].cwd.generic_string(), (root / "tools").generic_string(),
@@ -429,13 +542,78 @@ static void testV2Reader(const fs::path& root)
 		"hook environment values expand ncp.moduleDump");
 	checkEqual(config.hooks[0].env[1].second, "portable",
 		"hook environment values use normal env fallback expansion");
-	check(config.hooks[1].when == HookWhen::PostBuild, "post-build is a hook phase");
-	check(config.files.size() == 2, "NitroFS files read back");
+	check(config.hooks[1].when == HookWhen::PostFiles, "post-files is a hook phase");
+
+	// A top-level key rather than `files.dump`: `files:` is a mapping of ROM
+	// paths, and a ROM may perfectly well contain a file called `dump`.
+	checkEqual(config.filesDump.value.generic_string(), "build/generated/files.json",
+		"files-dump reads back");
+	const std::string fileDump = (root / "build/generated/files.json").generic_string();
+	check(config.hooks[2].when == HookWhen::PostBuild, "post-build is a hook phase");
+
+	// Neither is knowable while the file is being read, so both must survive it
+	// intact for the hook runner to finish. A reader that resolved them here
+	// would bake the first variant's name into every later variant's command.
+	checkEqual(config.hooks[1].run, "fid --variant ${variant.name} --manifest " + fileDump,
+		"variant.name is deferred to the hook runner, and ncp.fileDump is not");
+	checkEqual(config.hooks[2].run, "report ${rom.output}",
+		"rom.output is deferred to the hook runner");
+	check(config.files.size() == 4, "NitroFS files read back");
 	checkEqual(config.files[0].path, "sp/demo/readme.txt", "a NitroFS destination keeps '/' separators");
 	checkEqual(config.files[0].source.generic_string(), (root / "nitrofs/readme.txt").generic_string(),
 		"a NitroFS source expands project.root");
 	checkEqual(config.files[1].source.generic_string(), "generated/new.bin",
 		"a relative NitroFS source stays relative to the project");
+	check(config.files[0].id == -1 && config.files[1].id == -1,
+		"an ordinary NitroFS entry claims no file id");
+	checkEqual(config.files[2].path, "demo/boot_sub_bg_ncg.bin",
+		"the mapping form of a NitroFS entry keeps its destination");
+	check(config.files[2].id == 1209, "and reads the file id it claims");
+	checkEqual(config.files[2].source.generic_string(), "nitrofs/demo/boot_sub_bg_ncg.bin",
+		"the mapping form reads its source from a key rather than the value");
+
+	// Two coordinates in one string, separated the way jar: and zip: URIs
+	// separate the same two things. There is no directory to carry the tree's
+	// `_narc` convention here, so the destination has to say it outright.
+	checkEqual(config.files[3].path, "ARCHIVE/menu_title.narc!menu/title/USA/vs.bmg",
+		"a destination may name a file inside a Nitro archive");
+	const config::NitroDestination inArchive = config::splitNitroDestination(config.files[3].path);
+	check(inArchive.inArchive, "and it reads as an archive destination");
+	checkEqual(inArchive.path, "ARCHIVE/menu_title.narc", "the archive is the ROM file");
+	checkEqual(inArchive.inner, "menu/title/USA/vs.bmg", "and the rest names the member");
+	check(!config::splitNitroDestination("uiStudio/title.bin").inArchive,
+		"an ordinary path is not an archive destination");
+
+	// Both halves are ordinary NitroFS paths, so both get the ordinary rules --
+	// and a second '!' has no reading at all, since nothing here opens an
+	// archive inside an archive.
+	check(config::nitroDestinationProblem("ARCHIVE/x.narc!a/b.bin").empty(),
+		"a well-formed archive destination is accepted");
+	check(!config::nitroDestinationProblem("ARCHIVE/x.narc!a!b").empty(),
+		"a destination with two '!' is refused");
+	check(!config::nitroDestinationProblem("ARCHIVE/x.narc!").empty(),
+		"an archive destination naming no member is refused");
+	check(!config::nitroDestinationProblem("!a/b.bin").empty(),
+		"a member with no archive is refused");
+	check(!config::nitroDestinationProblem("ARCHIVE/x.narc!../b.bin").empty(),
+		"'..' inside an archive is refused like anywhere else");
+
+	// The placeholder that spends the first new file id on nothing. Off unless
+	// a project asks for it: which id a game's compiled code treats as a
+	// sentinel is a fact about that game, not about NitroFS.
+	checkEqual(config.filesReserve.value, "z_new/reserved", "files-reserve reads back");
+
+	// Not part of `files:`: the banner is a region the header points at rather
+	// than a NitroFS file, so no path would name it.
+	checkEqual(config.romBanner.value.generic_string(), "nitrofs/banner.bin", "rom.banner reads back");
+	checkEqual(config.variants[1].banner.generic_string(), "nitrofs/fr/banner.bin",
+		"a variant may override the banner");
+	check(config.variants[0].banner.empty(), "and a variant that does not is left alone");
+
+	check(config.fileTrees.size() == 1, "a file tree reads back");
+	checkEqual(config.fileTrees[0].dir.generic_string(), "nitrofs", "a file tree keeps its directory");
+	check(config.fileTrees[0].layered, "a file tree reads its layered flag");
+	checkEqual(config.fileTrees[0].baseVariant, "en", "a file tree reads its base variant");
 	check(config.variants.size() == 2, "variants preserve their declaration order");
 	checkEqual(config.variants[0].name, "en", "a variant keeps its name");
 	check(config.variants[0].defines == std::vector<std::string>({ "GAME_LANGUAGE_EN" }),
@@ -444,6 +622,12 @@ static void testV2Reader(const fs::path& root)
 		"a variant reads its file override");
 	check(config.variants[1].defines.size() == 2 && config.variants[1].files.size() == 2,
 		"a variant carries its complete define/file matrix");
+	check(config.variants[0].moduleVariants.empty(),
+		"a variant maps no module layers unless it says so");
+	check(config.variants[1].moduleVariants.size() == 1
+		&& config.variants[1].moduleVariants[0].first == "thirdparty"
+		&& config.variants[1].moduleVariants[0].second == "french",
+		"a variant reads the module layer names it maps itself onto");
 
 	PathContext paths;
 	paths.workDir = root;
@@ -520,6 +704,42 @@ static void testV2RejectsTypos(const fs::path& root)
 	write(root / "mixed-hooks.yaml", std::string(V2_PROJECT) + "\npre-build: echo old\n");
 	const std::string mixed = errorFrom([&] { (void)loadV2(root / "mixed-hooks.yaml", root); });
 	check(contains(mixed, "not both"), "structured and compatibility hooks cannot be mixed");
+
+	// Two entries claiming one id is the failure the Python accepts silently:
+	// whichever ran second would rename a file the first had already renamed.
+	std::string duplicateId = V2_PROJECT;
+	duplicateId.insert(duplicateId.find("\nfile-trees:"),
+		"  demo/UE_title_nsc.bin:\n    source: nitrofs/demo/UE_title_nsc.bin\n    id: 1209\n");
+	write(root / "duplicate-id.yaml", duplicateId);
+	const std::string sharedId = errorFrom([&] { (void)loadV2(root / "duplicate-id.yaml", root); });
+	check(contains(sharedId, "1209") && contains(sharedId, "claimed by both"),
+		"two NitroFS entries cannot claim one file id");
+
+	std::string badId = V2_PROJECT;
+	badId.replace(badId.find("id: 1209"), 8, "id: 70000");
+	write(root / "bad-id.yaml", badId);
+	const std::string outOfRange = errorFrom([&] { (void)loadV2(root / "bad-id.yaml", root); });
+	check(contains(outOfRange, "65535"), "a file id outside the FAT's range is rejected");
+
+	std::string badTreeKey = V2_PROJECT;
+	badTreeKey.replace(badTreeKey.find("    layered: true"), 17, "    layerd: true");
+	write(root / "bad-tree-key.yaml", badTreeKey);
+	const std::string treeKey = errorFrom([&] { (void)loadV2(root / "bad-tree-key.yaml", root); });
+	check(contains(treeKey, "layerd"), "an unknown file tree key is named");
+
+	// base-variant only means anything under layering, so accepting it without
+	// would silently do nothing.
+	std::string strayBase = V2_PROJECT;
+	strayBase.replace(strayBase.find("    layered: true\n"), 18, "");
+	write(root / "stray-base.yaml", strayBase);
+	const std::string base = errorFrom([&] { (void)loadV2(root / "stray-base.yaml", root); });
+	check(contains(base, "base-variant"), "a base variant without layering is rejected");
+
+	std::string emptyLayer = V2_PROJECT;
+	emptyLayer.replace(emptyLayer.find("thirdparty: french"), 18, "thirdparty: \"\"");
+	write(root / "empty-layer.yaml", emptyLayer);
+	const std::string layer = errorFrom([&] { (void)loadV2(root / "empty-layer.yaml", root); });
+	check(contains(layer, "cannot be empty"), "a mapped module variant name cannot be empty");
 
 	std::string unsafeFile = V2_PROJECT;
 	const std::string safePath = "sp/demo/readme.txt";
@@ -628,6 +848,9 @@ int main()
 	testExpanderDetectsCycles();
 	testExpanderOverrides();
 	testExpanderEnvironment();
+	testExpanderDefersNames();
+	testEnvFileParsing(root / "env");
+	testEnvFileBeatsTheEnvironment(root / "env");
 
 	testV1Reader(root / "v1");
 	testV2Reader(root / "v1");   // reuses the source tree the v1 fixture built

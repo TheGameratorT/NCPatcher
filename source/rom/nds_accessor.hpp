@@ -46,8 +46,17 @@ public:
 	u32 createOverlay(bool arm9, u32 id, std::span<const u8> data) override;
 
 	[[nodiscard]] int findNitroFile(std::string_view path) const override;
+	[[nodiscard]] std::vector<u8> readNitroFile(std::string_view path) override;
 	u32 replaceNitroFile(std::string_view path, std::span<const u8> data) override;
 	u32 addNitroFile(std::string_view path, std::span<const u8> data) override;
+	void renameNitroFile(u32 fileId, std::string_view path) override;
+	[[nodiscard]] std::string nitroFilePath(u32 fileId) const override;
+
+	[[nodiscard]] bool hasBanner() const override;
+	[[nodiscard]] std::vector<u8> readBanner() override;
+	void writeBanner(std::span<const u8> data) override;
+
+	[[nodiscard]] std::vector<NitroFileInfo> listNitroFiles() const override;
 
 	void commit() override;
 

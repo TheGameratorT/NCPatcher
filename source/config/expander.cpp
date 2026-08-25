@@ -1,5 +1,7 @@
 #include "expander.hpp"
 
+#include "env_file.hpp"
+
 #include <algorithm>
 #include <cstdlib>
 #include <sstream>
@@ -27,6 +29,16 @@ void Expander::setOverride(std::string name, std::string value)
 	m_overrides[std::move(name)] = std::move(value);
 }
 
+void Expander::setEnvFile(const EnvFile* envFile)
+{
+	m_envFile = envFile;
+}
+
+void Expander::setDeferred(std::string name)
+{
+	m_deferred.push_back(std::move(name));
+}
+
 bool Expander::hasVariable(std::string_view name) const
 {
 	return m_variables.find(std::string(name)) != m_variables.end();
@@ -42,6 +54,8 @@ std::vector<std::string> Expander::knownNames() const
 		out.push_back("vars." + name);
 	for (const auto& [name, value] : m_overrides)
 		out.push_back("vars." + name);
+	for (const std::string& name : m_deferred)
+		out.push_back(name);
 	std::sort(out.begin(), out.end());
 	out.erase(std::unique(out.begin(), out.end()), out.end());
 	return out;
@@ -118,6 +132,16 @@ std::string Expander::lookup(std::string_view name, const cfg::Node& where) cons
 		if (rest.empty())
 			where.fail("Empty environment variable name in " ANSI_bCYAN "${env.}" ANSI_RESET ".");
 
+		// The project's own .ncpatcher.env comes first, deliberately. See the
+		// note on precedence in env_file.hpp: the ambient environment is a
+		// property of whoever's shell this happens to be, and letting it win
+		// would defeat the reason the file exists.
+		if (m_envFile != nullptr)
+		{
+			if (const std::string* pinned = m_envFile->find(rest))
+				return *pinned;
+		}
+
 		const char* value = std::getenv(std::string(rest).c_str());
 		if (value != nullptr)
 			return value;
@@ -133,6 +157,13 @@ std::string Expander::lookup(std::string_view name, const cfg::Node& where) cons
 
 	if (name.starts_with("vars."))
 		return resolveVariable(std::string(name.substr(5)), where);
+
+	// Left for whoever expands next. See setDeferred.
+	for (const std::string& deferred : m_deferred)
+	{
+		if (name == deferred)
+			return "${" + deferred + "}";
+	}
 
 	const auto constant = m_constants.find(std::string(name));
 	if (constant != m_constants.end())

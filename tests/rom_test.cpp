@@ -229,6 +229,76 @@ static std::vector<u8> readFile(const fs::path& path)
 	return std::vector<u8>(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
 }
 
+// Renaming an existing id, the third NitroFS operation. It exists so a project
+// can have a path the retail ROM never had without appending an id and shifting
+// everything after it, which means the whole value of the operation is in the
+// checks: renaming the wrong file is silent, and the file it renames is one the
+// game still refers to by its old name.
+static void testRenameKeepsTheIdAndMovesTheName()
+{
+	NitroFs tree = buildTree();
+
+	check(tree.pathOfFile(1) == "data/a.bin", "a file id reports the path naming it");
+	check(tree.pathOfFile(99).empty(), "an id nothing names reports nothing");
+
+	tree.renameFile(1, "data/claimed.bin");
+	check(tree.findFile("data/claimed.bin") == 1, "the renamed path resolves to the same id");
+	check(tree.findFile("data/a.bin") == -1, "and the old path is gone");
+	check(tree.findFile("data/b.bin") == 2, "the neighbour it shares a directory with is untouched");
+	check(tree.fileCount() == 3, "nothing was added or removed");
+}
+
+static void testRenameRefusesWhatWouldRenumber()
+{
+	auto refuses = [](void (*mutate)(NitroFs&), const std::string& what) {
+		NitroFs tree = buildTree();
+		bool threw = false;
+		try { mutate(tree); }
+		catch (const std::exception&) { threw = true; }
+		check(threw, what);
+	};
+
+	// The trap the Python version walks into: it indexes the destination's
+	// parent directory by (id - firstFileId), so an id belonging to a different
+	// directory silently renames whichever neighbour that arithmetic lands on.
+	refuses([](NitroFs& tree) { tree.renameFile(1, "readme.txt"); },
+		"an id cannot be renamed out of the directory that holds it");
+	refuses([](NitroFs& tree) { tree.renameFile(99, "data/claimed.bin"); },
+		"an id no file has is refused");
+	refuses([](NitroFs& tree) { tree.renameFile(1, "data/b.bin"); },
+		"a name already taken in the same directory is refused");
+	refuses([](NitroFs& tree) { tree.renameFile(1, "data/missing/x.bin"); },
+		"a destination directory that does not exist is refused");
+}
+
+static void testExtractedRenameMovesTheLooseFile()
+{
+	const fs::path root = fs::temp_directory_path() / "ncp_extracted_rename_test";
+	std::error_code ignored;
+	fs::remove_all(root, ignored);
+
+	writeFile(root / "fnt.bin", buildTree().serialize());
+	Fat fat;
+	for (int i = 0; i < 3; i++)
+		fat.add(FatEntry{});
+	writeFile(root / "fat.bin", fat.serialize());
+	writeFile(root / "data/data/a.bin", std::vector<u8>({ 0x11 }));
+
+	DirRomAccessor rom(root, DirLayout{});
+	check(rom.nitroFilePath(1) == "data/a.bin", "an extracted id reports its current path");
+
+	rom.renameNitroFile(1, "data/claimed.bin");
+	check(rom.findNitroFile("data/claimed.bin") == 1, "the extracted FNT records the new name");
+	check(!fs::exists(root / "data/data/a.bin"), "the old loose file is gone");
+	check(readFile(root / "data/data/claimed.bin") == std::vector<u8>({ 0x11 }),
+		"and its bytes moved with it, so a replace can still find them");
+
+	check(rom.replaceNitroFile("data/claimed.bin", std::vector<u8>({ 0x55 })) == 1,
+		"the claimed id keeps its number when its data is replaced");
+
+	fs::remove_all(root, ignored);
+}
+
 static void testExtractedNitroFs()
 {
 	const fs::path root = fs::temp_directory_path() / "ncp_extracted_nitrofs_test";
@@ -611,6 +681,9 @@ int main()
 	testOverlayTable();
 	testFat();
 	testNitroFs();
+	testRenameKeepsTheIdAndMovesTheName();
+	testRenameRefusesWhatWouldRenumber();
+	testExtractedRenameMovesTheLooseFile();
 	testExtractedNitroFs();
 	testHeader();
 	testRomRoundTrip();

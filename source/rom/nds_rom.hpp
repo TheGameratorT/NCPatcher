@@ -59,6 +59,20 @@ public:
 	[[nodiscard]] std::vector<u8> readFile(u32 fileId) const;
 	[[nodiscard]] bool hasFile(u32 fileId) const;
 
+	// The size a file has now, staged writes included. Separate from readFile
+	// because the FAT does not learn a staged file's size until commit() places
+	// it, and because listing the whole table has no business copying sixty
+	// megabytes of file contents to ask how long each one is.
+	[[nodiscard]] u32 fileSize(u32 fileId) const;
+
+	// The icon/title banner, as a whole region. Its length is fixed by the
+	// version word it starts with, so a replacement has to be the same size --
+	// growing it would mean moving whatever follows it, and a banner is not
+	// worth laying the container out again for.
+	[[nodiscard]] std::vector<u8> readBanner() const;
+	[[nodiscard]] bool hasBanner() const { return bannerSize() != 0; }
+	void setBanner(std::vector<u8> data);
+
 	void setArm(bool arm9, std::vector<u8> data);
 	void setOverlayTable(bool arm9, OverlayTable table);
 	void setFile(u32 fileId, std::vector<u8> data);
@@ -97,6 +111,7 @@ private:
 	std::optional<OverlayTable> m_pendingOvt[2];
 	std::map<u32, std::vector<u8>> m_pendingFiles;
 	std::optional<std::vector<u8>> m_pendingFnt;
+	std::optional<std::vector<u8>> m_pendingBanner;
 	bool m_lastCommitRebuilt = false;
 
 	[[nodiscard]] std::span<const u8> region(const RomRegion& region, const char* what) const;

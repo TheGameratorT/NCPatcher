@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <span>
 #include <string>
+#include <utility>
 #include <string_view>
 #include <vector>
 
@@ -66,6 +67,33 @@ public:
 	// directories are created. Existing ids are never renumbered: if the file
 	// cannot be appended to its directory's consecutive id range, this refuses.
 	void addFile(std::string_view path, u32 fileId);
+
+	// Gives an existing file id a different name, in the directory that already
+	// holds it. Nothing is renumbered and nothing moves: this rewrites one FNT
+	// entry's name and no more.
+	//
+	// It exists because a ROM's file ids are its stable identity -- code and
+	// saved data refer to them -- while a project may need a path the retail
+	// ROM never had. Appending would allocate a fresh id at the end of the
+	// table; renaming an existing one keeps every id where it was. The trade is
+	// that the old name is gone, so the caller has to know the file it is
+	// repurposing is unused.
+	//
+	// `path`'s parent directory must be the one currently holding `fileId`,
+	// because a file id belongs to its directory's consecutive range and moving
+	// it elsewhere is exactly the renumbering this refuses to do.
+	void renameFile(u32 fileId, std::string_view path);
+
+	// The '/'-separated path a file id is named by, or empty when the tree does
+	// not name it.
+	[[nodiscard]] std::string pathOfFile(u32 fileId) const;
+
+	// Every named file, as (id, '/'-separated path), sorted by id.
+	//
+	// Walking the tree once is what makes a whole-ROM report affordable: the
+	// per-id lookup above is a linear scan, so asking it two thousand times to
+	// build a manifest would be quadratic for no reason.
+	[[nodiscard]] std::vector<std::pair<u32, std::string>> allFiles() const;
 
 	// Names an existing file id inside an existing directory. Used to give an
 	// overlay a name so that tools which resolve files by path can see it; the

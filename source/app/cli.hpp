@@ -36,6 +36,7 @@ enum class Command
 	ModulesDump,
 	ModulesExplain,
 	RomInfo,
+	RomFiles,
 	RomExtract,
 	RomPack,
 	Version
@@ -87,12 +88,18 @@ struct CommandLine
 	bool logPathSet = false;
 	bool noLog = false;                 // --no-log
 
+	// --no-env-file. Ignores the project's .ncpatcher.env, so that a caller who
+	// wants the ambient environment to win can say so for one invocation
+	// without deleting a generated file.
+	bool noEnvFile = false;
+
 	// clean
 	bool cleanBackups = false;
 	// migrate
 	bool migrateWrite = false;
 	// config dump
 	bool explain = false;
+	// config dump --json, rom files --json
 	bool dumpJson = false;
 
 	// modules dump -o, and the Module or Module.Component `modules explain` names

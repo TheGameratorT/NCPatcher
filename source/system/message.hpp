@@ -54,7 +54,7 @@ struct Location
 // Something this run produced or changed in the ROM.
 struct Artifact
 {
-	std::string kind;   // "arm", "overlay", "overlay-table", "file"
+	std::string kind;   // "arm", "overlay", "overlay-table", "file", "archive-file", "banner"
 	std::string proc;   // "arm9" or "arm7"
 	std::string action; // "modified", "created", "restored"
 	std::string name;   // the file name inside the ROM directory

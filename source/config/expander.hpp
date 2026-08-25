@@ -26,6 +26,8 @@
 
 namespace ncp::config {
 
+class EnvFile;
+
 class Expander
 {
 public:
@@ -42,6 +44,18 @@ public:
 	// final answer, not another template to resolve against the thing it is
 	// overriding.
 	void setOverride(std::string name, std::string value);
+
+	// A project-local .ncpatcher.env, consulted by ${env.NAME} before the real
+	// environment. Not owned; it must outlive this. Null means there is none.
+	void setEnvFile(const EnvFile* envFile);
+
+	// A name whose value is not known yet: it expands to itself, so a later
+	// pass can finish the job. `${variant.name}` is the motivating case -- the
+	// configuration is read once, before a variant has been chosen, but a hook
+	// command wants to name the variant it is running for. Registering it here
+	// is what keeps it from being reported as an unknown reference, and keeps
+	// the deferred set closed rather than letting any unresolved text through.
+	void setDeferred(std::string name);
 
 	[[nodiscard]] bool hasVariable(std::string_view name) const;
 
@@ -63,6 +77,10 @@ private:
 
 	[[nodiscard]] std::string lookup(std::string_view name, const cfg::Node& where) const;
 	[[nodiscard]] std::string resolveVariable(const std::string& name, const cfg::Node& where) const;
+
+	const EnvFile* m_envFile = nullptr;
+
+	std::vector<std::string> m_deferred;
 
 	std::unordered_map<std::string, std::string> m_constants;
 	std::unordered_map<std::string, std::string> m_overrides;

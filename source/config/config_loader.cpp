@@ -26,7 +26,7 @@ fs::path findProjectFile(const fs::path& projectRoot)
 }
 
 ProjectConfig load(const fs::path& projectFile, const fs::path& projectRoot,
-                   const VarOverrides& varOverrides)
+                   const VarOverrides& varOverrides, const EnvFile* envFile)
 {
 	// Which schema a file is written in is decided by what is in it, not by its
 	// extension: a project that renamed ncpatcher.json to ncpatcher.yaml before
@@ -46,7 +46,7 @@ ProjectConfig load(const fs::path& projectFile, const fs::path& projectRoot,
 	}
 
 	if (version >= 2)
-		return loadV2(projectFile, projectRoot, varOverrides);
+		return loadV2(projectFile, projectRoot, varOverrides, envFile);
 
 	Log::out << OWARN << OSTR(projectFile.filename().string())
 	         << " uses the version 1 schema." OREASONNL "Run "
@@ -55,6 +55,7 @@ ProjectConfig load(const fs::path& projectFile, const fs::path& projectRoot,
 
 	V1Options options;
 	options.varOverrides = varOverrides;
+	options.envFile = envFile;
 	return loadV1(projectFile, projectRoot, options);
 }
 

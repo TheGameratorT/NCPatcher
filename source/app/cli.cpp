@@ -130,6 +130,8 @@ void addGlobalOptions(CLI::App& app, CommandLine& out, std::vector<std::string>&
 		->type_name("PATH");
 
 	app.add_flag("--no-log", out.noLog, "Do not write a log file");
+	app.add_flag("--no-env-file", out.noEnvFile,
+	             "Ignore the project's .ncpatcher.env");
 }
 
 } // namespace
@@ -219,6 +221,10 @@ std::optional<int> parseCommandLine(int argc, char* argv[], CommandLine& out)
 	CLI::App* romInfo = rom->add_subcommand("info",
 		"Print what the ROM header says about the ROM");
 
+	CLI::App* romFiles = rom->add_subcommand("files",
+		"List the ROM's NitroFS files, with their ids");
+	romFiles->add_flag("--json", out.dumpJson, "Print it as ncpatcher.files/1 JSON");
+
 	// Deliberately the code binaries and nothing else: that is the set the
 	// patcher works on, and the set every project currently extracts with a
 	// script of its own. Extracting the whole filesystem is ndstool's job.
@@ -238,7 +244,7 @@ std::optional<int> parseCommandLine(int argc, char* argv[], CommandLine& out)
 	// `ncpatcher -v build` and `ncpatcher build -v` work.
 	for (CLI::App* sub : { build, init, clean, restore, configDump, configValidate, configPath, migrate,
 	                       modulesList, modulesDump, modulesExplain,
-	                       romInfo, romExtract, romPack })
+	                       romInfo, romFiles, romExtract, romPack })
 		sub->fallthrough();
 
 	try {
@@ -276,6 +282,7 @@ std::optional<int> parseCommandLine(int argc, char* argv[], CommandLine& out)
 	else if (*modulesDump)   out.command = Command::ModulesDump;
 	else if (*modulesExplain) out.command = Command::ModulesExplain;
 	else if (*romInfo)       out.command = Command::RomInfo;
+	else if (*romFiles)      out.command = Command::RomFiles;
 	else if (*romExtract)    out.command = Command::RomExtract;
 	else if (*romPack)       out.command = Command::RomPack;
 	else if (*version)       out.command = Command::Version;

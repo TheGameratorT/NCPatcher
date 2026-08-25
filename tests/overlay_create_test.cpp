@@ -82,8 +82,15 @@ public:
 	}
 
 	int findNitroFile(std::string_view) const override { return -1; }
+	std::vector<u8> readNitroFile(std::string_view) override { return {}; }
 	u32 replaceNitroFile(std::string_view, std::span<const u8>) override { return 0; }
 	u32 addNitroFile(std::string_view, std::span<const u8>) override { return 0; }
+	void renameNitroFile(u32, std::string_view) override {}
+	std::string nitroFilePath(u32) const override { return {}; }
+	bool hasBanner() const override { return false; }
+	std::vector<u8> readBanner() override { return {}; }
+	void writeBanner(std::span<const u8>) override {}
+	std::vector<ncp::rom::NitroFileInfo> listNitroFiles() const override { return {}; }
 	void commit() override {}
 
 	OverlayTable table;

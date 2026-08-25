@@ -198,6 +198,36 @@ void writeDump(std::ostream& out, const ModuleGraph& graph)
 		writer.field("dir", module.dir.generic_string());
 		writer.field("file", module.file.generic_string());
 
+		// The tree a module sweeps into NitroFS. Reported so that a consumer can
+		// answer "which module owns this ROM path, and where on disk is it"
+		// without re-reading every module.yaml -- which is the question an
+		// editor showing pending insertions has to answer constantly.
+		if (module.def->nitrofs.declared)
+		{
+			const NitroFsDef& nitrofs = module.def->nitrofs;
+			writer.key("nitrofs");
+			writer.beginObject();
+			writer.field("dir", (module.dir / std::filesystem::path(nitrofs.dir)).generic_string());
+			writer.field("layered", nitrofs.layered);
+			if (!nitrofs.baseVariant.empty())
+				writer.field("base-variant", nitrofs.baseVariant);
+			if (!nitrofs.into.empty())
+				writer.field("into", nitrofs.into);
+			writer.endObject();
+		}
+
+		if (!module.def->extra.empty())
+		{
+			writer.key("extra");
+			writer.beginObject();
+			for (const auto& [key, value] : module.def->extra)
+			{
+				writer.key(key);
+				writeYaml(writer, value.yaml());
+			}
+			writer.endObject();
+		}
+
 		writer.key("components");
 		writer.beginArray();
 		for (const ResolvedComponent& component : module.components)

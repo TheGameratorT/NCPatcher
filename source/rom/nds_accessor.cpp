@@ -111,6 +111,14 @@ int NdsRomAccessor::findNitroFile(std::string_view path) const
 	return m_rom.nitroFs().findFile(path);
 }
 
+std::vector<u8> NdsRomAccessor::readNitroFile(std::string_view path)
+{
+	const int fileId = findNitroFile(path);
+	if (fileId < 0)
+		throw ncp::exception("Cannot read a NitroFS path that does not exist.");
+	return m_rom.readFile(u32(fileId));
+}
+
 u32 NdsRomAccessor::replaceNitroFile(std::string_view path, std::span<const u8> data)
 {
 	const int fileId = findNitroFile(path);
@@ -129,6 +137,51 @@ u32 NdsRomAccessor::addNitroFile(std::string_view path, std::span<const u8> data
 	const u32 fileId = m_rom.addFile(std::vector<u8>(data.begin(), data.end()));
 	m_rom.setNitroFs(tree);
 	return fileId;
+}
+
+bool NdsRomAccessor::hasBanner() const
+{
+	return m_rom.hasBanner();
+}
+
+std::vector<u8> NdsRomAccessor::readBanner()
+{
+	return m_rom.readBanner();
+}
+
+void NdsRomAccessor::writeBanner(std::span<const u8> data)
+{
+	m_rom.setBanner(std::vector<u8>(data.begin(), data.end()));
+}
+
+std::vector<NitroFileInfo> NdsRomAccessor::listNitroFiles() const
+{
+	std::vector<NitroFileInfo> out;
+	for (const auto& [id, path] : m_rom.nitroFs().allFiles())
+	{
+		NitroFileInfo info;
+		info.id = id;
+		info.path = path;
+
+		// Staged writes included: the manifest is written before commit(), so
+		// asking the FAT would report the size the file had before this build
+		// replaced it -- and zero for every file it added.
+		info.size = m_rom.fileSize(id);
+		out.push_back(std::move(info));
+	}
+	return out;
+}
+
+void NdsRomAccessor::renameNitroFile(u32 fileId, std::string_view path)
+{
+	NitroFs tree = m_rom.nitroFs();
+	tree.renameFile(fileId, path);
+	m_rom.setNitroFs(tree);
+}
+
+std::string NdsRomAccessor::nitroFilePath(u32 fileId) const
+{
+	return m_rom.nitroFs().pathOfFile(fileId);
 }
 
 void NdsRomAccessor::commit()

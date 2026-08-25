@@ -159,6 +159,7 @@ ncpatcher build [--variant NAME | --all-variants]
           modules dump [-o PATH]     print the resolved module graph as JSON
           modules explain NAME       say why a module or component is where it is
           rom info                   print what the ROM header says
+          rom files [--json]         list the ROM's NitroFS files and their ids
           rom extract DIR            write the ROM's code binaries into DIR
           rom pack DIR               fold a directory of code binaries into the ROM
           version
@@ -231,7 +232,7 @@ severity and source location; the human rendering remains on stderr.
 | 7 | Linking |
 | 8 | Patching |
 | 9 | ROM file I/O |
-| 10 | A pre-build or post-build command failed |
+| 10 | A hook command failed |
 
 
 ## Configuration
@@ -347,13 +348,55 @@ overlay ID and provide its load address.
 one and `--var NAME=VALUE` to override it. `${env.NAME}` reads the environment;
 `${env.NAME:-fallback}` supplies a default. Built-in references include
 `${project.root}`, `${config.dir}`, `${rom.dir}`, `${target.name}` and
-`${target.build}`. `${ncp.moduleDump}` is available when `modules.dump` is set.
-Write `$$` for a literal dollar sign.
+`${target.build}`. `${ncp.moduleDump}` is available when `modules.dump` is set,
+and `${ncp.fileDump}` when `files-dump` is.
+`${variant.name}` and `${rom.output}` are available in hooks; see below for why
+they are only resolved there. Write `$$` for a literal dollar sign.
+
+### The environment file
+
+An environment variable belongs to a shell, and a shell has one of each. A
+machine building two projects against two revisions of the same shared header
+tree has nowhere to say so: whichever value the profile exports applies to both.
+
+So a project may carry a `.ncpatcher.env` beside its configuration, and
+`${env.NAME}` reads it before the real environment:
+
+```
+# Generated. Do not edit.
+NSMBREF_ROOT=/home/you/.local/share/nsmb-helper/reference/ac82391
+```
+
+The format is `NAME=VALUE`, one per line, with `#` comments and optional
+surrounding quotes. There is no expansion, no substitution and no `export`
+keyword — a configuration file that can run commands is one that cannot be
+validated safely.
+
+**These entries override the ambient environment**, which is the opposite of the
+usual `.env` convention and is the entire point: a stale value left in a shell
+profile is the failure this exists to prevent, so letting it win would defeat
+it. What still outranks the file is the command line, because that is a caller
+deliberately overriding the project for one invocation. Hook child processes
+inherit these entries too, so a generator resolving the same variable agrees
+with the configuration it was handed; a hook's own `env:` still wins.
+
+Pass `--no-env-file` to ignore the file for one invocation.
 
 ## Build hooks
 
-Version 2 projects use one named `hooks:` list. `when` chooses whether a hook
-runs before compilation or after the patched ROM has been committed:
+Version 2 projects use one named `hooks:` list. `when` chooses the build phase
+a hook runs in:
+
+| `when` | Runs | Sees |
+|---|---|---|
+| `pre-build` | before NitroFS insertion | the module graph |
+| `post-files` | after insertion, before compilation | the file ids this build assigned |
+| `post-build` | after the patched ROM is committed | the finished ROM |
+
+`post-files` exists because a generator that turns file ids into source code has
+nowhere else to run: `pre-build` is too early, since nothing has been inserted
+yet, and `post-build` is too late, since the code referring to those ids has
+already been compiled.
 
 ```yaml
 modules:
@@ -367,6 +410,10 @@ hooks:
       GENERATED_DIR: "${project.root}/build/generated"
     when: pre-build
 
+  - name: Generate file id header
+    run: python3 scripts/fid.py
+    when: post-files
+
   - name: Summarize build
     run: python3 scripts/report.py
     when: post-build
@@ -377,8 +424,20 @@ hooks:
 variables are inherited. Hook `name`, `run`, `cwd`, `env` values, and `when`
 support the same `${vars.NAME}`, `${env.NAME}`, `${project.root}`, and other
 configuration references as the rest of the file. `${ncp.moduleDump}` is the
-absolute path configured by `modules.dump` and is available when that setting
-is present.
+absolute path configured by `modules.dump`, and `${ncp.fileDump}` the one
+configured by `files-dump`; each is available when its setting is present.
+
+Two references are resolved when the hook runs rather than when the file is
+read, because they are not known any earlier: `${variant.name}` is the variant
+being built, empty for a project with none, and `${rom.output}` is the ROM this
+build wrote — including the `_<variant>` suffix that `--all-variants` derives.
+That is what lets one post-build hook produce a patch per variant:
+
+```yaml
+  - name: Patch
+    run: xdelta3 -e -f -s rom.nds "${rom.output}" build/xdelta/${variant.name}.xdelta
+    when: post-build
+```
 
 The old `pre-build` and `post-build` string arrays remain accepted in both
 configuration versions. Do not combine those compatibility keys with `hooks:`
@@ -398,13 +457,287 @@ files:
 
 A destination outside `z_new/` must already exist in the ROM; a missing one is
 an error rather than an accidental new file ID. Missing paths under `z_new/`
-are added to the FNT and FAT. NCPatcher creates the established zero-byte
-`z_new/reserved` entry automatically so file IDs match the existing insertion
-workflow. Existing `z_new/` paths are replaced, making repeated builds stable.
+are added to the FNT and FAT. Existing `z_new/` paths are replaced, making
+repeated builds stable.
 
 This works directly on `.nds` inputs and on complete extracted layouts that
-include `fnt.bin`, `fat.bin`, and the configured `data-dir`. NARC editing and
-banner replacement remain external hook work.
+include `fnt.bin`, `fat.bin`, and the configured `data-dir`.
+
+### Reserving the first new file ID
+
+Some games hold arrays of file IDs in compiled code, ended by a sentinel value.
+The sentinel a compiler picked is typically the ID one past the last file the
+retail ROM shipped with — which is exactly the ID NCPatcher gives to the first
+file a build adds. Put real content there and the game has a loadable file at
+an ID its own code reads as *stop*.
+
+`files-reserve:` spends that ID on nothing:
+
+```yaml
+files-reserve: z_new/reserved
+```
+
+The named path is created as an empty file before any other addition, so it
+takes the first new ID and the project's own files start after it. It may not
+also appear in `files:` or be supplied by a `file-trees:` entry — the
+placeholder has to stay empty, and a build that filled it would be undoing the
+reservation.
+
+Nothing is reserved unless the key says so. Whether a game needs this, and
+which ID is affected, is a fact about the game rather than about NitroFS.
+
+> **New Super Mario Bros. needs it.** `ncpatcher init --template nsmb` writes
+> `files-reserve: z_new/reserved`. An existing NSMB project that adds `z_new/`
+> files must set it too: without the key every one of those files shifts down
+> by one ID, and a level or save that refers to them by number will not survive
+> the change.
+
+### Claiming an existing file ID
+
+Sometimes a project needs a ROM path the retail game never had, and cannot
+afford a new file ID. Adding one appends to the end of the FAT, which is fine
+under `z_new/` and impossible anywhere else. The alternative is to take over a
+file that is known to be unused: it keeps its ID, and only its name changes.
+
+Write that with the mapping form of a `files:` entry:
+
+```yaml
+files:
+  demo/boot_sub_bg_ncg.bin:
+    source: nitrofs/demo/boot_sub_bg_ncg.bin
+    id: 1209
+```
+
+File 1209 is renamed to `demo/boot_sub_bg_ncg.bin` and its data replaced.
+Nothing else moves, which is the whole point.
+
+A file ID belongs to its directory's consecutive range, so it can be renamed
+but not moved: the ID named here must already exist and must live in the
+destination's parent directory. Two entries may not claim one ID, and an entry
+may not claim an ID whose current name another entry targets by path — both
+would otherwise resolve by insertion order.
+
+### Editing a file inside a Nitro archive
+
+Most of a DS game's assets are not loose files. They live in `.narc`
+containers — a FAT, a name table and a blob of data, the ROM's own filesystem
+in miniature — and reaching one of them means opening the container.
+
+A destination can name two coordinates instead of one: the archive's ROM path,
+`!`, then the path within it. It is the separator `jar:` and `zip:` URIs use
+for the same job.
+
+```yaml
+files:
+  ARCHIVE/menu_title.narc!menu/title/USA/vs.bmg: nitrofs/fr/vs.bmg
+```
+
+Archives are edited in place and never added to. Game code reads a member by
+its index, so inserting one would renumber every member after it — the same
+reason NitroFS file IDs are never renumbered. The archive must already exist
+and must already hold the member named; a missing member is an error rather
+than a warning, because the way that ships is a ROM with the translation still
+in the original language.
+
+A replacement of a different size is fine. The allocation table and the data
+chunk are laid out again around it, and every member keeps its index. An
+archive nothing edited is written back byte for byte.
+
+`id:` cannot be combined with an archive destination — it renames a loose file,
+and a member of an archive is not one.
+
+### Replacing the ROM banner
+
+The icon and title shown on the console's menu are not a NitroFS file: they are
+a region of their own that the header points at, so no ROM path would name it.
+It gets its own key:
+
+```yaml
+rom:
+  file: rom.nds
+  backup: backup
+  banner: nitrofs/banner.bin
+```
+
+The replacement must be exactly as long as the ROM's own banner. A banner's
+length is fixed by the version word it starts with, so a different length is a
+different format rather than a bigger banner, and the build says so instead of
+laying the container out again around it.
+
+A variant may override it with its own `banner:`, though one banner normally
+serves every build — the region carries a title in all six console languages at
+once.
+
+## NitroFS trees
+
+`files:` is one line per file, which stops scaling around the point a project
+ships a filesystem rather than patching three files. `file-trees:` sweeps a
+directory instead: what is under it is what the ROM gets, at the same relative
+path.
+
+```yaml
+file-trees:
+  - dir: nitrofs
+    layered: true
+    base-variant: en
+```
+
+With `layered`, the first path segment is a variant name rather than part of
+the ROM path, so `nitrofs/fr/ARCHIVE/x.bin` is `ARCHIVE/x.bin` for the French
+build and nothing at all for the German one. `base-variant` is applied
+underneath, which is what lets a project translate eight files out of two
+thousand — the base supplies everything the variant does not override. A
+variant may supply a path the base never had, and a variant directory that
+does not exist contributes nothing rather than failing. `into:` prefixes every
+destination the tree produces.
+
+Modules declare their own the same way, with `nitrofs:` in `module.yaml`:
+
+```yaml
+nitrofs:
+  dir: nitrofs
+  layered: true
+  base-variant: en
+```
+
+### Which copy wins
+
+Two rules decide a destination more than one tree provides, in this order.
+
+**Layering first.** A file chosen for the built variant outranks one that
+applies to every variant. A module translating `enemy/w3_sign.nsbmd` into
+French beats a module supplying the English original for all languages.
+
+**Then module order.** Within one layer, the first tree to claim a destination
+keeps it, and `modules.enabled` is that order. This is precedence rather than a
+tiebreak: a module that replaces a piece of artwork wholesale — because the
+replacement has its own text baked in — has to outrank one that only translates
+the stock version, and listing it first is how the project says so.
+
+Explicit `files:` entries win over anything a tree swept, since they are the
+project overruling the sweep by name.
+
+### When a module names its layers differently
+
+A module is written without knowing which project will use it. Its tree may be
+split by region where the project splits by language, or say `french` where the
+project says `fr`. Nothing connects the two names, so the module quietly
+contributes nothing — the worst available outcome.
+
+A variant can say which layer of a given module it means:
+
+```yaml
+variants:
+  fr:
+    defines: GAME_LANGUAGE_FR
+    module-variants:
+      thirdparty: french
+```
+
+Keys are module names, values are that module's own layer name. Only the
+variant layer is redirected; the module's `base-variant` is its own
+declaration and keeps filling the gaps as before.
+
+A layer named here must exist. That is the opposite of the unmapped case, where
+a missing variant directory is ordinary — but naming a layer is an assertion,
+and honouring a typo by silently falling back to the base layer is how a build
+ships without its translations. Mapping a module that is not enabled, or one
+that declares no tree, is an error for the same reason.
+
+### Turning a component's assets off with it
+
+A component's `files:` patterns name the ROM destinations it owns. While the
+component is enabled they only record ownership, which is what the file
+manifest reports. When it is disabled they subtract those files from its own
+module's tree, so switching a feature off removes its assets along with its
+code:
+
+```yaml
+components:
+  - CustomWorldUnlock:
+      target: arm9
+      sources: "source9/WorldUnlock.cpp"
+      files:
+        - "enemy/w3_sign.nsbmd"
+        - "enemy/w6_sign.nsbmd"
+```
+
+Patterns are globs matched against the ROM destination with the variant
+segment already stripped.
+
+### Archives in a tree
+
+A directory cannot also be a file, so an archive a tree edits has to be spelled
+as a folder. The convention is the archive's name with its dot turned into an
+underscore, and everything below it is a path inside the archive:
+
+```
+modules/message/nitrofs/fr/ARCHIVE/menu_title_narc/menu/title/USA/vs.bmg
+                                   └──────┬──────┘ └────────┬──────────┘
+                          ARCHIVE/menu_title.narc    menu/title/USA/vs.bmg
+```
+
+Only the outermost such directory is read that way. A ROM that genuinely holds
+a directory named `*_narc` has to be written in `files:` instead, where no
+convention applies.
+
+## The file manifest
+
+A DS game loads a file by number, not by path. So any code that reads one needs
+a constant, and that constant has to be regenerated whenever the table changes —
+which is what a `post-files` hook is for. `files-dump` gives that hook something
+to read:
+
+```yaml
+files-dump: build/generated/files.json
+
+hooks:
+  - name: Generate file ids
+    run: nsmb-helper fid --manifest "${ncp.fileDump}"
+    when: post-files
+```
+
+It is written after NitroFS insertion, so the ids in it are the ones this build
+assigned, and before the `post-files` hooks, so a generator can turn them into
+a header that the compilation after it picks up.
+
+The manifest lists **every** file in the ROM, not only the ones the build wrote.
+A generator naming files by id needs the two thousand it did not touch just as
+much as the thirteen it did, and there is nowhere else to get them: most of the
+table is whatever the retail ROM already had.
+
+```jsonc
+{ "schema": "ncpatcher.files/1",
+  "variant": "fr",
+  "count": 1971,
+  "files": [
+    { "id": 1500, "path": "uiStudio/title.bin", "size": 2031, "action": "unchanged" },
+    { "id": 2101, "path": "z_new/message/msg_data.bin", "size": 6144,
+      "action": "created",
+      "source": "modules/message/nitrofs/fr/z_new/message/msg_data.bin",
+      "module": "message", "component": "Vanilla", "from-variant": "fr" }
+  ] }
+```
+
+`action` says what this run did to the file relative to the ROM that came in:
+`unchanged`, `modified`, or `created` — and `created` only ever happens under
+`z_new/`, because existing file ids are never renumbered. The provenance fields
+are present only for files the build wrote, and each is omitted when it is
+empty rather than emitted as `""`.
+
+Ids are raw, exactly as the FAT stores them. A game that offsets file ids at run
+time — NSMB subtracts its overlay count — applies that itself; it is a property
+of that game, not of the ROM, and NCPatcher does not know about it.
+
+Those last four fields are also what makes an editor possible: every entry is
+vanilla, replaced by a module, or added by one, and grouping by path across
+variants answers which languages translate a file. The schema is
+`schema/files.schema.json`.
+
+`ncpatcher rom files` prints the same table for a ROM already on disk, as a
+list or, with `--json`, as the same document. Nothing there has provenance —
+it is reading a build's result rather than performing one — so every entry is
+`unchanged` and there is no `variant`.
 
 ## Build variants
 

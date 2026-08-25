@@ -18,6 +18,8 @@
 
 #include "config_loader.hpp"
 
+#include "env_file.hpp"
+
 #include <cstdlib>
 #include <sstream>
 #include <unordered_map>
@@ -108,6 +110,19 @@ public:
 					pos += carried.size();
 					continue;
 				}
+				// The project's own .ncpatcher.env first, as in v2. A v1 project
+				// is exactly as entitled to pin its reference tree as a
+				// migrated one.
+				const std::string* pinned = m_options.envFile != nullptr
+					? m_options.envFile->find(envName) : nullptr;
+				if (pinned != nullptr)
+				{
+					value = *pinned;
+					text.replace(pos, endpos - pos + 1, value);
+					pos += value.size();
+					continue;
+				}
+
 				const char* envValue = std::getenv(envName.c_str());
 				if (envValue == nullptr)
 				{

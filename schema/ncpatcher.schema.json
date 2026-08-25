@@ -75,18 +75,82 @@
       }
     },
     "files": {
-      "description": "Loose files copied into NitroFS after pre-build hooks and before compilation. Each key is the '/'-separated path in the ROM; each value is a source path relative to the project. Missing destinations may only be created under z_new/.",
+      "description": "Loose files copied into NitroFS after pre-build hooks and before compilation. Each key is the '/'-separated path in the ROM. A string value is the source path, relative to the project. A mapping value carries the source plus options: `id` claims an existing file id and renames it to this path, which keeps every other id where it is instead of appending a new one at the end of the table. Missing destinations may only be created under z_new/, unless `id` names a file that already exists. An entry here overrides anything `file-trees` swept to the same destination. A key may also name a file inside a Nitro archive, as `ARCHIVE/menu_title.narc!menu/title/USA/vs.bmg` -- the archive's ROM path, `!`, then the path within it. The archive must already exist and must already hold that member: archives are edited in place, never added to, because game code reads a member by its index. `id` cannot be combined with an archive destination, since it renames a loose file.",
       "type": "object",
       "propertyNames": {
-        "minLength": 1,
-        "not": {
-          "const": "z_new/reserved"
-        }
+        "minLength": 1
       },
       "additionalProperties": {
-        "type": "string",
-        "minLength": 1
+        "oneOf": [
+          {
+            "description": "The source path, relative to the project.",
+            "type": "string",
+            "minLength": 1
+          },
+          {
+            "type": "object",
+            "required": [
+              "source"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "source": {
+                "description": "The source path, relative to the project.",
+                "type": "string",
+                "minLength": 1
+              },
+              "id": {
+                "description": "An existing file id to claim. The file keeps this number and is renamed to this entry's path, so nothing after it is renumbered. The id must already exist and must live in the destination's parent directory.",
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 65535
+              }
+            }
+          }
+        ]
       }
+    },
+    "file-trees": {
+      "description": "Directories swept wholesale into NitroFS, so that adding a file to the ROM is adding a file on disk rather than editing a list. Modules declare their own with `nitrofs` in module.yaml; these are the project's. A directory whose name ends in `_narc` means the Nitro archive beside it: `ARCHIVE/menu_title_narc/menu/title/USA/vs.bmg` replaces that member inside `ARCHIVE/menu_title.narc`. Only the outermost such directory is read that way. A ROM that genuinely holds a directory named `*_narc` has to be written in `files:` instead, where no convention applies.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "dir"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "dir": {
+            "description": "The source directory, relative to the project.",
+            "type": "string",
+            "minLength": 1
+          },
+          "layered": {
+            "description": "Read the first path segment under `dir` as a variant name rather than part of the ROM path, so only the built variant's subtree applies. A variant with no directory contributes nothing rather than failing.",
+            "type": "boolean",
+            "default": false
+          },
+          "base-variant": {
+            "description": "A layer applied underneath the built variant, so the common case is written once and a variant only states its differences. Requires `layered`.",
+            "type": "string",
+            "minLength": 1
+          },
+          "into": {
+            "description": "A ROM path prefix for everything the tree produces. Default is the ROM root.",
+            "type": "string"
+          }
+        }
+      }
+    },
+    "files-dump": {
+      "description": "Where to write the ROM's file table as `ncpatcher.files/1` JSON (schema/files.schema.json), after NitroFS insertion and before the post-files hooks. `${ncp.fileDump}` expands to its absolute path, so a hook that turns file ids into constants can be handed it. A top-level key rather than `files.dump`, because `files:` is a mapping of ROM paths and a ROM may perfectly well contain a file called `dump`.",
+      "type": "string",
+      "minLength": 1
+    },
+    "files-reserve": {
+      "description": "A '/'-separated z_new/ path created as an empty placeholder before any other file the build adds, so that it is given the first new file id and nothing loadable is. Some games hold arrays of file ids in compiled code, terminated by a sentinel that is the id one past the last file the retail ROM shipped with -- which is exactly the id the first added file would otherwise get. Whether a game does this, and which id it is, is a fact about the game rather than about NitroFS, so nothing is reserved unless this names it. New Super Mario Bros. needs `z_new/reserved`, which is what `init --template nsmb` writes. The path may not also appear in `files:` or be supplied by a `file-trees:` entry: the placeholder has to stay empty.",
+      "type": "string",
+      "minLength": 1
     },
     "variants": {
       "description": "Named define/file matrices selected by `build --variant NAME`; `build --all-variants` builds every entry in declaration order.",
@@ -221,9 +285,10 @@
           }
         },
         "when": {
-          "description": "Build phase that runs the hook.",
+          "description": "Build phase that runs the hook. post-files runs after NitroFS insertion and before compilation, which is the only point where a generator can see the file ids this build assigned and still have its output compiled.",
           "enum": [
             "pre-build",
+            "post-files",
             "post-build"
           ]
         }
@@ -238,13 +303,19 @@
           "$ref": "#/$defs/commandList"
         },
         "files": {
-          "description": "NitroFS source overrides and additions for this variant, merged by destination path with the project files mapping.",
+          "description": "NitroFS source overrides and additions for this variant, merged by destination path with the project files mapping. Accepts the same string or {source, id} forms as `files`.",
+          "$ref": "#/properties/files"
+        },
+        "banner": {
+          "description": "Overrides `rom.banner` for this variant. Same rule: it must be exactly as long as the ROM's own banner.",
+          "type": "string",
+          "minLength": 1
+        },
+        "module-variants": {
+          "description": "Which layer of a module's `nitrofs` tree this variant selects, for modules that do not name their layers the way this project names its variants \u2014 a module split by region where the project splits by language, or one saying `french` where the project says `fr`. Keys are module names, values are the module's own layer name. Without a mapping the variant's own name is used, and a module that has no such layer contributes nothing. A layer named here must exist: naming it is an assertion, so a typo is an error rather than a silent fallback to the module's base layer.",
           "type": "object",
           "propertyNames": {
-            "minLength": 1,
-            "not": {
-              "const": "z_new/reserved"
-            }
+            "minLength": 1
           },
           "additionalProperties": {
             "type": "string",
@@ -294,6 +365,11 @@
         "backup": {
           "description": "Directory holding pristine copies of every binary the patcher touches. `ncpatcher restore` puts them back.",
           "type": "string"
+        },
+        "banner": {
+          "description": "A replacement icon/title banner, as a project-relative path. Not part of `files:`: the banner is a region of its own that the header points at rather than a NitroFS file, so no ROM path would name it. The replacement must be exactly as long as the ROM's own banner -- its length is fixed by the version it declares, so a different length is a different format rather than a bigger banner, and the build refuses rather than laying the container out again around it. A variant may override it, though one banner normally serves every build: the region carries a title in all six console languages at once.",
+          "type": "string",
+          "minLength": 1
         },
         "layout": {
           "description": "Naming convention of the extracted ROM directory. A preset name, or a mapping of file names -- optionally with `preset:` naming the one to start from.",

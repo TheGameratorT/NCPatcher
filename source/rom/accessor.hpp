@@ -21,6 +21,16 @@
 
 namespace ncp::rom {
 
+// One entry of the ROM's file table, as reported rather than as stored: `size`
+// is the file's length in bytes, and `id` is raw -- whatever offset a
+// particular game applies to file ids at run time is that game's business.
+struct NitroFileInfo
+{
+	u32 id = 0;
+	std::string path;
+	u32 size = 0;
+};
+
 class RomAccessor
 {
 public:
@@ -60,8 +70,40 @@ public:
 	// sees. New paths are deliberately separate from replacement: only z_new/
 	// destinations are allowed to call addNitroFile at the application layer.
 	[[nodiscard]] virtual int findNitroFile(std::string_view path) const = 0;
+
+	// The file's current contents, with anything this build already staged for
+	// it applied. Reading is new with Nitro archives: everything before them
+	// only ever wrote whole files, but editing one member of a container means
+	// starting from what the container already holds.
+	[[nodiscard]] virtual std::vector<u8> readNitroFile(std::string_view path) = 0;
+
 	virtual u32 replaceNitroFile(std::string_view path, std::span<const u8> data) = 0;
 	virtual u32 addNitroFile(std::string_view path, std::span<const u8> data) = 0;
+
+	// Renames an existing file id and replaces its data. The third NitroFS
+	// operation, and the reason it exists is file-id stability: a project that
+	// needs a path the retail ROM never had can repurpose a known-unused id
+	// instead of appending one, so nothing after it shifts. The new path's
+	// parent directory must be the one already holding the id.
+	virtual void renameNitroFile(u32 fileId, std::string_view path) = 0;
+
+	// The path a file id is currently named by, or empty when nothing names it.
+	[[nodiscard]] virtual std::string nitroFilePath(u32 fileId) const = 0;
+
+	// The icon/title banner. Not a NitroFS file and not addressable as one: it
+	// is a region of its own that the header points at, which is why it needs
+	// its own pair of calls rather than a path. A ROM directory that was never
+	// fully extracted may not have one at all.
+	[[nodiscard]] virtual bool hasBanner() const = 0;
+	[[nodiscard]] virtual std::vector<u8> readBanner() = 0;
+	virtual void writeBanner(std::span<const u8> data) = 0;
+
+	// Every named NitroFS file the ROM holds, sorted by id.
+	//
+	// The whole table, not only what this run touched: a consumer generating
+	// file-id constants needs the two thousand paths it did not change just as
+	// much as the thirteen it did.
+	[[nodiscard]] virtual std::vector<NitroFileInfo> listNitroFiles() const = 0;
 
 	// Flushes whatever the backend has been holding. Backends that write as
 	// they go implement it as a no-op; see dir_accessor.hpp for why that

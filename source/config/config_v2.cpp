@@ -82,9 +82,12 @@ HookWhen readHookWhen(const cfg::Node& node, const Expander& expander)
 	const std::string value = expander.expand(node.asString(), node);
 	if (value == "pre-build")
 		return HookWhen::PreBuild;
+	if (value == "post-files")
+		return HookWhen::PostFiles;
 	if (value == "post-build")
 		return HookWhen::PostBuild;
 	node.fail("Invalid hook phase; expected " ANSI_bCYAN "pre-build" ANSI_RESET
+		", " ANSI_bCYAN "post-files" ANSI_RESET
 		" or " ANSI_bCYAN "post-build" ANSI_RESET ".");
 }
 
@@ -151,28 +154,12 @@ void appendLegacyHooks(std::vector<HookConfig>& out, const cfg::Node& node,
 
 void validateNitroPath(const std::string& path, const cfg::Node& node)
 {
-	if (path.empty() || path.front() == '/' || path.back() == '/' || path.find('\\') != std::string::npos)
-		node.fail("A NitroFS path must be a non-empty relative path using '/' separators.");
-	if (path == "z_new/reserved")
-		node.fail(ANSI_bCYAN "z_new/reserved" ANSI_RESET " is managed by NCPatcher.");
-
-	std::size_t start = 0;
-	while (start < path.size())
-	{
-		const std::size_t slash = path.find('/', start);
-		const std::size_t end = slash == std::string::npos ? path.size() : slash;
-		const std::string_view part(path.data() + start, end - start);
-		if (part.empty() || part == "." || part == "..")
-			node.fail("A NitroFS path cannot contain empty, '.' or '..' segments.");
-		if (part.size() > 0x7F)
-			node.fail("A NitroFS path segment cannot exceed 127 bytes.");
-		if (slash == std::string::npos)
-			break;
-		start = slash + 1;
-	}
+	if (const std::string problem = nitroDestinationProblem(path); !problem.empty())
+		node.fail(problem);
 }
 
-std::vector<FileConfig> readFiles(const cfg::Node& node, const Expander& expander)
+std::vector<FileConfig> readFiles(const cfg::Node& node, const Expander& expander,
+                                  std::string_view reserved)
 {
 	std::vector<FileConfig> out;
 	if (!node.defined() || node.isNull())
@@ -180,11 +167,41 @@ std::vector<FileConfig> readFiles(const cfg::Node& node, const Expander& expande
 	if (!node.isMap())
 		node.failType("a mapping of NitroFS paths to source files");
 
-	for (const auto& [rawPath, source] : node.fields())
+	for (const auto& [rawPath, body] : node.fields())
 	{
 		FileConfig file;
-		file.path = expander.expand(rawPath, source);
-		validateNitroPath(file.path, source);
+		file.path = expander.expand(rawPath, body);
+		validateNitroPath(file.path, body);
+
+		// The placeholder is NCPatcher's to create, and it is created empty on
+		// purpose: giving it contents would put a loadable file at the very id
+		// the reservation exists to spend on nothing.
+		if (!reserved.empty() && file.path == reserved)
+		{
+			body.fail("\"" + file.path + "\" is reserved by " ANSI_bCYAN "files-reserve"
+				ANSI_RESET " and cannot also be written here.");
+		}
+
+		// A bare scalar is the common case -- a source path and nothing else.
+		// The mapping form is for the entries that need to say more, which today
+		// means claiming an existing file id.
+		const cfg::Node& source = body.isMap() ? body["source"] : body;
+		if (body.isMap())
+		{
+			checkKeys(body, "a NitroFS file", { "source", "id" });
+			if (!source.defined())
+				body.fail("A NitroFS file mapping needs a " ANSI_bCYAN "source" ANSI_RESET ".");
+
+			const cfg::Node& id = body["id"];
+			if (id.defined() && !id.isNull())
+			{
+				const int value = id.asInt();
+				if (value < 0 || value > 0xFFFF)
+					id.fail("A NitroFS file id must be between 0 and 65535.");
+				file.id = int(value);
+			}
+		}
+
 		file.source = expander.expand(source.asString(), source);
 		if (file.source.empty())
 			source.fail("A NitroFS source path cannot be empty.");
@@ -192,14 +209,76 @@ std::vector<FileConfig> readFiles(const cfg::Node& node, const Expander& expande
 		const auto duplicate = std::find_if(out.begin(), out.end(),
 			[&](const FileConfig& previous) { return previous.path == file.path; });
 		if (duplicate != out.end())
-			source.fail("NitroFS path \"" + file.path + "\" is configured more than once.");
+			body.fail("NitroFS path \"" + file.path + "\" is configured more than once.");
 
 		out.push_back(std::move(file));
+	}
+
+	// Two entries claiming one id would silently leave whichever ran second
+	// naming a file the first had already renamed.
+	for (std::size_t i = 0; i < out.size(); i++)
+	{
+		if (out[i].id < 0)
+			continue;
+		for (std::size_t j = i + 1; j < out.size(); j++)
+		{
+			if (out[j].id != out[i].id)
+				continue;
+			node.fail("NitroFS file id " + std::to_string(out[i].id) + " is claimed by both \""
+				+ out[i].path + "\" and \"" + out[j].path + "\".");
+		}
 	}
 	return out;
 }
 
-std::vector<VariantConfig> readVariants(const cfg::Node& node, const Expander& expander)
+std::vector<FileTreeConfig> readFileTrees(const cfg::Node& node, const Expander& expander)
+{
+	std::vector<FileTreeConfig> out;
+	if (!node.defined() || node.isNull())
+		return out;
+	if (!node.isSequence())
+		node.failType("a list of file trees");
+
+	for (const cfg::Node& item : node.items())
+	{
+		if (!item.isMap())
+			item.failType("a file tree mapping");
+		checkKeys(item, "a file tree", { "dir", "layered", "base-variant", "into" });
+
+		FileTreeConfig tree;
+		const cfg::Node& dir = item["dir"];
+		if (!dir.defined())
+			item.fail("A file tree needs a " ANSI_bCYAN "dir" ANSI_RESET ".");
+		tree.dir = expander.expand(dir.asString(), dir);
+		if (tree.dir.empty())
+			dir.fail("A file tree directory cannot be empty.");
+
+		if (const cfg::Node& layered = item["layered"]; layered.defined() && !layered.isNull())
+			tree.layered = layered.asBool();
+
+		if (const cfg::Node& base = item["base-variant"]; base.defined() && !base.isNull())
+			tree.baseVariant = expander.expand(base.asString(), base);
+
+		if (const cfg::Node& into = item["into"]; into.defined() && !into.isNull())
+		{
+			tree.into = expander.expand(into.asString(), into);
+			while (!tree.into.empty() && tree.into.back() == '/')
+				tree.into.pop_back();
+			if (!tree.into.empty())
+				validateNitroPath(tree.into, into);
+		}
+
+		if (!tree.baseVariant.empty() && !tree.layered)
+			item.fail("A file tree with a " ANSI_bCYAN "base-variant" ANSI_RESET
+				" must also be " ANSI_bCYAN "layered" ANSI_RESET ".");
+
+		out.push_back(std::move(tree));
+	}
+	return out;
+}
+
+std::vector<VariantConfig> readVariants(const cfg::Node& node, const Expander& expander,
+                                       std::string_view reserved)
 {
 	std::vector<VariantConfig> out;
 	if (!node.defined() || node.isNull())
@@ -211,7 +290,7 @@ std::vector<VariantConfig> readVariants(const cfg::Node& node, const Expander& e
 	{
 		if (!body.isMap())
 			body.failType("a variant mapping");
-		checkKeys(body, "a variant", { "defines", "files" });
+		checkKeys(body, "a variant", { "defines", "files", "module-variants", "banner" });
 
 		VariantConfig variant;
 		variant.name = expander.expand(rawName, body);
@@ -234,7 +313,39 @@ std::vector<VariantConfig> readVariants(const cfg::Node& node, const Expander& e
 			body.fail("Variant name \"" + variant.name + "\" is configured more than once.");
 
 		variant.defines = readStrings(body["defines"], expander);
-		variant.files = readFiles(body["files"], expander);
+		variant.files = readFiles(body["files"], expander, reserved);
+
+		if (const cfg::Node& banner = body["banner"]; banner.defined() && !banner.isNull())
+		{
+			variant.banner = expander.expand(banner.asString(), banner);
+			if (variant.banner.empty())
+				banner.fail("A banner path cannot be empty.");
+		}
+
+		if (const cfg::Node& mapped = body["module-variants"];
+		    mapped.defined() && !mapped.isNull())
+		{
+			if (!mapped.isMap())
+				mapped.failType("a mapping of module names to variant names");
+
+			for (const auto& [rawModule, layer] : mapped.fields())
+			{
+				const std::string module = expander.expand(rawModule, layer);
+				const std::string name = expander.expand(layer.asString(), layer);
+				if (name.empty())
+					layer.fail("A module variant name cannot be empty.");
+
+				const auto duplicate = std::find_if(
+					variant.moduleVariants.begin(), variant.moduleVariants.end(),
+					[&](const auto& previous) { return previous.first == module; });
+				if (duplicate != variant.moduleVariants.end())
+					layer.fail("Module \"" + module + "\" is mapped more than once in variant \""
+						+ variant.name + "\".");
+
+				variant.moduleVariants.emplace_back(module, name);
+			}
+		}
+
 		out.push_back(std::move(variant));
 	}
 
@@ -739,7 +850,7 @@ void readTarget(TargetConfig& target, const cfg::Node& node, Expander expander,
 } // namespace
 
 ProjectConfig loadV2(const fs::path& projectFile, const fs::path& projectRoot,
-                     const VarOverrides& varOverrides)
+                     const VarOverrides& varOverrides, const EnvFile* envFile)
 {
 	ProjectConfig config;
 	config.version = 2;
@@ -753,7 +864,8 @@ ProjectConfig loadV2(const fs::path& projectFile, const fs::path& projectRoot,
 
 	checkKeys(root, "the project", {
 		"version", "vars", "rom", "toolchain", "build", "modules",
-		"includes", "defines", "flags", "hooks", "files", "variants",
+		"includes", "defines", "flags", "hooks", "files", "file-trees", "files-dump",
+		"files-reserve", "variants",
 		"pre-build", "post-build", "targets" });
 
 	const cfg::Node version = root.require("version");
@@ -761,6 +873,14 @@ ProjectConfig loadV2(const fs::path& projectFile, const fs::path& projectRoot,
 		version.fail("Unsupported configuration version; this NCPatcher reads version 2.");
 
 	Expander expander;
+	expander.setEnvFile(envFile);
+
+	// Not known until a variant has been chosen and --out has been applied,
+	// both of which happen after this. Hooks are the only things that reference
+	// them, and they finish the expansion when they run.
+	expander.setDeferred("variant.name");
+	expander.setDeferred("rom.output");
+
 	expander.setConstant("project.root", projectRoot.string());
 	expander.setConstant("config.dir", projectFile.parent_path().string());
 
@@ -781,7 +901,7 @@ ProjectConfig loadV2(const fs::path& projectFile, const fs::path& projectRoot,
 	const cfg::Node rom = root.require("rom");
 	if (!rom.isMap())
 		rom.failType("a mapping");
-	checkKeys(rom, "rom", { "file", "dir", "output", "backup", "layout", "arm9-slack" });
+	checkKeys(rom, "rom", { "file", "dir", "output", "backup", "layout", "arm9-slack", "banner" });
 
 	const bool hasFile = rom.has("file");
 	const bool hasDir = rom.has("dir");
@@ -831,6 +951,13 @@ ProjectConfig loadV2(const fs::path& projectFile, const fs::path& projectRoot,
 		{
 			config.romLayoutPreset.set(layout.asString(), Source::ProjectFile);
 		}
+	}
+
+	if (rom.has("banner"))
+	{
+		config.romBanner.set(expander.expand(rom["banner"].asString(), rom["banner"]), Source::ProjectFile);
+		if (config.romBanner.value.empty())
+			rom["banner"].fail("A banner path cannot be empty.");
 	}
 
 	if (rom.has("arm9-slack"))
@@ -893,8 +1020,38 @@ ProjectConfig loadV2(const fs::path& projectFile, const fs::path& projectRoot,
 			: projectRoot / config.modules.dump.value;
 		expander.setConstant("ncp.moduleDump", dump.lexically_normal().string());
 	}
-	config.files = readFiles(root["files"], expander);
-	config.variants = readVariants(root["variants"], expander);
+	if (const cfg::Node& reserve = root["files-reserve"]; reserve.defined() && !reserve.isNull())
+	{
+		const std::string path = expander.expand(reserve.asString(), reserve);
+		if (const std::string problem = nitroPathProblem(path); !problem.empty())
+			reserve.fail(problem);
+
+		// The placeholder has to be an addition, so it lives where additions
+		// live. Anywhere else it would have to be an id the ROM already has,
+		// and reserving one of those means taking it away from the game.
+		if (!path.starts_with("z_new/"))
+		{
+			reserve.fail("A reserved NitroFS path must be under " ANSI_bCYAN "z_new/" ANSI_RESET
+				", like every other file a build adds.");
+		}
+		config.filesReserve.set(path, Source::ProjectFile);
+	}
+
+	config.files = readFiles(root["files"], expander, config.filesReserve.value);
+	config.fileTrees = readFileTrees(root["file-trees"], expander);
+
+	if (const cfg::Node& dump = root["files-dump"]; dump.defined() && !dump.isNull())
+	{
+		config.filesDump.set(expander.expand(dump.asString(), dump), Source::ProjectFile);
+		if (config.filesDump.value.empty())
+			dump.fail("A file manifest path cannot be empty.");
+
+		const fs::path resolved = config.filesDump.value.is_absolute()
+			? config.filesDump.value
+			: projectRoot / config.filesDump.value;
+		expander.setConstant("ncp.fileDump", resolved.lexically_normal().string());
+	}
+	config.variants = readVariants(root["variants"], expander, config.filesReserve.value);
 
 	if (root.has("hooks") && (root.has("pre-build") || root.has("post-build")))
 		root["hooks"].fail("Use either " ANSI_bCYAN "hooks" ANSI_RESET

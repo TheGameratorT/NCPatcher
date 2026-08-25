@@ -344,9 +344,28 @@ ModuleDef loadModuleFile(const fs::path& file, std::string key)
 	if (!root.isMap())
 		root.failType("a mapping");
 
-	checkKeys(root, "a module", {
-		"id", "name", "description", "authors", "repo",
-		"defines", "targets", "components" }, problems);
+	// Unlike every other mapping here, an unknown key is kept rather than
+	// rejected. See ModuleDef::extra.
+	{
+		static constexpr std::string_view KNOWN[] = {
+			"id", "name", "description", "authors", "repo",
+			"defines", "targets", "components", "nitrofs" };
+
+		for (const auto& [key, value] : root.fields())
+		{
+			bool known = false;
+			for (std::string_view candidate : KNOWN)
+			{
+				if (key == candidate)
+				{
+					known = true;
+					break;
+				}
+			}
+			if (!known)
+				out.extra.emplace_back(key, value);
+		}
+	}
 
 	out.id = root["id"].asString("");
 	out.name = root["name"].asString(out.id);
@@ -354,6 +373,40 @@ ModuleDef loadModuleFile(const fs::path& file, std::string key)
 	out.repo = root["repo"].asString("");
 	out.authors = readStrings(root["authors"], problems);
 	out.defines = readDefines(root["defines"], problems);
+
+	if (const cfg::Node& nitrofs = root["nitrofs"]; nitrofs.defined() && !nitrofs.isNull())
+	{
+		if (!nitrofs.isMap())
+		{
+			problems.add(nitrofs, "Expected a NitroFS tree mapping.");
+		}
+		else
+		{
+			out.nitrofs.declared = true;
+			out.nitrofs.mark = nitrofs.mark();
+
+			const cfg::Node& dir = nitrofs["dir"];
+			if (!dir.defined())
+				problems.add(nitrofs, "A module NitroFS tree needs a " ANSI_bCYAN "dir" ANSI_RESET ".");
+			else
+				out.nitrofs.dir = dir.asString("");
+
+			out.nitrofs.layered = nitrofs["layered"].asBool(false);
+			out.nitrofs.baseVariant = nitrofs["base-variant"].asString("");
+			out.nitrofs.into = nitrofs["into"].asString("");
+			while (!out.nitrofs.into.empty() && out.nitrofs.into.back() == '/')
+				out.nitrofs.into.pop_back();
+
+			if (!out.nitrofs.baseVariant.empty() && !out.nitrofs.layered)
+			{
+				problems.add(nitrofs, "A NitroFS tree with a " ANSI_bCYAN "base-variant" ANSI_RESET
+					" must also be " ANSI_bCYAN "layered" ANSI_RESET ".");
+			}
+
+			checkKeys(nitrofs, "a module NitroFS tree",
+				{ "dir", "layered", "base-variant", "into" }, problems);
+		}
+	}
 
 	for (const auto& [text, body] : readEntries(root["targets"], "targets", problems))
 	{

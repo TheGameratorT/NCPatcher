@@ -72,6 +72,25 @@ struct ModuleTarget
 // A component is the unit a project switches on and off. Everything it owns --
 // its sources, its defines, the files it wants in the filesystem -- disappears
 // with it, which is the whole reason the module system exists.
+// A directory the module sweeps into NitroFS, declared once instead of listing
+// every file. The shape mirrors the project's `file-trees:` entry -- see
+// config/project_config.hpp -- because a module's filesystem and the project's
+// are the same kind of thing and resolve through the same code.
+struct NitroFsDef
+{
+	// False when the module said nothing, which is the usual case.
+	bool declared = false;
+
+	// Relative to the module directory.
+	std::string dir;
+
+	bool layered = false;
+	std::string baseVariant;
+	std::string into;
+
+	cfg::Mark mark;
+};
+
 struct ComponentDef
 {
 	std::string name;
@@ -110,6 +129,15 @@ struct ModuleDef
 	std::vector<DefineText> defines;
 	std::vector<ModuleTarget> targets;
 	std::vector<ComponentDef> components;
+
+	NitroFsDef nitrofs;
+
+	// Module-level keys this program does not know, kept for the same reason
+	// ComponentDef::extra is: a game-specific generator declares things here
+	// that mean nothing to a patcher -- `level-data:` is the motivating case --
+	// and inventing a schema for them would only mean two programs having to
+	// agree on one.
+	std::vector<std::pair<std::string, cfg::Node>> extra;
 
 	std::filesystem::path dir;
 	std::filesystem::path file;

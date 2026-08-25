@@ -93,6 +93,15 @@ came from. A component name has the form
 Print what the ROM header says: the title, where each binary lives, how many
 overlays there are, and whether the header checksum matches its contents.
 .TP
+.BR "rom files" " [" \-\-json ]
+List the ROM's NitroFS files: id, size and path, one per line. With
+.BR \-\-json ,
+print the same table as an
+.B ncpatcher.files/1
+document. This reads a ROM rather than building one, so every entry is
+.B unchanged
+and there is no variant.
+.TP
 .BI "rom extract" " DIR"
 Write the ROM's code binaries \(em the header, the two ARM binaries, the two
 overlay tables and the overlay files \(em into
@@ -174,8 +183,36 @@ Write the log file here instead of the default
 .B \-\-no\-log
 Do not write a log file.
 .TP
+.B \-\-no\-env\-file
+Ignore the project's
+.IR .ncpatcher.env .
+.TP
 .BR \-h ", " \-\-help
 Show the built-in help.
+.SH ENVIRONMENT FILE
+A project may carry a
+.I .ncpatcher.env
+beside its configuration.
+.B ${env.NAME}
+reads it before the real environment. The format is
+.IR NAME=VALUE ,
+one per line, with
+.B #
+comments and optional surrounding quotes; there is no expansion, no
+substitution and no
+.B export
+keyword.
+.PP
+These entries
+.B override
+the ambient environment, which is the opposite of the usual convention and is
+deliberate: an environment variable belongs to a shell, and a stale value left
+in a profile is exactly what this exists to prevent. The command line still
+outranks the file. Hook children inherit these entries, though a hook's own
+.B env
+mapping wins. Use
+.B \-\-no\-env\-file
+to ignore the file.
 .SH BUILD HOOKS
 Version 2 projects declare named commands in one
 .B hooks:
@@ -184,10 +221,15 @@ list. Each entry has a required
 .BR run ,
 and
 .B when
-field. The phase is either
-.B pre-build
+field. The phase is
+.BR pre-build ,
+.B post-files
 or
 .BR post-build .
+.B post-files
+runs after NitroFS insertion and before compilation, which is the only point at
+which a generator can see the file ids this build assigned and still have its
+output compiled.
 The optional
 .B cwd
 is relative to the project directory and defaults to it. The optional
@@ -201,7 +243,21 @@ configuration expansion. When
 .B modules.dump
 is configured,
 .B ${ncp.moduleDump}
-is its absolute path. The module graph is written before pre-build hooks run.
+is its absolute path; likewise
+.B ${ncp.fileDump}
+for
+.BR files\-dump .
+The module graph is written before pre-build hooks run, and the file manifest
+between NitroFS insertion and the post-files hooks.
+.PP
+.B ${variant.name}
+and
+.B ${rom.output}
+are resolved when the hook runs rather than when the configuration is read,
+because neither is known any earlier. They name the variant being built and the
+ROM this build wrote, including the suffix
+.B \-\-all\-variants
+derives.
 .PP
 The older
 .B pre-build
@@ -223,14 +279,178 @@ A destination outside
 .B z_new/
 must already exist. Missing paths below
 .B z_new/
-are appended to the FNT and FAT, with the conventional empty
-.B z_new/reserved
-entry created automatically. Existing paths are replaced.
+are appended to the FNT and FAT. Existing paths are replaced.
 .PP
 Direct
 .B .nds
 input supports both operations. An extracted layout must include its FNT, FAT,
-and data directory. NARC editing and banner replacement remain external.
+and data directory.
+.PP
+An entry may instead be a mapping of
+.B source:
+and
+.BR id: ,
+which claims an existing file id: the named file keeps its number and is
+renamed to this entry's path. That is how a project gets a path the retail ROM
+never had without appending an id at the end of the table. The id must already
+exist and must live in the destination's parent directory, since a file id
+belongs to its directory's consecutive range and can be renamed but not moved.
+Two entries may not claim one id.
+.PP
+A key may name a file inside a Nitro archive instead of a loose file, by
+writing the archive's ROM path, a
+.BR ! ,
+then the path within the archive:
+.BR "ARCHIVE/menu_title.narc!menu/title/USA/vs.bmg" .
+Archives are edited in place and never added to, because game code reads a
+member by its index. The archive must exist and must already hold the member;
+a missing member is an error rather than a warning. A replacement of a
+different size relays the allocation table and data chunk out around it, and
+every member keeps its index. An archive nothing edited is written back byte
+for byte.
+.B id:
+cannot be combined with an archive destination.
+.SH RESERVED FILE ID
+.B files\-reserve:
+names a
+.B z_new/
+path created as an empty file before any other file the build adds, so that it
+is given the first new file id and nothing loadable is.
+.PP
+Some games hold arrays of file ids in compiled code, ended by a sentinel value,
+and the sentinel a compiler picked is the id one past the last file the retail
+ROM shipped with \(em exactly the id the first added file would otherwise get.
+Whether a game does this, and which id it is, is a fact about the game rather
+than about NitroFS, so nothing is reserved unless this key names it. The path
+may not also appear in
+.B files:
+or be supplied by a
+.BR file\-trees: entry,
+because the placeholder has to stay empty.
+.PP
+New Super Mario Bros. needs
+.BR z_new/reserved ,
+which is what
+.B init \-\-template nsmb
+writes. An existing NSMB project that adds
+.B z_new/
+files must set the key: without it every one of those files shifts down by one
+id.
+.SH ROM BANNER
+.B rom.banner:
+replaces the icon and title the console's menu shows. The banner is not a
+NitroFS file but a region of its own that the header points at, so it has its
+own key rather than a path in
+.BR files: .
+.PP
+The replacement must be exactly as long as the ROM's own banner: a banner's
+length is fixed by the version word it starts with, so a different length is a
+different format rather than a bigger banner, and the build refuses instead of
+laying the container out again. A variant may override it with its own
+.BR banner: ,
+though one banner normally serves every build \(em the region carries a title
+in all six console languages at once.
+.SH NITROFS TREES
+The version 2
+.B file\-trees:
+list sweeps whole directories into NitroFS instead of naming files one at a
+time. Each entry takes a
+.BR dir: ,
+optionally
+.B layered:
+to read the first path segment as a variant name,
+.B base\-variant:
+for the layer applied underneath the built variant, and
+.B into:
+for a ROM path prefix. A module declares its own the same way with
+.B nitrofs:
+in its
+.BR module.yaml .
+.PP
+Two rules decide a destination more than one tree provides. Layering comes
+first: a file chosen for the built variant outranks one that applies to every
+variant. Module order comes second: within one layer the first tree to claim a
+destination keeps it, in
+.B modules.enabled
+order. An explicit
+.B files:
+entry overrides anything a tree swept.
+.PP
+A module may name its tree layers differently from the way the project names
+its variants. A variant entry's
+.B module\-variants:
+mapping connects the two: keys are module names, values are that module's own
+layer name. Only the variant layer is redirected; the module's
+.B base\-variant:
+is unaffected. A layer named there must exist, unlike an unmapped one, because
+naming it is an assertion and a silent fallback to the base layer would ship a
+build without its translations.
+.PP
+A component's
+.B files:
+patterns name the ROM destinations it owns. Enabled, they record ownership;
+disabled, they subtract those files from the component's own module tree, so
+switching a feature off removes its assets with its code.
+.PP
+A tree spells an archive as a directory, since a directory cannot also be a
+file: a folder whose name ends in
+.B _narc
+means the archive beside it, and everything below it is a path inside that
+archive. So
+.B ARCHIVE/menu_title_narc/menu/title/USA/vs.bmg
+replaces that member of
+.BR ARCHIVE/menu_title.narc .
+Only the outermost such directory is read that way; a ROM that genuinely holds
+a directory named
+.B *_narc
+must be written in
+.B files:
+instead.
+.SH FILE MANIFEST
+.B files\-dump
+names a path to write the ROM's file table to, as
+.B ncpatcher.files/1
+JSON. It is written after NitroFS insertion and before the post-files hooks,
+which is the only point at which the ids are settled and the code referring to
+them has not yet been compiled.
+.B ${ncp.fileDump}
+expands to its absolute path, so a hook that turns file ids into constants can
+be handed it.
+.PP
+Every file in the ROM is listed, not only the ones the build wrote: a generator
+naming files by id needs the whole table, and most of it is whatever the retail
+ROM already had. Each entry carries its
+.BR id ,
+.BR path ,
+.B size
+and an
+.B action
+of
+.BR unchanged ,
+.B modified
+or
+.BR created .
+A file the build wrote also carries its
+.BR source ,
+and the
+.BR module ,
+.B component
+and
+.B from\-variant
+that supplied it \(em which is what tells an editor whether an entry is
+vanilla, replaced by a module, or added by one.
+.PP
+Ids are reported raw, exactly as the FAT stores them. A game that offsets file
+ids at run time applies that itself. Existing ids are never renumbered, so
+.B created
+happens only under
+.BR z_new/ .
+It is a top-level key rather than
+.BR files.dump ,
+because
+.B files:
+is a mapping of ROM paths and a ROM may contain a file called
+.BR dump .
 .SH BUILD VARIANTS
 The version 2
 .B variants:
@@ -291,7 +511,7 @@ Patching failed.
 The ROM could not be read or written.
 .TP
 .B 10
-A pre-build or post-build hook failed.
+A hook failed.
 .TP
 .B 130
 Interrupted.

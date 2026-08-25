@@ -271,6 +271,13 @@ int DirRomAccessor::findNitroFile(std::string_view nitroPath) const
 	return tree.findFile(nitroPath);
 }
 
+std::vector<u8> DirRomAccessor::readNitroFile(std::string_view nitroPath)
+{
+	if (findNitroFile(nitroPath) < 0)
+		throw ncp::exception("Cannot read a NitroFS path that does not exist.");
+	return readWholeFile(path(m_layout.dataDir) / fs::path(std::string(nitroPath)));
+}
+
 u32 DirRomAccessor::replaceNitroFile(std::string_view nitroPath, std::span<const u8> data)
 {
 	const int fileId = findNitroFile(nitroPath);
@@ -287,6 +294,81 @@ u32 DirRomAccessor::replaceNitroFile(std::string_view nitroPath, std::span<const
 	}
 	writeWholeFile(file, data);
 	return u32(fileId);
+}
+
+std::vector<NitroFileInfo> DirRomAccessor::listNitroFiles() const
+{
+	const NitroFs tree = NitroFs::parse(readWholeFile(path(m_layout.fnt)));
+	const Fat fat = Fat::parse(readWholeFile(path(m_layout.fat)));
+
+	std::vector<NitroFileInfo> out;
+	for (const auto& [id, filePath] : tree.allFiles())
+	{
+		NitroFileInfo info;
+		info.id = id;
+		info.path = filePath;
+
+		// An extracted layout keeps the bytes in loose files, and the FAT it
+		// ships is not necessarily in step with them -- the sizes there are the
+		// ones the extraction recorded. The file on disk is the truth.
+		std::error_code error;
+		const std::uintmax_t size = fs::file_size(path(m_layout.dataDir) / fs::path(filePath), error);
+		if (!error)
+			info.size = u32(size);
+		else if (id < fat.size())
+			info.size = fat.entries()[id].size();
+
+		out.push_back(std::move(info));
+	}
+	return out;
+}
+
+void DirRomAccessor::renameNitroFile(u32 fileId, std::string_view nitroPath)
+{
+	const fs::path fntFile = path(m_layout.fnt);
+	NitroFs tree = NitroFs::parse(readWholeFile(fntFile));
+
+	const std::string oldPath = tree.pathOfFile(fileId);
+	tree.renameFile(fileId, nitroPath);
+
+	// The tree is only half of it here: an extracted ROM keeps the bytes in a
+	// real file named by the old path, so that file has to move with the entry.
+	const fs::path from = path(m_layout.dataDir) / fs::path(oldPath);
+	const fs::path to = path(m_layout.dataDir) / fs::path(std::string(nitroPath));
+	if (from != to)
+	{
+		if (!fs::exists(from))
+		{
+			std::ostringstream oss;
+			oss << "Cannot rename file id " << fileId << ": " << OSTR(from.string())
+			    << " is missing from the extracted ROM.";
+			throw ncp::exception(oss.str());
+		}
+		fs::create_directories(to.parent_path());
+		fs::rename(from, to);
+	}
+
+	writeWholeFile(fntFile, tree.serialize());
+}
+
+bool DirRomAccessor::hasBanner() const
+{
+	return fs::is_regular_file(path(m_layout.banner));
+}
+
+std::vector<u8> DirRomAccessor::readBanner()
+{
+	return readWholeFile(path(m_layout.banner));
+}
+
+void DirRomAccessor::writeBanner(std::span<const u8> data)
+{
+	writeWholeFile(path(m_layout.banner), data);
+}
+
+std::string DirRomAccessor::nitroFilePath(u32 fileId) const
+{
+	return NitroFs::parse(readWholeFile(path(m_layout.fnt))).pathOfFile(fileId);
 }
 
 u32 DirRomAccessor::addNitroFile(std::string_view nitroPath, std::span<const u8> data)
