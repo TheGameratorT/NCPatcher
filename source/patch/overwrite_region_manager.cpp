@@ -258,6 +258,34 @@ void OverwriteRegionManager::finalizeOverwritesWithElfData(const Elf32& elf)
                 overwrite->sectionIdx = sectionIdx;
                 overwrite->sectionSize = section.sh_size;
 
+                // KNOWN ISSUE: this fires on builds that are perfectly fine.
+                //
+                // `usedSize` is not a measurement, it is this manager's
+                // *prediction* of the layout, built above by walking the
+                // sections in its own largest-first order and padding each to a
+                // hardcoded 4. `sh_size` is what the linker actually emitted.
+                // So a mismatch says the prediction was wrong, and reports it as
+                // though the linker were.
+                //
+                // Observed in nsmb-coop-module: a constant 20-byte shortfall,
+                // unchanged while the region's contents grew from 25252 to
+                // 25284 bytes, so it does not track the code in it. The emitted
+                // section aligns to 8 rather than the 4 assumed here, and the
+                // linker used *more* room than predicted -- which rules out the
+                // simplest explanation, that padding input sections of
+                // alignment 1 and 2 up to 4 over-counts. The real cause has not
+                // been established.
+                //
+                // Fixing it properly means one of two things: model the layout
+                // exactly -- every input section's own sh_addralign, in the
+                // order the linker script actually emits them -- or stop
+                // predicting and let the linker answer. The second is the more
+                // honest of the two, since the prediction has no other consumer
+                // once the sections are assigned.
+                //
+                // What matters is checked right below, against `sh_size`: the
+                // region has to actually fit. That test uses the real number and
+                // throws rather than warning.
                 if (overwrite->sectionSize != overwrite->usedSize)
                 {
                     Log::out << OWARN << "Overwrite region " << OSTR(overwrite->name)

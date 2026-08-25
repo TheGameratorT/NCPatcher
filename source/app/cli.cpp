@@ -242,10 +242,20 @@ std::optional<int> parseCommandLine(int argc, char* argv[], CommandLine& out)
 
 	// Every subcommand accepts the global options too, so that both
 	// `ncpatcher -v build` and `ncpatcher build -v` work.
+	//
+	// They do not appear in the subcommand's own --help, though, because CLI11
+	// lists only what was added to that subcommand. Left alone, `build --help`
+	// shows nothing but -h and reads as though the command took no options at
+	// all -- and `rom files --help` hides the one option that answers the
+	// obvious question, which ROM. The footer says where they are.
 	for (CLI::App* sub : { build, init, clean, restore, configDump, configValidate, configPath, migrate,
 	                       modulesList, modulesDump, modulesExplain,
 	                       romInfo, romFiles, romExtract, romPack })
+	{
 		sub->fallthrough();
+		sub->footer("The global options are accepted here too, before or after the command;\n"
+		            "`ncpatcher --help` lists them. --rom chooses which ROM to act on.");
+	}
 
 	try {
 		app.parse(argc, argv);

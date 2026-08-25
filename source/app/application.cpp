@@ -60,13 +60,19 @@ std::optional<int> Application::initialize(int argc, char* argv[])
 	// whose event stream has to be the only thing on stdout, and the commands
 	// whose product *is* stdout -- a `config dump` with a deprecation warning
 	// mixed into it is not something a caller can pipe anywhere.
+	//
+	// The rom reporting commands belong to the second group for the same
+	// reason. `rom files --json` writes `ncpatcher.files/1`, and a parser
+	// reading it cannot be asked to skip whatever the loader had to say first.
 	const bool logToStderr =
 		m_cli.messageFormat == msg::Format::Json ||
 		m_cli.command == Command::ConfigDump ||
 		m_cli.command == Command::ConfigPath ||
 		m_cli.command == Command::ModulesList ||
 		m_cli.command == Command::ModulesDump ||
-		m_cli.command == Command::ModulesExplain;
+		m_cli.command == Command::ModulesExplain ||
+		m_cli.command == Command::RomInfo ||
+		m_cli.command == Command::RomFiles;
 	Log::configureConsole(m_cli.color, logToStderr);
 	msg::configure(m_cli.messageFormat, m_cli.resultPath);
 
@@ -213,10 +219,10 @@ int Application::runRomCommand()
 	switch (m_cli.command)
 	{
 	case Command::RomInfo:
-		romcmd::info(target, layout);
+		romcmd::info(std::cout, target, layout);
 		break;
 	case Command::RomFiles:
-		romcmd::files(target, layout, m_cli.dumpJson);
+		romcmd::files(std::cout, target, layout, m_cli.dumpJson);
 		break;
 	case Command::RomExtract:
 		romcmd::extract(target, fs::absolute(m_cli.romDirArgument), layout);

@@ -101,6 +101,16 @@ print the same table as an
 document. This reads a ROM rather than building one, so every entry is
 .B unchanged
 and there is no variant.
+.IP
+Both
+.B rom info
+and
+.B rom files
+read the project's ROM, or whichever one
+.B \-\-rom
+names. They write to standard output and leave the log on standard error, so
+.B \-\-json
+can be piped into a parser directly.
 .TP
 .BI "rom extract" " DIR"
 Write the ROM's code binaries \(em the header, the two ARM binaries, the two

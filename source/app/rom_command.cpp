@@ -79,7 +79,7 @@ void reportArtifact(const char* kind, const std::string& name, std::size_t size,
 
 } // namespace
 
-void info(const fs::path& path, const rom::DirLayout& layout)
+void info(std::ostream& out, const fs::path& path, const rom::DirLayout& layout)
 {
 	rom::Header header;
 	rom::NdsRom nds;
@@ -95,18 +95,18 @@ void info(const fs::path& path, const rom::DirLayout& layout)
 		header = nds.header();
 	}
 
-	Log::out << ANSI_bWHITE << path.string() << ANSI_RESET << '\n';
-	Log::out << "  title:        " << header.gameTitle() << " [" << header.gameCode()
+	out << ANSI_bWHITE << path.string() << ANSI_RESET << '\n';
+	out << "  title:        " << header.gameTitle() << " [" << header.gameCode()
 	         << "] maker " << header.makerCode() << " rev " << int(header.romVersion()) << '\n';
-	Log::out << "  unit code:    " << hex(header.unitCode(), 2)
+	out << "  unit code:    " << hex(header.unitCode(), 2)
 	         << (header.isDsi() ? "  (DSi)" : "  (DS)") << '\n';
-	Log::out << "  capacity:     " << humanSize(header.deviceCapacityBytes())
+	out << "  capacity:     " << humanSize(header.deviceCapacityBytes())
 	         << "  (used " << humanSize(header.totalUsedRomSize()) << ")" << '\n';
 
 	for (bool arm9 : { true, false })
 	{
 		const rom::ArmBinaryInfo arm = header.arm(arm9);
-		Log::out << (arm9 ? "  arm9:         " : "  arm7:         ")
+		out << (arm9 ? "  arm9:         " : "  arm7:         ")
 		         << "rom " << hex(arm.romOffset) << " size " << hex(arm.size)
 		         << " ram " << hex(arm.ramAddress) << " entry " << hex(arm.entryAddress) << '\n';
 	}
@@ -114,15 +114,15 @@ void info(const fs::path& path, const rom::DirLayout& layout)
 	for (bool arm9 : { true, false })
 	{
 		const rom::RomRegion ovt = header.overlayTable(arm9);
-		Log::out << (arm9 ? "  arm9 overlays:" : "  arm7 overlays:") << " ";
+		out << (arm9 ? "  arm9 overlays:" : "  arm7 overlays:") << " ";
 		if (ovt.size == 0)
-			Log::out << "none\n";
+			out << "none\n";
 		else
-			Log::out << (ovt.size / rom::OverlayEntry::SIZE) << " at " << hex(ovt.romOffset) << '\n';
+			out << (ovt.size / rom::OverlayEntry::SIZE) << " at " << hex(ovt.romOffset) << '\n';
 	}
 
-	Log::out << "  fnt:          " << hex(header.fnt().romOffset) << " size " << hex(header.fnt().size) << '\n';
-	Log::out << "  fat:          " << hex(header.fat().romOffset) << " size " << hex(header.fat().size)
+	out << "  fnt:          " << hex(header.fnt().romOffset) << " size " << hex(header.fnt().size) << '\n';
+	out << "  fat:          " << hex(header.fat().romOffset) << " size " << hex(header.fat().size)
 	         << "  (" << (header.fat().size / rom::FatEntry::SIZE) << " files)" << '\n';
 
 	// A header whose stored checksum does not match its contents is the single
@@ -130,16 +130,16 @@ void info(const fs::path& path, const rom::DirLayout& layout)
 	// job, so it is worth saying out loud rather than leaving to be discovered.
 	const u16 stored = header.storedChecksum();
 	const u16 computed = header.computeChecksum();
-	Log::out << "  header crc:   " << hex(stored, 4)
+	out << "  header crc:   " << hex(stored, 4)
 	         << (stored == computed ? "  (ok)" : "  (WRONG, expected " + hex(computed, 4) + ")") << '\n';
 
 	if (!isDirectory)
-		Log::out << "  file size:    " << humanSize(nds.bytes().size()) << '\n';
+		out << "  file size:    " << humanSize(nds.bytes().size()) << '\n';
 
-	Log::out << std::flush;
+	out << std::flush;
 }
 
-void files(const fs::path& path, const rom::DirLayout& layout, bool json)
+void files(std::ostream& out, const fs::path& path, const rom::DirLayout& layout, bool json)
 {
 	std::unique_ptr<rom::RomAccessor> accessor;
 	if (fs::is_directory(path))
@@ -170,18 +170,18 @@ void files(const fs::path& path, const rom::DirLayout& layout, bool json)
 	if (json)
 	{
 		// No variant: a ROM on disk is the result of a build, not a build.
-		rom::writeManifest(Log::out, entries, std::string_view());
-		Log::out << std::flush;
+		rom::writeManifest(out, entries, std::string_view());
+		out << std::flush;
 		return;
 	}
 
-	Log::out << ANSI_bWHITE << path.string() << ANSI_RESET << '\n';
+	out << ANSI_bWHITE << path.string() << ANSI_RESET << '\n';
 	for (const rom::ManifestEntry& entry : entries)
 	{
-		Log::out << std::setw(5) << entry.id << "  "
+		out << std::setw(5) << entry.id << "  "
 		         << std::setw(9) << entry.size << "  " << entry.path << '\n';
 	}
-	Log::out << entries.size() << " files\n" << std::flush;
+	out << entries.size() << " files\n" << std::flush;
 }
 
 std::size_t extract(const fs::path& romFile, const fs::path& directory, const rom::DirLayout& layout)

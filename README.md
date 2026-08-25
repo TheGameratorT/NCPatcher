@@ -739,6 +739,18 @@ list or, with `--json`, as the same document. Nothing there has provenance —
 it is reading a build's result rather than performing one — so every entry is
 `unchanged` and there is no `variant`.
 
+It reads the project's ROM by default, and `--rom` points it at any other —
+including one a build just produced, which is how you check what actually landed
+in it:
+
+```sh
+ncpatcher rom files --rom build/nds/rom_fr.nds --json | jq '.files[] | select(.id > 2087)'
+```
+
+`rom files` and `rom info` put their output on stdout and the log on stderr, so
+that pipeline needs no filtering. Every command whose product *is* stdout does
+the same.
+
 ### The invariant a consumer can rely on
 
 **Existing file ids are never renumbered. Only `z_new/` additions may move.**
