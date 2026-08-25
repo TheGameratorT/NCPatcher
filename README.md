@@ -364,7 +364,7 @@ So a project may carry a `.ncpatcher.env` beside its configuration, and
 
 ```
 # Generated. Do not edit.
-NSMBREF_ROOT=/home/you/.local/share/nsmb-helper/reference/ac82391
+NSMBREF_ROOT=/home/you/.local/share/nsmbtool/reference/ac82391
 ```
 
 The format is `NAME=VALUE`, one per line, with `#` comments and optional
@@ -693,7 +693,7 @@ files-dump: build/generated/files.json
 
 hooks:
   - name: Generate file ids
-    run: nsmb-helper fid --manifest "${ncp.fileDump}"
+    run: nsmbtool glue --manifest "${ncp.fileDump}"
     when: post-files
 ```
 
@@ -738,6 +738,30 @@ variants answers which languages translate a file. The schema is
 list or, with `--json`, as the same document. Nothing there has provenance —
 it is reading a build's result rather than performing one — so every entry is
 `unchanged` and there is no `variant`.
+
+### The invariant a consumer can rely on
+
+**Existing file ids are never renumbered. Only `z_new/` additions may move.**
+
+This is not a policy that could be relaxed later. A game stores file ids in
+compiled code, in save data, and in level data that has already been published;
+renumbering one file invalidates all of it at once, silently, with no build
+failure to notice. `NitroFs::addFile` refuses rather than renumbering, and
+`files-reserve` exists so that even the first added id is predictable.
+
+What follows for anything built on the manifest:
+
+- An id read from one build means the same file in the next one, as long as the
+  file was already in the ROM. Ids under `z_new/` are stable too, but only while
+  the set of additions is — adding a file that sorts earlier shifts the ones
+  after it.
+- **Adding a file is a build, not an edit.** There is no way to append to a ROM's
+  table from outside; only insertion assigns an id. A tool that wants a new file
+  in the ROM puts it in a module tree and lets a build place it, which is why
+  an editor shows such a file as *pending* rather than writing into the ROM.
+- Identity that has to survive should not be an id. Where something must be
+  referred to across builds — a level naming an object it places, say — the
+  durable name is a string or a hash of one, and the id is looked up from it.
 
 ## Build variants
 
@@ -916,6 +940,42 @@ ncpatcher modules explain coop
 
 `explain` answers where a component's target came from, why it is disabled, and
 which files and defines it accounts for.
+
+The schema is `schema/modules.schema.json`.
+
+### Keys NCPatcher does not define
+
+`extra` is the extension point, and it exists at two levels. Component keys have
+always been kept; module root keys are kept the same way:
+
+```yaml
+# module.yaml
+id: Glue
+
+level-data:                  # NCPatcher has no idea what this is
+  stageObjects: Glue::StageObject::ModuleStageObject[?]
+
+components:
+  - Vanilla:
+      objects:               # nor this
+        - name: CoopFlagActor
+          type: actor
+```
+
+Both come back out of the dump under `extra`, with YAML's scalar types resolved
+the way YAML would resolve them — a number stays a number, `yes` stays a string.
+Nothing else happens to them. That is the whole of how a game-specific generator
+extends a module without NCPatcher acquiring any knowledge of the game:
+
+```jsonc
+{ "id": "Glue",
+  "extra": { "level-data": { "stageObjects": "Glue::StageObject::ModuleStageObject[?]" } },
+  "components": [] }
+```
+
+A root key that NCPatcher *does* define is validated as usual, so `extra` is not
+an escape from spelling `targets` correctly — only a place for keys that were
+never NCPatcher's to check.
 
 
 ## Patches

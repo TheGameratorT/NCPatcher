@@ -1,0 +1,238 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/TheGameratorT/NCPatcher/main/schema/modules.schema.json",
+  "title": "NCPatcher module graph",
+  "description": "The resolved module graph: which modules and components a build enabled, what each contributes, and where every source, include and define came from. Written by modules.dump, or by `ncpatcher modules dump`. This is the whole of what a code generator needs to know about a project's structure -- everything game-specific in it rides in `extra`, which NCPatcher preserves and never interprets.",
+  "type": "object",
+  "required": ["schema", "dir", "modules", "targets"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "ncpatcher.modules/1",
+      "description": "Format identifier and version."
+    },
+    "dir": {
+      "type": "string",
+      "description": "The modules directory, absolute and slash-separated. Every other path in this file is absolute too: a dump is written for one machine's build and is not a portable artifact."
+    },
+    "modules": {
+      "type": "array",
+      "description": "Every module the project names, in `modules.enabled` order -- which is also the order that settles two modules claiming one NitroFS destination. Disabled modules appear too, carrying only the four fields that need no module.yaml.",
+      "items": { "$ref": "#/$defs/module" }
+    },
+    "targets": {
+      "type": "object",
+      "required": ["arm7", "arm9"],
+      "additionalProperties": false,
+      "description": "What the modules add up to, per processor: the include path, the defines and the sources, already merged and assigned to regions. A module's includes are target-wide rather than module-private, which is why one module can include another's headers.",
+      "properties": {
+        "arm7": { "$ref": "#/$defs/target" },
+        "arm9": { "$ref": "#/$defs/target" }
+      }
+    }
+  },
+  "$defs": {
+    "module": {
+      "type": "object",
+      "required": ["key", "id", "name", "enabled"],
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "type": "string",
+          "description": "The directory name, and the name the project writes in `modules.enabled`."
+        },
+        "id": {
+          "type": "string",
+          "description": "The module's own `id`, which is what generated code and level data name it by. Distinct from `key`: a directory can be renamed without invalidating anything that refers to the module."
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable title."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether the project enabled it. A disabled module ends here -- its module.yaml was never read, so there is nothing further to report, and saying it exists answers why it contributed nothing."
+        },
+        "description": { "type": "string" },
+        "repo": { "type": "string" },
+        "authors": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "dir": {
+          "type": "string",
+          "description": "The module's directory, absolute."
+        },
+        "file": {
+          "type": "string",
+          "description": "Its module.yaml, absolute."
+        },
+        "nitrofs": {
+          "type": "object",
+          "required": ["dir", "layered"],
+          "additionalProperties": false,
+          "description": "The tree this module sweeps into the ROM, if it declares one. Which files that produced is not here -- it is in the file manifest, where each entry names the module it came from.",
+          "properties": {
+            "dir": {
+              "type": "string",
+              "description": "Absolute, already joined to the module directory."
+            },
+            "layered": {
+              "type": "boolean",
+              "description": "Whether the first path segment under `dir` is a variant name rather than part of the ROM path."
+            },
+            "base-variant": {
+              "type": "string",
+              "description": "The layer applied underneath the built variant."
+            },
+            "into": {
+              "type": "string",
+              "description": "A ROM path prefix for everything the tree produces."
+            }
+          }
+        },
+        "extra": {
+          "type": "object",
+          "description": "Root keys of module.yaml that NCPatcher does not define, re-emitted as JSON with YAML's scalar types resolved. This is the extension point: a key here means something to whichever tool reads the dump, and nothing at all to NCPatcher. nsmb-coop-module's glue module declares `level-data` this way.",
+          "additionalProperties": true
+        },
+        "components": {
+          "type": "array",
+          "description": "In declaration order.",
+          "items": { "$ref": "#/$defs/component" }
+        }
+      }
+    },
+    "component": {
+      "type": "object",
+      "required": ["name", "enabled"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether this component contributed. A disabled one still appears, with its sources and files listed: those files are subtracted from the module's tree rather than inserted, so the entry says what switching the feature off removed."
+        },
+        "disabled-because": {
+          "type": "string",
+          "description": "Why, when it is not simply that the project switched it off -- an unmet `requires`, most often."
+        },
+        "target": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["proc", "locked", "origin"],
+              "additionalProperties": false,
+              "properties": {
+                "proc": { "enum": ["arm7", "arm9"] },
+                "overlay": {
+                  "type": ["integer", "null"],
+                  "description": "The overlay this component's code goes into, or null for the main binary."
+                },
+                "locked": {
+                  "type": "boolean",
+                  "description": "Whether the module fixed the target, refusing a project-level override. Code written against one overlay's memory map does not move."
+                },
+                "origin": {
+                  "type": "string",
+                  "description": "Who decided: `project`, `module`, or `module (the override was refused)`."
+                }
+              }
+            }
+          ],
+          "description": "Null when the component names no target, which a component that only defines a symbol may do."
+        },
+        "defines": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/define" }
+        },
+        "sources": {
+          "type": "array",
+          "description": "Absolute paths, globs already expanded and sorted.",
+          "items": { "type": "string" }
+        },
+        "files": {
+          "type": "array",
+          "description": "Glob patterns naming the ROM destinations this component owns, matched against the NitroFS path with any variant segment stripped. Ownership while enabled; subtraction from the module's tree while disabled.",
+          "items": { "type": "string" }
+        },
+        "requires": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "extra": {
+          "type": "object",
+          "description": "Component keys NCPatcher does not define, re-emitted as JSON. Where nsmb-coop-module's `objects` lives.",
+          "additionalProperties": true
+        },
+        "location": {
+          "type": "object",
+          "required": ["file", "line", "col"],
+          "additionalProperties": false,
+          "description": "Where the component is declared, so a generator can point at the source of a problem rather than restating it.",
+          "properties": {
+            "file": { "type": "string" },
+            "line": { "type": "integer" },
+            "col": { "type": "integer" }
+          }
+        }
+      }
+    },
+    "target": {
+      "type": "object",
+      "required": ["includes", "defines", "regions"],
+      "additionalProperties": false,
+      "properties": {
+        "includes": {
+          "type": "array",
+          "description": "Every enabled module's include contributions, in module order. Target-wide, not per module.",
+          "items": { "type": "string" }
+        },
+        "defines": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/define" }
+        },
+        "regions": {
+          "type": "array",
+          "description": "Sources grouped by where their code goes.",
+          "items": {
+            "type": "object",
+            "required": ["dest", "sources"],
+            "additionalProperties": false,
+            "properties": {
+              "dest": {
+                "type": "string",
+                "description": "`main`, or `ovNN` for an overlay."
+              },
+              "overlay": {
+                "type": "integer",
+                "description": "The overlay number, present only when `dest` is not `main`."
+              },
+              "sources": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "define": {
+      "type": "object",
+      "required": ["name", "value", "origin"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "value": {
+          "type": ["string", "null"],
+          "description": "Null for a bare definition with no value."
+        },
+        "origin": {
+          "type": "string",
+          "description": "What put it there -- a module, a component, or the project -- so that a define appearing twice can be traced."
+        }
+      }
+    }
+  }
+}
