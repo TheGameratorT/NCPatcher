@@ -4,7 +4,7 @@
 #include <span>
 #include <stdexcept>
 
-#include "../rom/endian.hpp"
+#include "../utils/endian.hpp"
 
 // Backwards LZ, the compression the DS BIOS-adjacent library applies to the ARM
 // binaries and to overlays. Both halves of it run from the end of the buffer
@@ -217,8 +217,8 @@ void UncompressBackward(u8* data, size_t dataSize, size_t bufferSize)
 	// them through a u32* would additionally be an aliasing bet the optimiser
 	// is free to call.
 	const std::span<const u8> footer(bottom - 8, 8);
-	const u32 offsetIn    = ncp::rom::readU32(footer, 0);
-	const u32 offsetOut   = ncp::rom::readU32(footer, 4);
+	const u32 offsetIn    = ncp::le::readU32(footer, 0);
+	const u32 offsetOut   = ncp::le::readU32(footer, 4);
 	const u32 offsetInBtm = offsetIn >> 24;
 	const u32 offsetInTop = offsetIn & 0xFFFFFF;
 
@@ -331,8 +331,8 @@ namespace BLZ
 		const u32 offsetIn = u32(total - rawSize) | (u32(8 + padding) << 24);
 		const u32 offsetOut = u32(dataSize - total);
 
-		ncp::rom::writeU32(out, total - 8, offsetIn);
-		ncp::rom::writeU32(out, total - 4, offsetOut);
+		ncp::le::writeU32(out, total - 8, offsetIn);
+		ncp::le::writeU32(out, total - 4, offsetOut);
 
 		return out;
 	}
@@ -343,7 +343,7 @@ namespace BLZ
 		if (dataSize < 8)
 			throw std::runtime_error(BAD_FOOTER);
 
-		const u32 destSize = u32(dataSize) + ncp::rom::readU32(data, dataSize - 4);
+		const u32 destSize = u32(dataSize) + ncp::le::readU32(data, dataSize - 4);
 
 		std::vector<u8> dest(destSize);
 		std::copy(data.begin(), data.end(), dest.begin());
@@ -359,7 +359,7 @@ namespace BLZ
 		if (dataSize < 8)
 			throw std::runtime_error(BAD_FOOTER);
 
-		const u32 destSize = u32(dataSize) + ncp::rom::readU32(data, dataSize - 4);
+		const u32 destSize = u32(dataSize) + ncp::le::readU32(data, dataSize - 4);
 		data.resize(destSize);
 
 		UncompressBackward(data.data(), dataSize, data.size());

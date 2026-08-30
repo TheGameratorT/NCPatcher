@@ -4,7 +4,7 @@
 #include <utility>
 #include <sstream>
 
-#include "endian.hpp"
+#include "../utils/endian.hpp"
 #include "../system/except.hpp"
 #include "../system/log.hpp"
 
@@ -53,7 +53,7 @@ NitroFs NitroFs::parse(std::span<const u8> data)
 
 	// The root row's "parent id" is really the directory count -- GBATEK's one
 	// piece of overloading in this structure.
-	const std::size_t dirCount = readU16(data, 6);
+	const std::size_t dirCount = le::readU16(data, 6);
 	if (dirCount == 0 || dirCount * DIR_ROW_SIZE > data.size())
 	{
 		std::ostringstream oss;
@@ -68,22 +68,22 @@ NitroFs NitroFs::parse(std::span<const u8> data)
 		FsDirectory& dir = fs.m_directories[i];
 		dir.id = u16(FIRST_DIR_ID + i);
 		const std::size_t row = i * DIR_ROW_SIZE;
-		const u32 subtableOffset = readU32(data, row);
-		dir.firstFileId = readU16(data, row + 4);
-		dir.parentId = (i == 0) ? FIRST_DIR_ID : readU16(data, row + 6);
+		const u32 subtableOffset = le::readU32(data, row);
+		dir.firstFileId = le::readU16(data, row + 4);
+		dir.parentId = (i == 0) ? FIRST_DIR_ID : le::readU16(data, row + 6);
 
 		u32 nextFileId = dir.firstFileId;
 		std::size_t cursor = subtableOffset;
 		while (true)
 		{
-			const u8 typeLength = readU8(data, cursor++);
+			const u8 typeLength = le::readU8(data, cursor++);
 			if (typeLength == 0x00)
 				break;
 			if (typeLength == 0x80)
 				throw ncp::exception("Invalid file name table: reserved entry type 0x80.");
 
 			const std::size_t nameLength = typeLength & 0x7F;
-			requireRange(data, cursor, nameLength);
+			le::requireRange(data, cursor, nameLength);
 
 			FsEntry entry;
 			entry.name.assign(reinterpret_cast<const char*>(data.data()) + cursor, nameLength);
@@ -92,7 +92,7 @@ NitroFs NitroFs::parse(std::span<const u8> data)
 
 			if (entry.isDirectory)
 			{
-				entry.id = readU16(data, cursor);
+				entry.id = le::readU16(data, cursor);
 				cursor += 2;
 			}
 			else
@@ -147,9 +147,9 @@ std::vector<u8> NitroFs::serialize() const
 	{
 		const FsDirectory& dir = m_directories[i];
 		const std::size_t row = i * DIR_ROW_SIZE;
-		writeU32(span, row, subtableOffsets[i]);
-		writeU16(span, row + 4, dir.firstFileId);
-		writeU16(span, row + 6, (i == 0) ? u16(m_directories.size()) : dir.parentId);
+		le::writeU32(span, row, subtableOffsets[i]);
+		le::writeU16(span, row + 4, dir.firstFileId);
+		le::writeU16(span, row + 6, (i == 0) ? u16(m_directories.size()) : dir.parentId);
 	}
 	std::copy(subtables.begin(), subtables.end(), out.begin() + tableSize);
 	return out;

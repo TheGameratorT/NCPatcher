@@ -3,7 +3,8 @@
 #include <algorithm>
 #include <sstream>
 
-#include "endian.hpp"
+#include "layout.hpp"
+#include "../utils/endian.hpp"
 #include "../system/except.hpp"
 #include "../system/log.hpp"
 
@@ -34,7 +35,7 @@ constexpr u8 PADDING = 0xFF;
 
 [[nodiscard]] bool magicAt(std::span<const u8> data, std::size_t offset, const char* magic)
 {
-	requireRange(data, offset, 4);
+	le::requireRange(data, offset, 4);
 	return std::equal(magic, magic + 4, data.begin() + std::ptrdiff_t(offset));
 }
 
@@ -68,10 +69,10 @@ Narc Narc::parse(std::span<const u8> data)
 		throw ncp::exception("Not a Nitro archive: the file does not begin with "
 			ANSI_bWHITE "\"NARC\"" ANSI_RESET ".");
 
-	if (readU16(data, 4) != BYTE_ORDER_MARK)
+	if (le::readU16(data, 4) != BYTE_ORDER_MARK)
 		throw ncp::exception("Unsupported Nitro archive: it is not little-endian.");
 
-	const u16 version = readU16(data, 6);
+	const u16 version = le::readU16(data, 6);
 	if (version != VERSION)
 	{
 		std::ostringstream oss;
@@ -79,7 +80,7 @@ Narc Narc::parse(std::span<const u8> data)
 		throw ncp::exception(oss.str());
 	}
 
-	const u32 declaredSize = readU32(data, 8);
+	const u32 declaredSize = le::readU32(data, 8);
 	if (declaredSize != data.size())
 	{
 		std::ostringstream oss;
@@ -88,7 +89,7 @@ Narc Narc::parse(std::span<const u8> data)
 		throw ncp::exception(oss.str());
 	}
 
-	if (readU16(data, 12) != HEADER_SIZE)
+	if (le::readU16(data, 12) != HEADER_SIZE)
 		throw ncp::exception("Malformed Nitro archive: unexpected header size.");
 
 	// Walk the chunks rather than assuming the documented order. The three that
@@ -103,8 +104,8 @@ Narc Narc::parse(std::span<const u8> data)
 	std::size_t cursor = HEADER_SIZE;
 	while (cursor < data.size())
 	{
-		requireRange(data, cursor, CHUNK_HEADER_SIZE);
-		const u32 size = readU32(data, cursor + 4);
+		le::requireRange(data, cursor, CHUNK_HEADER_SIZE);
+		const u32 size = le::readU32(data, cursor + 4);
 		if (size < CHUNK_HEADER_SIZE || size > data.size() - cursor)
 		{
 			std::ostringstream oss;
@@ -135,15 +136,15 @@ Narc Narc::parse(std::span<const u8> data)
 
 	Narc narc;
 
-	const std::size_t count = readU16(data, btaf + 8);
+	const std::size_t count = le::readU16(data, btaf + 8);
 	const std::size_t dataStart = gmif + CHUNK_HEADER_SIZE;
 	const std::size_t dataSize = gmifSize - CHUNK_HEADER_SIZE;
 
 	narc.m_files.resize(count);
 	for (std::size_t i = 0; i < count; i++)
 	{
-		const u32 start = readU32(data, btaf + 12 + i * 8);
-		const u32 end = readU32(data, btaf + 12 + i * 8 + 4);
+		const u32 start = le::readU32(data, btaf + 12 + i * 8);
+		const u32 end = le::readU32(data, btaf + 12 + i * 8 + 4);
 		if (end < start || end > dataSize)
 		{
 			std::ostringstream oss;

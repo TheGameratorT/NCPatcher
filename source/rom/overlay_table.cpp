@@ -2,7 +2,7 @@
 
 #include <sstream>
 
-#include "endian.hpp"
+#include "../utils/endian.hpp"
 #include "../system/except.hpp"
 
 namespace ncp::rom {
@@ -10,29 +10,29 @@ namespace ncp::rom {
 OverlayEntry OverlayEntry::parse(std::span<const u8> row)
 {
 	OverlayEntry entry;
-	entry.overlayId       = readU32(row, 0x00);
-	entry.ramAddress      = readU32(row, 0x04);
-	entry.ramSize         = readU32(row, 0x08);
-	entry.bssSize         = readU32(row, 0x0C);
-	entry.staticInitStart = readU32(row, 0x10);
-	entry.staticInitEnd   = readU32(row, 0x14);
-	entry.fileId          = readU32(row, 0x18);
-	entry.compressedSize  = readU24(row, 0x1C);
-	entry.flags           = readU8(row, 0x1F);
+	entry.overlayId       = le::readU32(row, 0x00);
+	entry.ramAddress      = le::readU32(row, 0x04);
+	entry.ramSize         = le::readU32(row, 0x08);
+	entry.bssSize         = le::readU32(row, 0x0C);
+	entry.staticInitStart = le::readU32(row, 0x10);
+	entry.staticInitEnd   = le::readU32(row, 0x14);
+	entry.fileId          = le::readU32(row, 0x18);
+	entry.compressedSize  = le::readU24(row, 0x1C);
+	entry.flags           = le::readU8(row, 0x1F);
 	return entry;
 }
 
 void OverlayEntry::serialize(std::span<u8> row) const
 {
-	writeU32(row, 0x00, overlayId);
-	writeU32(row, 0x04, ramAddress);
-	writeU32(row, 0x08, ramSize);
-	writeU32(row, 0x0C, bssSize);
-	writeU32(row, 0x10, staticInitStart);
-	writeU32(row, 0x14, staticInitEnd);
-	writeU32(row, 0x18, fileId);
-	writeU24(row, 0x1C, compressedSize);
-	writeU8(row, 0x1F, flags);
+	le::writeU32(row, 0x00, overlayId);
+	le::writeU32(row, 0x04, ramAddress);
+	le::writeU32(row, 0x08, ramSize);
+	le::writeU32(row, 0x0C, bssSize);
+	le::writeU32(row, 0x10, staticInitStart);
+	le::writeU32(row, 0x14, staticInitEnd);
+	le::writeU32(row, 0x18, fileId);
+	le::writeU24(row, 0x1C, compressedSize);
+	le::writeU8(row, 0x1F, flags);
 }
 
 OverlayTable OverlayTable::parse(std::span<const u8> data)

@@ -7,6 +7,7 @@
 #include "../system/log.hpp"
 #include "../system/except.hpp"
 #include "../utils/util.hpp"
+#include "../utils/endian.hpp"
 #include "../formats/archive.hpp"
 
 namespace ncp::patch {
@@ -756,7 +757,7 @@ void PatchTracker::finalizePatchesWithElfData(const Elf32& elf)
         if (sectionName.starts_with(".ncp_set"))
         {
             // Handle ncp_set sections directly - each section corresponds to a specific patch
-            const char* sectionData = elf.getSection<char>(section);
+            const u8* sectionData = elf.getSection<u8>(section);
             
             // Find the patch that corresponds to this section
             for (auto& patch : m_patchInfo)
@@ -772,7 +773,7 @@ void PatchTracker::finalizePatchesWithElfData(const Elf32& elf)
                     
                     // Read the function pointer from the section data
                     // ncp_set comes with the THUMB bit, we must clear it!
-                    patch->srcAddress = Util::read<u32>(&sectionData[0]) & ~1;
+                    patch->srcAddress = le::readU32({sectionData, 4}, 0) & ~1;
                     // The srcThumb information was already determined during object processing
                     // in ObjectAnalyzer::parseNcpSetSection, so we don't update it here
                 }

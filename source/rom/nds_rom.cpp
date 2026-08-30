@@ -4,7 +4,8 @@
 #include <fstream>
 #include <sstream>
 
-#include "endian.hpp"
+#include "layout.hpp"
+#include "../utils/endian.hpp"
 #include "../system/except.hpp"
 #include "../system/log.hpp"
 
@@ -126,7 +127,7 @@ void NdsRom::save(const fs::path& path) const
 
 std::vector<u8> NdsRom::slice(u32 offset, u32 size) const
 {
-	requireRange(m_bytes, offset, size);
+	le::requireRange(m_bytes, offset, size);
 	return std::vector<u8>(m_bytes.begin() + std::ptrdiff_t(offset),
 	                       m_bytes.begin() + std::ptrdiff_t(offset) + std::ptrdiff_t(size));
 }
@@ -137,7 +138,7 @@ bool NdsRom::hasNitrocodeFooter() const
 	const u32 end = info.romOffset + info.size;
 	if (std::size_t(end) + 4 > m_bytes.size())
 		return false;
-	return readU32(m_bytes, end) == NITROCODE;
+	return le::readU32(m_bytes, end) == NITROCODE;
 }
 
 u32 NdsRom::bannerSize() const
@@ -148,7 +149,7 @@ u32 NdsRom::bannerSize() const
 
 	// GBATEK's icon/title versions. An unknown one falls back to the smallest
 	// documented size, which is what every version has in common.
-	switch (readU16(m_bytes, offset))
+	switch (le::readU16(m_bytes, offset))
 	{
 	case 0x0001: return 0x0840;
 	case 0x0002: return 0x0940;

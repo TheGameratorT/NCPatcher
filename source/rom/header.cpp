@@ -3,7 +3,7 @@
 #include <fstream>
 #include <sstream>
 
-#include "endian.hpp"
+#include "../utils/endian.hpp"
 #include "../system/diagnostics.hpp"
 #include "../system/except.hpp"
 #include "../system/log.hpp"
@@ -95,7 +95,7 @@ void Header::load(const fs::path& path)
 
 std::string Header::text(std::size_t offset, std::size_t length) const
 {
-	requireRange(read(), offset, length);
+	le::requireRange(read(), offset, length);
 	std::string out(reinterpret_cast<const char*>(m_bytes.data()) + offset, length);
 	// The fields are space- or zero-padded depending on who built the ROM.
 	while (!out.empty() && (out.back() == '\0' || out.back() == ' '))
@@ -107,11 +107,11 @@ std::string Header::gameTitle() const { return text(off::GameTitle, 12); }
 std::string Header::gameCode() const  { return text(off::GameCode, 4); }
 std::string Header::makerCode() const { return text(off::MakerCode, 2); }
 
-u8 Header::unitCode() const   { return readU8(read(), off::UnitCode); }
-u8 Header::romVersion() const { return readU8(read(), off::RomVersion); }
+u8 Header::unitCode() const   { return le::readU8(read(), off::UnitCode); }
+u8 Header::romVersion() const { return le::readU8(read(), off::RomVersion); }
 
-u8 Header::deviceCapacity() const { return readU8(read(), off::DeviceCapacity); }
-void Header::setDeviceCapacity(u8 value) { writeU8(write(), off::DeviceCapacity, value); }
+u8 Header::deviceCapacity() const { return le::readU8(read(), off::DeviceCapacity); }
+void Header::setDeviceCapacity(u8 value) { le::writeU8(write(), off::DeviceCapacity, value); }
 
 u32 Header::deviceCapacityBytes() const
 {
@@ -125,40 +125,40 @@ ArmBinaryInfo Header::arm(bool arm9) const
 {
 	const std::size_t base = armBase(arm9);
 	ArmBinaryInfo info;
-	info.romOffset    = readU32(read(), base + 0x0);
-	info.entryAddress = readU32(read(), base + 0x4);
-	info.ramAddress   = readU32(read(), base + 0x8);
-	info.size         = readU32(read(), base + 0xC);
+	info.romOffset    = le::readU32(read(), base + 0x0);
+	info.entryAddress = le::readU32(read(), base + 0x4);
+	info.ramAddress   = le::readU32(read(), base + 0x8);
+	info.size         = le::readU32(read(), base + 0xC);
 	return info;
 }
 
-void Header::setArmRomOffset(bool arm9, u32 value) { writeU32(write(), armBase(arm9) + 0x0, value); }
-void Header::setArmSize(bool arm9, u32 value)      { writeU32(write(), armBase(arm9) + 0xC, value); }
+void Header::setArmRomOffset(bool arm9, u32 value) { le::writeU32(write(), armBase(arm9) + 0x0, value); }
+void Header::setArmSize(bool arm9, u32 value)      { le::writeU32(write(), armBase(arm9) + 0xC, value); }
 
 u32 Header::autoLoadListHookAddress(bool arm9) const
 {
-	return readU32(read(), arm9 ? off::Arm9HookAddr : off::Arm7HookAddr);
+	return le::readU32(read(), arm9 ? off::Arm9HookAddr : off::Arm7HookAddr);
 }
 
-RomRegion Header::fnt() const { return { readU32(read(), off::FntOffset), readU32(read(), off::FntOffset + 4) }; }
-RomRegion Header::fat() const { return { readU32(read(), off::FatOffset), readU32(read(), off::FatOffset + 4) }; }
+RomRegion Header::fnt() const { return { le::readU32(read(), off::FntOffset), le::readU32(read(), off::FntOffset + 4) }; }
+RomRegion Header::fat() const { return { le::readU32(read(), off::FatOffset), le::readU32(read(), off::FatOffset + 4) }; }
 
 void Header::setFnt(RomRegion region)
 {
-	writeU32(write(), off::FntOffset, region.romOffset);
-	writeU32(write(), off::FntOffset + 4, region.size);
+	le::writeU32(write(), off::FntOffset, region.romOffset);
+	le::writeU32(write(), off::FntOffset + 4, region.size);
 }
 
 void Header::setFat(RomRegion region)
 {
-	writeU32(write(), off::FatOffset, region.romOffset);
-	writeU32(write(), off::FatOffset + 4, region.size);
+	le::writeU32(write(), off::FatOffset, region.romOffset);
+	le::writeU32(write(), off::FatOffset + 4, region.size);
 }
 
 RomRegion Header::overlayTable(bool arm9) const
 {
 	const std::size_t base = ovtBase(arm9);
-	return { readU32(read(), base), readU32(read(), base + 4) };
+	return { le::readU32(read(), base), le::readU32(read(), base + 4) };
 }
 
 void Header::setOverlayTable(bool arm9, RomRegion region)
@@ -167,19 +167,19 @@ void Header::setOverlayTable(bool arm9, RomRegion region)
 	// A ROM with no overlays stores offset 0 as well as size 0, and a
 	// zero-length table pointed at a real offset confuses some tools, so keep
 	// the pair consistent.
-	writeU32(write(), base, region.size == 0 ? 0 : region.romOffset);
-	writeU32(write(), base + 4, region.size);
+	le::writeU32(write(), base, region.size == 0 ? 0 : region.romOffset);
+	le::writeU32(write(), base + 4, region.size);
 }
 
-u32 Header::bannerOffset() const { return readU32(read(), off::BannerOffset); }
-void Header::setBannerOffset(u32 value) { writeU32(write(), off::BannerOffset, value); }
+u32 Header::bannerOffset() const { return le::readU32(read(), off::BannerOffset); }
+void Header::setBannerOffset(u32 value) { le::writeU32(write(), off::BannerOffset, value); }
 
-u32 Header::totalUsedRomSize() const { return readU32(read(), off::TotalUsedSize); }
-void Header::setTotalUsedRomSize(u32 value) { writeU32(write(), off::TotalUsedSize, value); }
+u32 Header::totalUsedRomSize() const { return le::readU32(read(), off::TotalUsedSize); }
+void Header::setTotalUsedRomSize(u32 value) { le::writeU32(write(), off::TotalUsedSize, value); }
 
-u32 Header::headerSize() const { return readU32(read(), off::HeaderSize); }
+u32 Header::headerSize() const { return le::readU32(read(), off::HeaderSize); }
 
-u16 Header::storedChecksum() const { return readU16(read(), off::HeaderChecksum); }
+u16 Header::storedChecksum() const { return le::readU16(read(), off::HeaderChecksum); }
 
 u16 Header::computeChecksum() const
 {
@@ -188,7 +188,7 @@ u16 Header::computeChecksum() const
 
 void Header::updateChecksum()
 {
-	writeU16(write(), off::HeaderChecksum, computeChecksum());
+	le::writeU16(write(), off::HeaderChecksum, computeChecksum());
 }
 
 bool Header::isDsi() const

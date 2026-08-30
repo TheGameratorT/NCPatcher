@@ -2,25 +2,27 @@
 
 // Little-endian field access over a byte range.
 //
-// Every structure in a DS ROM is little-endian and unaligned-tolerant, and none
-// of them may be read by pointing a struct at the file's bytes: that gets the
-// byte order wrong on a big-endian host, gets the layout wrong wherever the
-// compiler inserts padding, and -- for the overlay table's 24-bit size field --
-// leaves the bit order entirely up to the implementation. Shifts have none of
-// those degrees of freedom, so the container code uses them exclusively.
+// Everything a DS cartridge holds is little-endian and unaligned-tolerant: the
+// ROM containers, the ARM binaries inside them, the BLZ footer, and the opcodes
+// this tool assembles into them. None of it may be read by pointing a struct or
+// a u32* at the bytes: that gets the byte order wrong on a big-endian host,
+// gets the layout wrong wherever the compiler inserts padding, is an aliasing
+// bet the optimiser is free to call, and -- for the overlay table's 24-bit size
+// field -- leaves the bit order entirely up to the implementation. Shifts have
+// none of those degrees of freedom, so every one of those readers uses them.
 //
-// Reads and writes are bounds-checked. A truncated ROM is a file someone hands
-// the tool, not a programming error, so it has to produce a message rather than
-// a segfault.
+// Reads and writes are bounds-checked. A truncated file is something someone
+// hands the tool, not a programming error, so it has to produce a message
+// rather than a segfault.
 
 #include <cstddef>
 #include <span>
 #include <stdexcept>
 #include <string>
 
-#include "../utils/types.hpp"
+#include "types.hpp"
 
-namespace ncp::rom {
+namespace ncp::le {
 
 [[noreturn]] void throwOutOfRange(std::size_t offset, std::size_t size, std::size_t available);
 
@@ -100,12 +102,27 @@ inline void writeU64(std::span<u8> data, std::size_t offset, u64 value)
 	writeU32(data, offset + 4, u32((value >> 32) & 0xFFFFFFFF));
 }
 
-// Rounds `value` up to the next multiple of `alignment`, which must be a power
-// of two. ROM offsets are aligned in several places and getting it wrong by a
-// byte moves every following region.
-[[nodiscard]] constexpr u32 alignUp(u32 value, u32 alignment)
+// Width-generic forms, for code that is templated on the field type rather
+// than naming it. They are dispatches onto the functions above so that the
+// byte order still has exactly one definition.
+template<std::size_t N>
+[[nodiscard]] inline auto readUInt(std::span<const u8> data, std::size_t offset = 0)
 {
-	return (value + (alignment - 1)) & ~(alignment - 1);
+	static_assert(N == 1 || N == 2 || N == 4 || N == 8, "no little-endian codec for this width");
+	if constexpr (N == 1) return readU8(data, offset);
+	else if constexpr (N == 2) return readU16(data, offset);
+	else if constexpr (N == 4) return readU32(data, offset);
+	else return readU64(data, offset);
 }
 
-} // namespace ncp::rom
+template<std::size_t N>
+inline void writeUInt(std::span<u8> data, u64 value, std::size_t offset = 0)
+{
+	static_assert(N == 1 || N == 2 || N == 4 || N == 8, "no little-endian codec for this width");
+	if constexpr (N == 1) writeU8(data, offset, u8(value));
+	else if constexpr (N == 2) writeU16(data, offset, u16(value));
+	else if constexpr (N == 4) writeU32(data, offset, u32(value));
+	else writeU64(data, offset, value);
+}
+
+} // namespace ncp::le

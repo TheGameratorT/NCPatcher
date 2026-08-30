@@ -1,8 +1,7 @@
 #include "../source/ndsbin/armbin.hpp"
 #include "../source/patch/arenalo_finder.hpp"
-#include "../source/utils/util.hpp"
+#include "../source/utils/endian.hpp"
 
-#include <cstring>
 #include <iostream>
 #include <vector>
 
@@ -18,25 +17,30 @@ ArmBin makeArm7(u32 arenaStart)
 	constexpr std::size_t AutoloadListOffset = AutoloadOffset + AutoloadSize;
 	constexpr std::size_t ModuleParamsOffset = 0x40;
 
-	std::vector<u8> data(AutoloadListOffset + 12);
-	Util::write<u32>(&data[0x1C], ArmRam + ModuleParamsOffset);
+	using ncp::le::writeU32;
+	using MP = ArmBin::ModuleParams;
 
-	ArmBin::ModuleParams params{};
-	params.autoloadListStart = ArmRam + AutoloadListOffset;
-	params.autoloadListEnd = params.autoloadListStart + 12;
-	params.autoloadStart = ArmRam + AutoloadOffset;
-	params.staticBssStart = params.autoloadStart;
-	params.staticBssEnd = params.autoloadStart;
-	std::memcpy(&data[ModuleParamsOffset], &params, sizeof(params));
+	std::vector<u8> data(AutoloadListOffset + 12);
+	writeU32(data, 0x1C, ArmRam + ModuleParamsOffset);
+
+	const u32 autoloadListStart = ArmRam + AutoloadListOffset;
+	const u32 autoloadStart = ArmRam + AutoloadOffset;
+	writeU32(data, ModuleParamsOffset + MP::AutoloadListStart, autoloadListStart);
+	writeU32(data, ModuleParamsOffset + MP::AutoloadListEnd, autoloadListStart + 12);
+	writeU32(data, ModuleParamsOffset + MP::AutoloadStart, autoloadStart);
+	writeU32(data, ModuleParamsOffset + MP::StaticBssStart, autoloadStart);
+	writeU32(data, ModuleParamsOffset + MP::StaticBssEnd, autoloadStart);
 
 	const u32 entry[] = { Wram, u32(AutoloadSize), 0 };
-	std::memcpy(&data[AutoloadListOffset], entry, sizeof(entry));
+	for (std::size_t i = 0; i < std::size(entry); i++)
+		writeU32(data, AutoloadListOffset + i * 4, entry[i]);
 
 	// mov r0, #0x03800000; ldr r1, literal; cmp; movhi; bx lr
 	const u32 code[] = {
 		0xE3A0050E, 0xE59F1008, 0xE351050E, 0x81A00001, 0xE12FFF1E, arenaStart
 	};
-	std::memcpy(&data[AutoloadOffset], code, sizeof(code));
+	for (std::size_t i = 0; i < std::size(code); i++)
+		writeU32(data, AutoloadOffset + i * 4, code[i]);
 
 	ArmBin arm;
 	arm.load(std::move(data), ArmRam, ArmRam, ArmRam + 0x20, false);

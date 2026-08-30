@@ -164,7 +164,6 @@ set(SOURCES
 	source/patch/types.cpp
 	source/rom/backup_store.cpp
 	source/rom/dir_accessor.cpp
-	source/rom/endian.cpp
 	source/rom/fat.cpp
 	source/rom/file_manifest.cpp
 	source/rom/narc.cpp
@@ -185,6 +184,7 @@ set(SOURCES
 	source/system/paths.cpp
 	source/system/process.cpp
 	source/utils/base32.cpp
+	source/utils/endian.cpp
 	source/utils/glob.cpp
 	source/utils/json.cpp
 	source/utils/unicode.cpp
@@ -298,7 +298,7 @@ if (NCP_BUILD_TESTS)
 		source/system/diagnostics.cpp source/system/exit_code.cpp)
 	ncp_add_test(json_test tests/json_test.cpp source/utils/json.cpp)
 	ncp_add_test(blz_test tests/blz_test.cpp
-		source/formats/blz.cpp source/rom/endian.cpp)
+		source/formats/blz.cpp source/utils/endian.cpp)
 	ncp_add_test(ansi_test tests/ansi_test.cpp source/system/ansi.cpp)
 	ncp_add_test(cli_test tests/cli_test.cpp source/app/cli.cpp)
 	target_link_libraries(cli_test PRIVATE ${YAML_CPP_TARGET})
@@ -316,7 +316,7 @@ if (NCP_BUILD_TESTS)
 		tests/rom_test.cpp
 		source/formats/blz.cpp
 		source/rom/dir_accessor.cpp
-		source/rom/endian.cpp
+		source/utils/endian.cpp
 		source/rom/fat.cpp
 		source/rom/header.cpp
 		source/rom/nds_rom.cpp
@@ -344,7 +344,7 @@ if (NCP_BUILD_TESTS)
 	# it needs the same endian and diagnostics support that parser does.
 	ncp_add_test(narc_test
 		tests/narc_test.cpp
-		source/rom/endian.cpp
+		source/utils/endian.cpp
 		source/rom/narc.cpp
 		source/rom/nitro_fs.cpp
 		source/system/ansi.cpp
@@ -358,7 +358,7 @@ if (NCP_BUILD_TESTS)
 	ncp_add_test(file_manifest_test
 		tests/file_manifest_test.cpp
 		source/config/project_config.cpp
-		source/rom/endian.cpp
+		source/utils/endian.cpp
 		source/rom/file_manifest.cpp
 		source/utils/unicode.cpp
 		source/rom/header.cpp
@@ -378,7 +378,7 @@ if (NCP_BUILD_TESTS)
 		source/ndsbin/overlaybin.cpp
 		source/patch/filesystem_manager.cpp
 		source/rom/backup_store.cpp
-		source/rom/endian.cpp
+		source/utils/endian.cpp
 		source/rom/header.cpp
 		source/rom/overlay_table.cpp
 		source/system/ansi.cpp
@@ -396,7 +396,7 @@ if (NCP_BUILD_TESTS)
 		source/formats/blz.cpp
 		source/ndsbin/armbin.cpp
 		source/patch/arenalo_finder.cpp
-		source/rom/endian.cpp
+		source/utils/endian.cpp
 		source/system/ansi.cpp
 		source/system/diagnostics.cpp
 		source/system/except.cpp

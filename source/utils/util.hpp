@@ -35,47 +35,6 @@ static inline std::string strRepl(std::string str, char chr, char new_chr)
 	return str;
 }
 
-template<typename T>
-inline void write(void* address, T value)
-{
-	std::memcpy(address, &value, sizeof(T));
-}
-
-template<typename T>
-inline T read(const void* address)
-{
-	T value;
-	std::memcpy(&value, address, sizeof(T));
-	return value;
-}
-
-/*template<typename T>
-class MemVarHandler
-{
-public:
-	explicit MemVarHandler(T value, void* address) :
-		m_value(value), m_address(address)
-	{}
-
-	MemVarHandler& operator=(T value)
-	{
-		std::memcpy(address, &value, sizeof(T));
-	    return *this;
-	}
-
-private:
-	T m_value;
-	void* m_address;
-};
-
-template<typename T>
-inline MemVarHandler<T> get(void* address)
-{
-	T value;
-	std::memcpy(value, address, sizeof(T));
-	return MemVarHandler<T>(value, address);
-}*/
-
 template <typename TP>
 constexpr std::time_t toTimeT(TP tp)
 {

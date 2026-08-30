@@ -6,7 +6,8 @@
 // staged must come back byte for byte, and one that is patched must still have
 // a consistent header, FAT and overlay table afterwards.
 
-#include "../source/rom/endian.hpp"
+#include "../source/rom/layout.hpp"
+#include "../source/utils/endian.hpp"
 #include "../source/rom/dir_accessor.hpp"
 #include "../source/rom/fat.hpp"
 #include "../source/rom/header.hpp"
@@ -25,6 +26,7 @@
 #include <vector>
 
 using namespace ncp::rom;
+using namespace ncp::le;
 namespace fs = std::filesystem;
 
 static int g_failures = 0;
@@ -60,7 +62,7 @@ static void testEndian()
 	writeU64(out, 8, 0x0123456789ABCDEFull);
 	check(readU64(buffer, 8) == 0x0123456789ABCDEFull, "readU64 round-trips");
 
-	// A truncated ROM has to produce a message, not a segfault.
+	// A truncated file has to produce a message, not a segfault.
 	bool threw = false;
 	try { (void)readU32(buffer, 13); } catch (const std::out_of_range&) { threw = true; }
 	check(threw, "reading past the end throws");

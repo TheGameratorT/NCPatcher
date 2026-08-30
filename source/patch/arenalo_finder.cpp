@@ -6,7 +6,7 @@
 #include "../ndsbin/armbin.hpp"
 #include "../system/log.hpp"
 #include "../system/except.hpp"
-#include "../utils/util.hpp"
+#include "../utils/endian.hpp"
 
 namespace ncp::patch {
 
@@ -60,19 +60,19 @@ static bool processArm7Matches(
 {
 	for (std::size_t offset = 0; offset + 20 <= data.size(); offset += 4)
 	{
-		const u32 ldr = Util::read<u32>(&data[offset + 4]);
-		if (Util::read<u32>(&data[offset]) != 0xE3A0050E ||
+		const u32 ldr = le::readU32(data, offset + 4);
+		if (le::readU32(data, offset) != 0xE3A0050E ||
 			(ldr & 0xFFFFF000) != 0xE59F1000 ||
-			Util::read<u32>(&data[offset + 8]) != 0xE351050E ||
-			Util::read<u32>(&data[offset + 12]) != 0x81A00001 ||
-			Util::read<u32>(&data[offset + 16]) != 0xE12FFF1E)
+			le::readU32(data, offset + 8) != 0xE351050E ||
+			le::readU32(data, offset + 12) != 0x81A00001 ||
+			le::readU32(data, offset + 16) != 0xE12FFF1E)
 			continue;
 
 		const std::size_t literalOffset = offset + 12 + (ldr & 0xFFF);
-		if (literalOffset + sizeof(u32) > data.size())
+		if (literalOffset + 4 > data.size())
 			continue;
 
-		const u32 pointerValue = Util::read<u32>(&data[literalOffset]);
+		const u32 pointerValue = le::readU32(data, literalOffset);
 		if (pointerValue < Arm7WramStart || pointerValue >= Arm7WramEnd)
 			continue;
 
@@ -147,7 +147,9 @@ static bool processMatches(ArmBin* arm, const std::vector<u8>& data, u32 ramAddr
 					offset = ldrAddress - ramAddress;
 					offset += data[offset] + 8;
 				}
-				u32 pointerValue = Util::read<u32>(&data[offset]);
+				if (offset + 4 > data.size())
+					continue;
+				u32 pointerValue = le::readU32(data, offset);
 				if (arm->sanityCheckAddress(pointerValue))
 				{
 					arenaLoOut = ramAddress + offset;
@@ -171,7 +173,7 @@ void findArenaLo(ArmBin* arm, int& arenaLoOut, u32& newcodeDestOut)
 	};
 
 	u32 armRamAddress = arm->getRamAddress();
-	u32 autoloadStart = arm->getModuleParams()->autoloadStart;
+	u32 autoloadStart = arm->autoloadStart();
 	std::vector<u8> subset(data.begin(), data.begin() + (autoloadStart - armRamAddress));
 	if (process(subset, armRamAddress))
 		return;

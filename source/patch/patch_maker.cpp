@@ -17,6 +17,7 @@
 #include "../system/log.hpp"
 #include "../system/except.hpp"
 #include "../utils/util.hpp"
+#include "../utils/endian.hpp"
 #include "../ndsbin/icodebin.hpp"
 
 namespace ncp::patch {
@@ -428,23 +429,23 @@ void PatchMaker::applyJumpPatch(const std::unique_ptr<PatchInfo>& patch, const P
 	else if (patch->destThumb && !patch->srcThumb) 
 	{
 		// THUMB -> ARM
-		u16 patchData[4];
-		patchData[0] = AsmGenerator::thumbOpCodePushLR;
-		Util::write<u32>(&patchData[1], callAsmGeneratorWithContext(patch, [&]() {
+		u8 patchData[8];
+		le::writeU16(patchData, 0, AsmGenerator::thumbOpCodePushLR);
+		le::writeU32(patchData, 2, callAsmGeneratorWithContext(patch, [&]() {
 			return AsmGenerator::makeThumbCallOpCode(true, patch->destAddress + 2, patch->srcAddress);
 		}));
-		patchData[3] = AsmGenerator::thumbOpCodePopPC;
+		le::writeU16(patchData, 6, AsmGenerator::thumbOpCodePopPC);
 		bin->writeBytes(patch->destAddress, patchData, 8);
 	}
 	else 
 	{
 		// THUMB -> THUMB
-		u16 patchData[4];
-		patchData[0] = AsmGenerator::thumbOpCodePushLR;
-		Util::write<u32>(&patchData[1], callAsmGeneratorWithContext(patch, [&]() {
+		u8 patchData[8];
+		le::writeU16(patchData, 0, AsmGenerator::thumbOpCodePushLR);
+		le::writeU32(patchData, 2, callAsmGeneratorWithContext(patch, [&]() {
 			return AsmGenerator::makeThumbCallOpCode(false, patch->destAddress + 2, patch->srcAddress);
 		}));
-		patchData[3] = AsmGenerator::thumbOpCodePopPC;
+		le::writeU16(patchData, 6, AsmGenerator::thumbOpCodePopPC);
 		bin->writeBytes(patch->destAddress, patchData, 8);
 	}
 }
@@ -538,10 +539,10 @@ void PatchMaker::createArm2ThumbJumpBridge(const std::unique_ptr<PatchInfo>& pat
 		return AsmGenerator::makeJumpOpCode(AsmGenerator::armOpcodeB, patch->destAddress, bridgeAddr);
 	}));
 
-	u8* bridgeDataPtr = bridgeData.data() + offset;
+	const std::span<u8> bridgeWords(bridgeData.data() + offset, SizeOfArm2ThumbJumpBridge);
 
-	Util::write<u32>(bridgeDataPtr, 0xE51FF004);            // LDR PC, [PC,#-4]
-	Util::write<u32>(bridgeDataPtr + 4, patch->srcAddress | 1); // int value to jump to
+	le::writeU32(bridgeWords, 0, 0xE51FF004);                  // LDR PC, [PC,#-4]
+	le::writeU32(bridgeWords, 4, patch->srcAddress | 1);       // int value to jump to
 
 	if (m_ctx->isVerbose(ncp::VerboseTag::Patch))
 		Util::printDataAsHex(bridgeData.data() + offset, SizeOfArm2ThumbJumpBridge, 32);
@@ -586,7 +587,7 @@ void PatchMaker::createHookBridge(const std::unique_ptr<PatchInfo>& patch, const
 		return AsmGenerator::makeJumpOpCode(AsmGenerator::armOpcodeB, patch->destAddress, hookBridgeAddr);
 	}));
 
-	u8* hookDataPtr = hookData.data() + offset;
+	const std::span<u8> hookWords(hookData.data() + offset, SizeOfHookBridge);
 
 	u32 jmpOpCode = callAsmGeneratorWithContext(patch, [&]() {
 		return patch->srcThumb ? 
@@ -594,13 +595,13 @@ void PatchMaker::createHookBridge(const std::unique_ptr<PatchInfo>& patch, const
 			AsmGenerator::makeJumpOpCode(AsmGenerator::armOpcodeBL, hookBridgeAddr + 4, patch->srcAddress);
 	});
 
-	Util::write<u32>(hookDataPtr, AsmGenerator::armHookPush);
-	Util::write<u32>(hookDataPtr + 4, jmpOpCode);
-	Util::write<u32>(hookDataPtr + 8, AsmGenerator::armHookPop);
-	Util::write<u32>(hookDataPtr + 12, callAsmGeneratorWithContext(patch, [&]() {
+	le::writeU32(hookWords, 0, AsmGenerator::armHookPush);
+	le::writeU32(hookWords, 4, jmpOpCode);
+	le::writeU32(hookWords, 8, AsmGenerator::armHookPop);
+	le::writeU32(hookWords, 12, callAsmGeneratorWithContext(patch, [&]() {
 		return AsmGenerator::fixupOpCode(ogOpCode, patch->destAddress, hookBridgeAddr + 12, m_target->getArm9());
 	}));
-	Util::write<u32>(hookDataPtr + 16, callAsmGeneratorWithContext(patch, [&]() {
+	le::writeU32(hookWords, 16, callAsmGeneratorWithContext(patch, [&]() {
 		return AsmGenerator::makeJumpOpCode(AsmGenerator::armOpcodeB, hookBridgeAddr + 16, patch->destAddress + 4);
 	}));
 
@@ -677,14 +678,13 @@ void PatchMaker::applyNewcodeToMainArm(int dest, const std::unique_ptr<NewcodeIn
 			(newcodeInfo->bssAlign - newcodeInfo->binSize % newcodeInfo->bssAlign) + newcodeInfo->bssSize;
 		bin->write<u32>(m_arenalo, heapReloc);
 
-		ArmBin::ModuleParams* moduleParams = bin->getModuleParams();
 		u32 ramAddress = bin->getRamAddress();
 
-		u32 autoloadListStart = moduleParams->autoloadListStart;
-		u32 autoloadListEnd = moduleParams->autoloadListEnd;
-		u32 binAutoloadListStart = moduleParams->autoloadListStart - ramAddress;
-		u32 binAutoloadListEnd = moduleParams->autoloadListEnd - ramAddress;
-		u32 binAutoloadStart = moduleParams->autoloadStart - ramAddress;
+		u32 autoloadListStart = bin->autoloadListStart();
+		u32 autoloadListEnd = bin->autoloadListEnd();
+		u32 binAutoloadListStart = autoloadListStart - ramAddress;
+		u32 binAutoloadListEnd = autoloadListEnd - ramAddress;
+		u32 binAutoloadStart = bin->autoloadStart() - ramAddress;
 
 		std::vector<ArmBin::AutoLoadEntry>& autoloadList = bin->getAutoloadList();
 		autoloadList.insert(autoloadList.begin(), ArmBin::AutoLoadEntry{
@@ -710,19 +710,18 @@ void PatchMaker::applyNewcodeToMainArm(int dest, const std::unique_ptr<NewcodeIn
 		}
 
 		// Set the new autoload list location
-		moduleParams->autoloadListStart = autoloadListStart + newcodeInfo->binSize;
-		moduleParams->autoloadListEnd = autoloadListEnd + newcodeInfo->binSize + 12;
+		bin->setAutoloadListStart(autoloadListStart + newcodeInfo->binSize);
+		bin->setAutoloadListEnd(autoloadListEnd + newcodeInfo->binSize + 12);
 
-		// Write the new autoload list after the new code
-		u8* writeAutoloadPtr = data.data() + binAutoloadListStart + newcodeInfo->binSize;
-		for (ArmBin::AutoLoadEntry& entry : autoloadList)
+		// Write the new autoload list after the new code. Three little-endian
+		// words per entry, matching how ArmBin::refreshAutoloadData reads them.
+		std::size_t writeAutoloadOff = binAutoloadListStart + newcodeInfo->binSize;
+		for (const ArmBin::AutoLoadEntry& entry : autoloadList)
 		{
-			u32 entryData[3];
-			entryData[0] = entry.address;
-			entryData[1] = entry.size;
-			entryData[2] = entry.bssSize;
-			std::memcpy(writeAutoloadPtr, entryData, 12);
-			writeAutoloadPtr += 12;
+			le::writeU32(data, writeAutoloadOff, entry.address);
+			le::writeU32(data, writeAutoloadOff + 4, entry.size);
+			le::writeU32(data, writeAutoloadOff + 8, entry.bssSize);
+			writeAutoloadOff += 12;
 		}
 	}
 }
