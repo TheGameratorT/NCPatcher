@@ -6,11 +6,11 @@
 
 #include "../utils/endian.hpp"
 
-// Backwards LZ, the compression the DS BIOS-adjacent library applies to the ARM
-// binaries and to overlays. Both halves of it run from the end of the buffer
-// towards the start, which is what lets a module decompress itself in place: the
-// read cursor stays ahead of the write cursor, so the tail of the compressed
-// image is overwritten only after it has been consumed.
+// Backwards LZ, the compression the DS uses for the ARM binaries and for the
+// overlays. Both halves of it run from the end of the buffer towards the start,
+// which is what lets a module decompress itself in place: the read cursor stays
+// ahead of the write cursor, so the tail of the compressed image is overwritten
+// only after it has been consumed.
 //
 // An image is a raw head, the encoded stream, padding, and an eight-byte footer
 // giving the decompressor the two ends of the stream and the amount the buffer
@@ -56,9 +56,9 @@ Match findMatch(const u8* src, size_t size, size_t pos)
 {
 	// A reference may not reach below the cursor, because the decompressor
 	// reconstructs the buffer downwards and has nothing there yet. That bounds
-	// the length by the distance as well as by the token's own limits -- and,
-	// usefully, it means any match of at least MIN_MATCH bytes is also at least
-	// MIN_DISTANCE away, so the biased distance can never go negative.
+	// the length by the distance as well as by the token's own limits, and
+	// (usefully) it means any match of at least MIN_MATCH bytes is also at
+	// least MIN_DISTANCE away, so the biased distance can never go negative.
 	const size_t maxLength = std::min(pos, MAX_MATCH);
 	const size_t maxDistance = std::min(size - pos, MAX_DISTANCE);
 
@@ -117,8 +117,8 @@ Split compressBackward(const u8* src, size_t size, u8* dst)
 
 	// Encoding runs from the end of the input towards the start, so stopping
 	// early is just a matter of keeping the stream written so far and leaving
-	// the rest of the input raw -- references only ever point at higher
-	// addresses, so the tokens already emitted stay valid.
+	// the rest of the input raw (references only ever point at higher
+	// addresses, so the tokens already emitted stay valid).
 	//
 	// (in - out) is how much the image would shrink by stopping here, and it is
 	// also the decode's safety margin: at this point the decompressor has
@@ -212,18 +212,17 @@ void UncompressBackward(u8* data, size_t dataSize, size_t bufferSize)
 
 	u8* const bottom = data + dataSize;
 
-	// The footer is read a byte at a time, the way the SDK's own decompressor
-	// reads it: the words are little-endian whatever the host is, and reading
-	// them through a u32* would additionally be an aliasing bet the optimiser
-	// is free to call.
+	// The footer is read a byte at a time: the words are little-endian whatever
+	// the host is, and reading them through a u32* would additionally be an
+	// aliasing bet the optimizer is free to call.
 	const std::span<const u8> footer(bottom - 8, 8);
 	const u32 offsetIn    = ncp::le::readU32(footer, 0);
 	const u32 offsetOut   = ncp::le::readU32(footer, 4);
 	const u32 offsetInBtm = offsetIn >> 24;
 	const u32 offsetInTop = offsetIn & 0xFFFFFF;
 
-	// The same three checks the SDK makes, which is as much as the footer can
-	// be held to before the stream is walked: the stream lies inside the image,
+	// Three checks, which is as much as the footer can be held to before the
+	// stream is walked: the stream lies inside the image,
 	// its near end is the footer plus at most three bytes of padding, and the
 	// decompressed data fits the buffer. Together they are what puts every
 	// pointer below inside the buffer, so the loop can bound itself by
@@ -244,8 +243,8 @@ void UncompressBackward(u8* data, size_t dataSize, size_t bufferSize)
 
 	// Every bound below is a subtraction between two pointers that are already
 	// known to point into the buffer. Forming the out-of-range pointer first
-	// and comparing afterwards -- pInBtm - 2 < pInTop, pOut + offset -- is
-	// undefined, and an optimiser is entitled to assume it never happens and
+	// and comparing afterwards (pInBtm - 2 < pInTop, pOut + offset) is
+	// undefined, and an optimizer is entitled to assume it never happens and
 	// drop the check, which is exactly what a release build was observed doing.
 	while (pInTop < pInBtm)
 	{

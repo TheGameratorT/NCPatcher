@@ -45,8 +45,8 @@ namespace BLZ
 	 * @brief Uncompress module data in-place, within a larger buffer.
 	 *
 	 * For a module whose compressed image is only part of what it was loaded
-	 * into -- an ARM binary, whose image ends at compStaticEnd rather than at
-	 * the end of the file.
+	 * into, such as an ARM binary, whose image ends at compStaticEnd rather
+	 * than at the end of the file.
 	 *
 	 * @param data The pointer to the beginning of the image.
 	 * @param dataSize The size of the image, footer included.
