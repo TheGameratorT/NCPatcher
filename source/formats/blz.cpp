@@ -205,7 +205,7 @@ Split compressBackward(const u8* src, size_t size, u8* dst)
  * @param bufferSize Size of the buffer holding it, which the decompressed data
  *                   has to fit in.
  */
-void UncompressBackward(u8* data, size_t dataSize, size_t bufferSize)
+void uncompressBackward(u8* data, size_t dataSize, size_t bufferSize)
 {
 	if (dataSize < 8 || dataSize > bufferSize)
 		throw std::runtime_error(BAD_FOOTER);
@@ -347,7 +347,7 @@ namespace BLZ
 		std::vector<u8> dest(destSize);
 		std::copy(data.begin(), data.end(), dest.begin());
 
-		UncompressBackward(dest.data(), dataSize, dest.size());
+		uncompressBackward(dest.data(), dataSize, dest.size());
 
 		return dest;
 	}
@@ -361,11 +361,11 @@ namespace BLZ
 		const u32 destSize = u32(dataSize) + ncp::le::readU32(data, dataSize - 4);
 		data.resize(destSize);
 
-		UncompressBackward(data.data(), dataSize, data.size());
+		uncompressBackward(data.data(), dataSize, data.size());
 	}
 
 	void uncompressInplace(u8* data, size_t dataSize, size_t bufferSize)
 	{
-		UncompressBackward(data, dataSize, bufferSize);
+		uncompressBackward(data, dataSize, bufferSize);
 	}
 }
