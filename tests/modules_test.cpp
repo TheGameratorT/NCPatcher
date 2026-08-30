@@ -3,8 +3,8 @@
 // The module system's failure modes are the ones the Python prototype had and
 // could not see: a component name written twice, two modules claiming the same
 // source file, a project retargeting something the module said it must not.
-// None of those crash -- they produce a build that is quietly not the one
-// anybody asked for -- so most of what is checked here is that they are
+// None of those crash (they produce a build that is quietly not the one
+// anybody asked for) so most of what is checked here is that they are
 // reported at all, and that the report names both halves of the problem.
 //
 // Run via ctest, or directly: ./modules_test
@@ -219,7 +219,7 @@ static void testResolvesTheGraph(const fs::path& root)
 	check(arm9.includes.size() == 1, "the module's include directory is contributed once");
 
 	// The catch-all sweeps source/**, but the two files a component claimed go
-	// where the component said instead. This is the behaviour the whole design
+	// where the component said instead. This is the behavior the whole design
 	// turns on: a module names a directory, and its components carve exceptions
 	// out of it.
 	const auto names = [](const std::vector<fs::path>& paths) {
@@ -272,7 +272,7 @@ static void testFoldsIntoTheTarget(const fs::path& root)
 }
 
 // A region that only ever appends and never received anything is noise the
-// module system is meant to delete -- but one that reserves space or blanks
+// module system is meant to delete, but one that reserves space or blanks
 // code means something with no sources at all.
 static void testPrunesOnlyEmptyAppendRegions(const fs::path& root)
 {
@@ -355,7 +355,7 @@ static void testProjectOverrides(const fs::path& root)
 		[](const ResolvedDefine& d) { return d.name == "ALPHA_FLAG"; }),
 		"a disabled component contributes no defines");
 
-	// The disabled module was never read, so nothing of it reaches the build --
+	// The disabled module was never read, so nothing of it reaches the build,
 	// but it is still listed, because "why did this contribute nothing" is a
 	// question worth being able to answer.
 	const ResolvedModule* beta = graph.find("beta");
@@ -606,7 +606,7 @@ targets:
 
 // An overlay in neither the catalog nor the target is still an error. This is
 // the case auto-create-regions used to paper over, and papering over it is how
-// code ends up running off the end of an overlay into its neighbour.
+// code ends up running off the end of an overlay into its neighbor.
 static void testOverlayMissingFromCatalogIsAnError(const fs::path& root)
 {
 	makeProject(root);
@@ -665,7 +665,7 @@ static void testDumpCarriesUnknownKeys(const fs::path& root)
 	check(contains(text, "\"extra\""), "unknown keys are grouped under extra");
 
 	// The same rule at module level. A generator declares whole-module things
-	// there -- level-data: is the motivating case -- and rejecting them as
+	// there (level-data: is the motivating case) and rejecting them as
 	// typos would make the boundary a fiction.
 	check(contains(text, "level-data"), "an unknown module-level key survives into the dump");
 	check(contains(text, "canFly"), "its contents are carried through verbatim");

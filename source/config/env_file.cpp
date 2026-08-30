@@ -40,8 +40,8 @@ bool isValidName(std::string_view name)
 	return true;
 }
 
-// Strips one layer of matching quotes. Not shell quoting -- there is no
-// escaping and no expansion inside -- just a way to write a value with leading
+// Strips one layer of matching quotes. Not shell quoting (there is no
+// escaping and no expansion inside), just a way to write a value with leading
 // or trailing spaces, or one that would otherwise be ambiguous.
 std::string_view unquote(std::string_view value)
 {

@@ -14,11 +14,11 @@ Grab a release, or build from source. Either way the binary can live anywhere:
 it locates `ncp.h` and its companions relative to itself, so there is no longer
 anything to add to `PATH` beyond the binary, and nothing to reboot for.
 
-**Windows** — run the installer and tick *Add NCPatcher to the system PATH*, or
+**Windows**: run the installer and tick *Add NCPatcher to the system PATH*, or
 unzip the portable archive anywhere and put that directory on `PATH` yourself.
 With [Scoop](https://scoop.sh): `scoop install ncpatcher`.
 
-**Linux and macOS** — unpack the release archive, or install from source:
+**Linux and macOS**: unpack the release archive, or install from source:
 
 ```sh
 cmake -B build -DCMAKE_BUILD_TYPE=Release
@@ -33,9 +33,9 @@ error rather than a download. See [packaging/README.md](packaging/README.md).
 
 ### Where the SDK files go
 
-`ncp.h`, `ncp_ide.h` and `ncprt.c` — the SDK — are compiled into your ARM code,
+`ncp.h`, `ncp_ide.h` and `ncprt.c` (the SDK) are compiled into your ARM code,
 not into ncpatcher, so they are installed as program data rather than as host
-headers — `/usr/share/ncpatcher`, or beside the binary on Windows. They are
+headers, in `/usr/share/ncpatcher` or beside the binary on Windows. They are
 looked for in:
 
 1. `$NCPATCHER_DATA_DIR`, if set
@@ -75,7 +75,7 @@ Useful switches:
 ## Running
 
 Configure the project as described below, then run `ncpatcher build` in the directory
-holding its configuration file — or from anywhere with `ncpatcher -C <that
+holding its configuration file, or from anywhere with `ncpatcher -C <that
 directory>`.
 
 NCPatcher patches a `.nds` directly:
@@ -102,7 +102,7 @@ rom:
 ```
 
 `ncpatcher rom extract <dir>` writes that directory out of a `.nds`, and
-`ncpatcher rom pack <dir>` folds it back in — which is the job most projects
+`ncpatcher rom pack <dir>` folds it back in, which is the job most projects
 currently do with a script of their own. Neither one takes the NitroFS apart;
 `ndstool`, or `nds-extract` from
 [Fireflower](https://github.com/MammaMiaTeam/Fireflower/releases/latest), is
@@ -110,7 +110,7 @@ the tool for that.
 
 Patching a directory does not rewrite its `header.bin`: the header is an input
 the patcher has never owned, and every tool that repacks one of these
-directories works the sizes out for itself. `ncpatcher rom pack` does too — it
+directories works the sizes out for itself. `ncpatcher rom pack` does too, and
 takes the header from the ROM it is packing into and updates it there.
 
 If your extraction names the files differently, say so rather than renaming
@@ -137,7 +137,7 @@ the first build that outgrows the gap before the overlay table lays the ROM out
 again, leaving `rom.arm9-slack` bytes (64 KiB by default) of room behind it.
 Because every build re-applies its patches to the *pristine* ARM9 rather than
 to the last build's output, the patched size is a function of the code and not
-of how many times you have built — so that happens once, and later builds write
+of how many times you have built, so that happens once, and later builds write
 in place and produce a byte-identical ROM.
 
 ## Command line
@@ -179,7 +179,7 @@ Options, which may be written before or after the subcommand:
 | `--toolchain PREFIX` | Cross-compiler prefix |
 | `-j, --jobs N` | Compile jobs; 0 means one per hardware thread |
 | `-v, --verbose` / `--verbose-tag TAG` | Verbose output, all of it or one category |
-| `--color auto\|always\|never` | Console styling. `NO_COLOR` is honoured |
+| `--color auto\|always\|never` | Console styling. `NO_COLOR` is honored |
 | `--log PATH` / `--no-log` | Where the log file goes, or that there is none |
 | `--message-format human\|json` | See below |
 | `--result PATH` | Write a JSON summary of the run |
@@ -195,8 +195,8 @@ setting. `NCPATCHER_DATA_DIR` is separate from that chain: it says where
 `ncp.h` lives, which is a property of the installation rather than of the
 project.
 
-The log goes to `<buildDir>/ncpatcher.log` — the ARM9 target's build directory,
-or the only enabled one's — so `clean` takes it away with everything else it
+The log goes to `<buildDir>/ncpatcher.log` (the ARM9 target's build directory,
+or the only enabled one's) so `clean` takes it away with everything else it
 made. Only a build writes one; `config dump` and friends have no build
 directory to write into and are not worth creating one for. `--log` puts it
 somewhere else, `--no-log` turns it off.
@@ -369,8 +369,8 @@ NSMBREF_ROOT=/home/you/.local/share/nsmbtool/reference/ac82391
 
 The format is `NAME=VALUE`, one per line, with `#` comments and optional
 surrounding quotes. There is no expansion, no substitution and no `export`
-keyword — a configuration file that can run commands is one that cannot be
-validated safely.
+keyword, because a configuration file that can run commands is one that
+cannot be validated safely.
 
 **These entries override the ambient environment**, which is the opposite of the
 usual `.env` convention and is the entire point: a stale value left in a shell
@@ -430,7 +430,7 @@ configured by `files-dump`; each is available when its setting is present.
 Two references are resolved when the hook runs rather than when the file is
 read, because they are not known any earlier: `${variant.name}` is the variant
 being built, empty for a project with none, and `${rom.output}` is the ROM this
-build wrote — including the `_<variant>` suffix that `--all-variants` derives.
+build wrote, including the `_<variant>` suffix that `--all-variants` derives.
 That is what lets one post-build hook produce a patch per variant:
 
 ```yaml
@@ -467,7 +467,7 @@ include `fnt.bin`, `fat.bin`, and the configured `data-dir`.
 
 Some games hold arrays of file IDs in compiled code, ended by a sentinel value.
 The sentinel a compiler picked is typically the ID one past the last file the
-retail ROM shipped with — which is exactly the ID NCPatcher gives to the first
+retail ROM shipped with, which is exactly the ID NCPatcher gives to the first
 file a build adds. Put real content there and the game has a loadable file at
 an ID its own code reads as *stop*.
 
@@ -479,7 +479,7 @@ files-reserve: z_new/reserved
 
 The named path is created as an empty file before any other addition, so it
 takes the first new ID and the project's own files start after it. It may not
-also appear in `files:` or be supplied by a `file-trees:` entry — the
+also appear in `files:` or be supplied by a `file-trees:` entry, because the
 placeholder has to stay empty, and a build that filled it would be undoing the
 reservation.
 
@@ -514,14 +514,14 @@ Nothing else moves, which is the whole point.
 A file ID belongs to its directory's consecutive range, so it can be renamed
 but not moved: the ID named here must already exist and must live in the
 destination's parent directory. Two entries may not claim one ID, and an entry
-may not claim an ID whose current name another entry targets by path — both
-would otherwise resolve by insertion order.
+may not claim an ID whose current name another entry targets by path, since
+both would otherwise resolve by insertion order.
 
 ### Editing a file inside a Nitro archive
 
 Most of a DS game's assets are not loose files. They live in `.narc`
-containers — a FAT, a name table and a blob of data, the ROM's own filesystem
-in miniature — and reaching one of them means opening the container.
+containers (a FAT, a name table and a blob of data, the ROM's own filesystem
+in miniature) and reaching one of them means opening the container.
 
 A destination can name two coordinates instead of one: the archive's ROM path,
 `!`, then the path within it. It is the separator `jar:` and `zip:` URIs use
@@ -533,7 +533,7 @@ files:
 ```
 
 Archives are edited in place and never added to. Game code reads a member by
-its index, so inserting one would renumber every member after it — the same
+its index, so inserting one would renumber every member after it, the same
 reason NitroFS file IDs are never renumbered. The archive must already exist
 and must already hold the member named; a missing member is an error rather
 than a warning, because the way that ships is a ROM with the translation still
@@ -543,8 +543,8 @@ A replacement of a different size is fine. The allocation table and the data
 chunk are laid out again around it, and every member keeps its index. An
 archive nothing edited is written back byte for byte.
 
-`id:` cannot be combined with an archive destination — it renames a loose file,
-and a member of an archive is not one.
+`id:` cannot be combined with an archive destination, since it renames a loose
+file and a member of an archive is not one.
 
 ### Replacing the ROM banner
 
@@ -565,8 +565,8 @@ different format rather than a bigger banner, and the build says so instead of
 laying the container out again around it.
 
 A variant may override it with its own `banner:`, though one banner normally
-serves every build — the region carries a title in all six console languages at
-once.
+serves every build, because the region carries a title in all six console
+languages at once.
 
 ## NitroFS trees
 
@@ -586,7 +586,7 @@ With `layered`, the first path segment is a variant name rather than part of
 the ROM path, so `nitrofs/fr/ARCHIVE/x.bin` is `ARCHIVE/x.bin` for the French
 build and nothing at all for the German one. `base-variant` is applied
 underneath, which is what lets a project translate eight files out of two
-thousand — the base supplies everything the variant does not override. A
+thousand: the base supplies everything the variant does not override. A
 variant may supply a path the base never had, and a variant directory that
 does not exist contributes nothing rather than failing. `into:` prefixes every
 destination the tree produces.
@@ -610,8 +610,8 @@ French beats a module supplying the English original for all languages.
 
 **Then module order.** Within one layer, the first tree to claim a destination
 keeps it, and `modules.enabled` is that order. This is precedence rather than a
-tiebreak: a module that replaces a piece of artwork wholesale — because the
-replacement has its own text baked in — has to outrank one that only translates
+tiebreak: a module that replaces a piece of artwork wholesale (because the
+replacement has its own text baked in) has to outrank one that only translates
 the stock version, and listing it first is how the project says so.
 
 Explicit `files:` entries win over anything a tree swept, since they are the
@@ -622,7 +622,7 @@ project overruling the sweep by name.
 A module is written without knowing which project will use it. Its tree may be
 split by region where the project splits by language, or say `french` where the
 project says `fr`. Nothing connects the two names, so the module quietly
-contributes nothing — the worst available outcome.
+contributes nothing, the worst available outcome.
 
 A variant can say which layer of a given module it means:
 
@@ -639,8 +639,8 @@ variant layer is redirected; the module's `base-variant` is its own
 declaration and keeps filling the gaps as before.
 
 A layer named here must exist. That is the opposite of the unmapped case, where
-a missing variant directory is ordinary — but naming a layer is an assertion,
-and honouring a typo by silently falling back to the base layer is how a build
+a missing variant directory is ordinary, but naming a layer is an assertion,
+and honoring a typo by silently falling back to the base layer is how a build
 ships without its translations. Mapping a module that is not enabled, or one
 that declares no tree, is an error for the same reason.
 
@@ -684,7 +684,7 @@ convention applies.
 ## The file manifest
 
 A DS game loads a file by number, not by path. So any code that reads one needs
-a constant, and that constant has to be regenerated whenever the table changes —
+a constant, and that constant has to be regenerated whenever the table changes,
 which is what a `post-files` hook is for. `files-dump` gives that hook something
 to read:
 
@@ -720,13 +720,13 @@ table is whatever the retail ROM already had.
 ```
 
 `action` says what this run did to the file relative to the ROM that came in:
-`unchanged`, `modified`, or `created` — and `created` only ever happens under
+`unchanged`, `modified`, or `created`, and `created` only ever happens under
 `z_new/`, because existing file ids are never renumbered. The provenance fields
 are present only for files the build wrote, and each is omitted when it is
 empty rather than emitted as `""`.
 
 Ids are raw, exactly as the FAT stores them. A game that offsets file ids at run
-time — NSMB subtracts its overlay count — applies that itself; it is a property
+time (NSMB subtracts its overlay count) applies that itself; it is a property
 of that game, not of the ROM, and NCPatcher does not know about it.
 
 Those last four fields are also what makes an editor possible: every entry is
@@ -735,11 +735,11 @@ variants answers which languages translate a file. The schema is
 `schema/files.schema.json`.
 
 `ncpatcher rom files` prints the same table for a ROM already on disk, as a
-list or, with `--json`, as the same document. Nothing there has provenance —
-it is reading a build's result rather than performing one — so every entry is
-`unchanged` and there is no `variant`.
+list or, with `--json`, as the same document. Nothing there has provenance,
+since it is reading a build's result rather than performing one, so every
+entry is `unchanged` and there is no `variant`.
 
-It reads the project's ROM by default, and `--rom` points it at any other —
+It reads the project's ROM by default, and `--rom` points it at any other,
 including one a build just produced, which is how you check what actually landed
 in it:
 
@@ -765,14 +765,14 @@ What follows for anything built on the manifest:
 
 - An id read from one build means the same file in the next one, as long as the
   file was already in the ROM. Ids under `z_new/` are stable too, but only while
-  the set of additions is — adding a file that sorts earlier shifts the ones
-  after it.
+  the set of additions is, since adding a file that sorts earlier shifts the
+  ones after it.
 - **Adding a file is a build, not an edit.** There is no way to append to a ROM's
   table from outside; only insertion assigns an id. A tool that wants a new file
   in the ROM puts it in a module tree and lets a build place it, which is why
   an editor shows such a file as *pending* rather than writing into the ROM.
 - Identity that has to survive should not be an id. Where something must be
-  referred to across builds — a level naming an object it places, say — the
+  referred to across builds (a level naming an object it places, say) the
   durable name is a string or a hash of one, and the id is looked up from it.
 
 ## Build variants
@@ -808,8 +808,8 @@ directory has only one in-place destination.
 
 ## Modules
 
-A module is a self-contained feature — its own sources, include directories,
-defines and filesystem entries — that a project switches on by name. It exists
+A module is a self-contained feature (its own sources, include directories,
+defines and filesystem entries) that a project switches on by name. It exists
 so a project stops having to say *where* every file goes: the module says that
 once, and the project says only whether it wants it.
 
@@ -846,7 +846,7 @@ components:
       defines: COOP_FIX_PAUSE_MENU
 ```
 
-`targets:` is the catch-all — a directory swept into one region. `components:`
+`targets:` is the catch-all, a directory swept into one region. `components:`
 carve exceptions out of it: a component's sources go where *it* says, and are
 removed from whatever the catch-all would have done with them. Switch a
 component off and its sources leave the build entirely.
@@ -867,7 +867,7 @@ modules:
     - nitrosdk: { optional: true }             # may simply not be installed
 ```
 
-A component override takes `enabled`, `target`, and `defines` — the last being
+A component override takes `enabled`, `target`, and `defines`, the last being
 values for defines the component already declares, not a place to invent new
 ones. A target the module wrote with a leading `!` is locked, and an override of
 it is reported rather than quietly dropped.
@@ -878,7 +878,7 @@ whether a module is present without the project having to say so twice.
 ### Regions
 
 A component targeting `arm9(58)` needs the ARM9 target to have an `ov58` region.
-It is an error if it does not — a mistyped overlay id would otherwise become an
+It is an error if it does not: a mistyped overlay id would otherwise become an
 overlay full of code the game never loads, and an invented region has no size
 limit worth the name, so the first thing it would do is let that code run past
 the end of its overlay into the next one.
@@ -889,10 +889,10 @@ either. That is what `region-catalog` is for.
 ## Region catalogs
 
 Which overlays a game has, and how far each one may grow before it runs into
-whatever the game placed after it, is a property of the game — not of your
+whatever the game placed after it, is a property of the game, not of your
 project. One table serves every project built against that game, so it lives
 outside the project and is referenced rather than copied. A copied table goes
-stale silently, and a stale ceiling is an overlay that overruns its neighbour.
+stale silently, and a stale ceiling is an overlay that overruns its neighbor.
 
 ```yaml
 targets:
@@ -923,7 +923,7 @@ in.
 **A catalog entry is an offer, not a declaration.** An overlay nothing is built
 into is dropped rather than written out, which is what makes listing all 131 of
 them cost nothing. Name a region in the target and it is yours: whatever you say
-wins, and whatever you leave out still comes from the catalog — so naming an
+wins, and whatever you leave out still comes from the catalog, so naming an
 overlay to put sources in it does not mean restating a size limit you have no
 opinion about.
 
@@ -931,7 +931,7 @@ An overlay in neither the catalog nor the target is still an error, naming the
 overlay and the catalog that failed to list it.
 
 For a project that uses modules, a region the target declared itself and that
-nothing ended up in is dropped too — but only when it does nothing but append.
+nothing ended up in is dropped too, but only when it does nothing but append.
 A `replace` region reserves space and an `overwrites` region blanks code, and
 both mean something with no sources at all.
 
@@ -939,8 +939,8 @@ both mean something with no sources at all.
 
 `ncpatcher modules dump` prints the resolved graph as JSON, and
 `modules.dump:` writes the same file before the pre-build commands run. That is
-the boundary: everything game-specific — object id allocation, profile tables,
-filesystem maps — belongs to a tool that reads this file, not to NCPatcher.
+the boundary: everything game-specific (object id allocation, profile tables,
+filesystem maps) belongs to a tool that reads this file, not to NCPatcher.
 Component keys NCPatcher does not know are kept verbatim under `extra` and
 re-emitted for exactly that reason.
 
@@ -975,8 +975,8 @@ components:
 ```
 
 Both come back out of the dump under `extra`, with YAML's scalar types resolved
-the way YAML would resolve them — a number stays a number, `yes` stays a string.
-Nothing else happens to them. That is the whole of how a game-specific generator
+the way YAML would resolve them, so a number stays a number and `yes` stays a
+string. Nothing else happens to them. That is the whole of how a game-specific generator
 extends a module without NCPatcher acquiring any knowledge of the game:
 
 ```jsonc
@@ -986,7 +986,7 @@ extends a module without NCPatcher acquiring any knowledge of the game:
 ```
 
 A root key that NCPatcher *does* define is validated as usual, so `extra` is not
-an escape from spelling `targets` correctly — only a place for keys that were
+an escape from spelling `targets` correctly, only a place for keys that were
 never NCPatcher's to check.
 
 

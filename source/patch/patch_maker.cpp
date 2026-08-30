@@ -111,7 +111,7 @@ void PatchMaker::prepareBuildEnvironment()
 	//
 	// The list is a record of a previous run, not a fact about this ROM, and an
 	// entry naming an overlay this processor does not have is therefore stale
-	// rather than fatal -- a build whose arm7 and arm9 lists were once written
+	// rather than fatal: a build whose arm7 and arm9 lists were once written
 	// to the wrong slots left exactly that behind, and indexing on it read off
 	// the end of an empty overlay table.
 	std::vector<u32>& patchedOverlays = m_ctx->rebuild->patchedOverlays(m_target->getArm9());

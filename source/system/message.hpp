@@ -75,7 +75,7 @@ void configure(Format format, std::filesystem::path resultFile);
 
 // Records a diagnostic. In human mode this only files it for the summary; the
 // message itself has already been printed through Log by the caller, which is
-// where its formatting and colour live.
+// where its formatting and color live.
 void diagnostic(Level level, Diag code, std::string_view message, const Location& location = {});
 
 void progress(std::string_view phase, std::size_t current, std::size_t total, std::string_view item);

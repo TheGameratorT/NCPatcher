@@ -75,8 +75,8 @@ void applyCode(int value)
 	}
 	else if (value == 1) // bold
 	{
-		// Bold is the high-intensity bit of the foreground colour, so applying
-		// it twice would push the colour out of range.
+		// Bold is the high-intensity bit of the foreground color, so applying
+		// it twice would push the color out of range.
 		if (!s_boldEnabled)
 		{
 			int fgAttr = s_txtAttr & 0xF;
@@ -86,7 +86,7 @@ void applyCode(int value)
 		}
 		s_boldEnabled = true;
 	}
-	else if (value >= 30 && value < 48) // foreground or background colour
+	else if (value >= 30 && value < 48) // foreground or background color
 	{
 		if (value < 40)
 		{

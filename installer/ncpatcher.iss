@@ -54,7 +54,7 @@ Source: "{#StageDir}\LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
 [Registry]
 ; Appended to the machine PATH, and removed again on uninstall. Inno's own
 ; environment change is broadcast to the shell, so a newly opened terminal sees
-; it without logging out -- which is the other half of deleting the reboot step.
+; it without logging out, which is the other half of deleting the reboot step.
 Root: HKLM; Subkey: "SYSTEM\CurrentControlSet\Control\Session Manager\Environment"; \
     ValueType: expandsz; ValueName: "Path"; ValueData: "{olddata};{app}"; \
     Check: NeedsAddPath(ExpandConstant('{app}')); Tasks: addtopath

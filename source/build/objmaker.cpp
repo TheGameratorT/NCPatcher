@@ -241,7 +241,7 @@ void ObjMaker::checkIfSourcesNeedRebuild()
 		for (auto& dep : deps)
 		{
 			// gcc writes these relative to the directory it was run in, which is
-			// the target work dir -- not wherever ncpatcher happens to sit. Anchor
+			// the target work dir, not wherever ncpatcher happens to sit. Anchor
 			// them, or every dependency reads as missing and nothing is ever
 			// considered up to date.
 			dep = m_paths->target(dep);

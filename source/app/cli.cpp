@@ -65,7 +65,7 @@ void addGlobalOptions(CLI::App& app, CommandLine& out, std::vector<std::string>&
 		->type_name("PATH");
 
 	app.add_option("--rom", out.romPath,
-		"ROM to patch -- a .nds or an extracted directory -- overriding the configuration")
+		"ROM to patch (a .nds or an extracted directory), overriding the configuration")
 		->type_name("PATH");
 
 	app.add_option("--out", out.outPath,
@@ -148,7 +148,7 @@ std::optional<int> parseCommandLine(int argc, char* argv[], CommandLine& out)
 	app.set_version_flag("--version", versionString(), "Show the version and exit");
 
 	// A bare invocation is answered with a summary rather than a build. Starting
-	// one is a decision with side effects -- it writes into the ROM -- and it
+	// one is a decision with side effects (it writes into the ROM) and it
 	// should be asked for by name.
 	app.require_subcommand(0, 1);
 
@@ -170,7 +170,7 @@ std::optional<int> parseCommandLine(int argc, char* argv[], CommandLine& out)
 	CLI::App* clean = app.add_subcommand("clean", "Delete the build directories");
 	clean->add_flag("--backups", out.cleanBackups,
 		"Also delete the backup directory. The ROM binaries stay patched and "
-		"can no longer be restored -- see 'restore' if that is not what you want.");
+		"can no longer be restored; see 'restore' if that is not what you want.");
 
 	CLI::App* restore = app.add_subcommand("restore",
 		"Put the ROM binaries back the way they were and remove the backups");
@@ -246,7 +246,7 @@ std::optional<int> parseCommandLine(int argc, char* argv[], CommandLine& out)
 	// They do not appear in the subcommand's own --help, though, because CLI11
 	// lists only what was added to that subcommand. Left alone, `build --help`
 	// shows nothing but -h and reads as though the command took no options at
-	// all -- and `rom files --help` hides the one option that answers the
+	// all, and `rom files --help` hides the one option that answers the
 	// obvious question, which ROM. The footer says where they are.
 	for (CLI::App* sub : { build, init, clean, restore, configDump, configValidate, configPath, migrate,
 	                       modulesList, modulesDump, modulesExplain,
@@ -354,7 +354,7 @@ std::optional<int> parseCommandLine(int argc, char* argv[], CommandLine& out)
 		}
 	}
 
-	// The de-facto convention, honoured because a build tool's output ends up
+	// The de-facto convention, honored because a build tool's output ends up
 	// in CI logs far more often than on a terminal.
 	if (app.count("--color") == 0 && environment("NO_COLOR"))
 		out.color = Log::ColorMode::Never;

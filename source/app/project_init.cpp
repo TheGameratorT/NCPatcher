@@ -47,7 +47,7 @@ rom:
   backup: backup
 
 # NSMB's code holds arrays of file ids ended by a sentinel, and the sentinel is
-# the id one past the last file the retail ROM shipped with -- which is the id
+# the id one past the last file the retail ROM shipped with, which is the id
 # the first added file would otherwise be given. This spends it on an empty
 # file so nothing loadable sits at an id the game reads as "stop".
 files-reserve: z_new/reserved

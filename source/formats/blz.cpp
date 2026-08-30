@@ -7,7 +7,7 @@
 #include "../utils/endian.hpp"
 
 // Backwards LZ, the compression the DS uses for the ARM binaries and for the
-// overlays. Both halves of it run from the end of the buffer towards the start,
+// overlays. Both halves of it run from the end of the buffer toward the start,
 // which is what lets a module decompress itself in place: the read cursor stays
 // ahead of the write cursor, so the tail of the compressed image is overwritten
 // only after it has been consumed.
@@ -115,7 +115,7 @@ Split compressBackward(const u8* src, size_t size, u8* dst)
 	size_t in = size;   // src[in - 1] is the next byte to encode
 	size_t out = size;  // dst[out - 1] is the next byte to write
 
-	// Encoding runs from the end of the input towards the start, so stopping
+	// Encoding runs from the end of the input toward the start, so stopping
 	// early is just a matter of keeping the stream written so far and leaving
 	// the rest of the input raw (references only ever point at higher
 	// addresses, so the tokens already emitted stay valid).

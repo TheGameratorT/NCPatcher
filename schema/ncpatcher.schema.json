@@ -75,7 +75,7 @@
       }
     },
     "files": {
-      "description": "Loose files copied into NitroFS after pre-build hooks and before compilation. Each key is the '/'-separated path in the ROM. A string value is the source path, relative to the project. A mapping value carries the source plus options: `id` claims an existing file id and renames it to this path, which keeps every other id where it is instead of appending a new one at the end of the table. Missing destinations may only be created under z_new/, unless `id` names a file that already exists. An entry here overrides anything `file-trees` swept to the same destination. A key may also name a file inside a Nitro archive, as `ARCHIVE/menu_title.narc!menu/title/USA/vs.bmg` -- the archive's ROM path, `!`, then the path within it. The archive must already exist and must already hold that member: archives are edited in place, never added to, because game code reads a member by its index. `id` cannot be combined with an archive destination, since it renames a loose file.",
+      "description": "Loose files copied into NitroFS after pre-build hooks and before compilation. Each key is the '/'-separated path in the ROM. A string value is the source path, relative to the project. A mapping value carries the source plus options: `id` claims an existing file id and renames it to this path, which keeps every other id where it is instead of appending a new one at the end of the table. Missing destinations may only be created under z_new/, unless `id` names a file that already exists. An entry here overrides anything `file-trees` swept to the same destination. A key may also name a file inside a Nitro archive, as `ARCHIVE/menu_title.narc!menu/title/USA/vs.bmg`, which is the archive's ROM path, `!`, then the path within it. The archive must already exist and must already hold that member: archives are edited in place, never added to, because game code reads a member by its index. `id` cannot be combined with an archive destination, since it renames a loose file.",
       "type": "object",
       "propertyNames": {
         "minLength": 1
@@ -148,7 +148,7 @@
       "minLength": 1
     },
     "files-reserve": {
-      "description": "A '/'-separated z_new/ path created as an empty placeholder before any other file the build adds, so that it is given the first new file id and nothing loadable is. Some games hold arrays of file ids in compiled code, terminated by a sentinel that is the id one past the last file the retail ROM shipped with -- which is exactly the id the first added file would otherwise get. Whether a game does this, and which id it is, is a fact about the game rather than about NitroFS, so nothing is reserved unless this names it. New Super Mario Bros. needs `z_new/reserved`, which is what `init --template nsmb` writes. The path may not also appear in `files:` or be supplied by a `file-trees:` entry: the placeholder has to stay empty.",
+      "description": "A '/'-separated z_new/ path created as an empty placeholder before any other file the build adds, so that it is given the first new file id and nothing loadable is. Some games hold arrays of file ids in compiled code, terminated by a sentinel that is the id one past the last file the retail ROM shipped with, which is exactly the id the first added file would otherwise get. Whether a game does this, and which id it is, is a fact about the game rather than about NitroFS, so nothing is reserved unless this names it. New Super Mario Bros. needs `z_new/reserved`, which is what `init --template nsmb` writes. The path may not also appear in `files:` or be supplied by a `file-trees:` entry: the placeholder has to stay empty.",
       "type": "string",
       "minLength": 1
     },
@@ -367,12 +367,12 @@
           "type": "string"
         },
         "banner": {
-          "description": "A replacement icon/title banner, as a project-relative path. Not part of `files:`: the banner is a region of its own that the header points at rather than a NitroFS file, so no ROM path would name it. The replacement must be exactly as long as the ROM's own banner -- its length is fixed by the version it declares, so a different length is a different format rather than a bigger banner, and the build refuses rather than laying the container out again around it. A variant may override it, though one banner normally serves every build: the region carries a title in all six console languages at once.",
+          "description": "A replacement icon/title banner, as a project-relative path. Not part of `files:`: the banner is a region of its own that the header points at rather than a NitroFS file, so no ROM path would name it. The replacement must be exactly as long as the ROM's own banner: its length is fixed by the version it declares, so a different length is a different format rather than a bigger banner, and the build refuses rather than laying the container out again around it. A variant may override it, though one banner normally serves every build: the region carries a title in all six console languages at once.",
           "type": "string",
           "minLength": 1
         },
         "layout": {
-          "description": "Naming convention of the extracted ROM directory. A preset name, or a mapping of file names -- optionally with `preset:` naming the one to start from.",
+          "description": "Naming convention of the extracted ROM directory. A preset name, or a mapping of file names, optionally with `preset:` naming the one to start from.",
           "oneOf": [
             {
               "enum": [

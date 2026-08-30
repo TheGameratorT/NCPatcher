@@ -172,7 +172,7 @@ std::vector<DefineText> readDefines(const cfg::Node& node, Problems& problems)
 	if (!node.defined() || node.isNull())
 		return out;
 
-	// The mapping form -- `defines: {NAME: VALUE}` -- is what somebody writing a
+	// The mapping form (`defines: {NAME: VALUE}`) is what somebody writing a
 	// numeric value reaches for first, and means the same as "NAME=VALUE".
 	if (node.isMap())
 	{
@@ -190,7 +190,7 @@ std::vector<DefineText> readDefines(const cfg::Node& node, Problems& problems)
 // The mapping and the sequence-of-single-key-mappings forms both mean the same
 // thing, and both are already written in the wild: YAML mappings do not keep
 // duplicate keys, so the sequence form is the only one that can express a
-// mistake like the same component named twice -- which is precisely why it has
+// mistake like the same component named twice, which is precisely why it has
 // to be accepted and then diagnosed rather than rejected out of hand.
 std::vector<std::pair<std::string, cfg::Node>> readEntries(
 	const cfg::Node& node, std::string_view what, Problems& problems)

@@ -39,8 +39,8 @@ std::string expandTabs(std::string_view text, int markColumn, int& caretColumnOu
 			out += text[i];
 	}
 
-	// A mark one past the end of the line -- which is where "expected a value"
-	// errors land -- points at the position after the last character.
+	// A mark one past the end of the line (which is where "expected a value"
+	// errors land) points at the position after the last character.
 	if (markColumn >= int(text.size()))
 		caretColumnOut = int(out.size());
 

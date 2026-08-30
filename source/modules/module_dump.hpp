@@ -3,8 +3,8 @@
 // The machine-readable module graph, and the two human views of it.
 //
 // The dump is a contract. Everything game-specific that the Python prototype
-// did -- allocating object ids, writing profile tables, mapping filesystem
-// entries -- is downstream of exactly this file, so that NCPatcher never has to
+// did (allocating object ids, writing profile tables, mapping filesystem
+// entries) is downstream of exactly this file, so that NCPatcher never has to
 // know what an "actor" is and the generator never has to parse a module.yaml.
 // Which is also why unknown component keys survive the round trip: `objects:`
 // is meaningless here and load-bearing there.

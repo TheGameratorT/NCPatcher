@@ -4,7 +4,7 @@
 // every NCPatcher project has used so far and what NSMB-Editor hands the tool.
 //
 // It writes each file as soon as it is given, rather than buffering until
-// commit(). That is not an oversight -- it is the behaviour projects already
+// commit(). That is not an oversight, it is the behavior projects already
 // depend on. A build that fails part way through leaves the binaries it had
 // already patched on disk, and the backup directory is what makes that
 // recoverable. The container backend cannot work that way, because a half

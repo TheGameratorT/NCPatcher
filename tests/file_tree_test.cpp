@@ -1,4 +1,4 @@
-// Tests for source/rom/file_tree.cpp -- the resolution order that decides which
+// Tests for source/rom/file_tree.cpp: the resolution order that decides which
 // module's copy of a path ends up in the ROM.
 //
 // The cases here are the ones a real project actually hit, because the rules
@@ -158,7 +158,7 @@ static void testEarlierModuleWinsWithinOneLayer()
 	const auto files = rom::sweepFileTrees(fixtureTrees(root), "fr");
 
 	// Both modules ship fr/uiStudio/title.bin. coop is listed first, and that
-	// is the project stating which of the two owns the path -- replacing the
+	// is the project stating which of the two owns the path: replacing the
 	// graphic wholesale has to beat translating the stock one.
 	check(sourceOf(files, root, "uiStudio/title.bin") == "coop/nitrofs/fr/uiStudio/title.bin",
 		"within one layer the earlier module keeps the destination");
@@ -174,7 +174,7 @@ static void testLayerOutranksModuleOrder()
 
 	// coop supplies the sign in English only; message translates it. The
 	// translation is the more specific claim, so it wins even though coop is
-	// listed first -- the opposite outcome to the case above, from the same
+	// listed first, the opposite outcome to the case above, from the same
 	// pair of modules.
 	check(sourceOf(files, root, "enemy/sign.nsbmd") == "message/nitrofs/fr/enemy/sign.nsbmd",
 		"a variant layer beats an earlier module's base layer");
@@ -222,7 +222,7 @@ static void testAMappedLayerMustExist()
 		"an unmapped variant with no directory falls back to the base");
 
 	// Mapped, it is an assertion the project made, so a typo has to be caught
-	// rather than honoured by quietly shipping the base layer instead.
+	// rather than honored by quietly shipping the base layer instead.
 	tree.variantLayer = "franch";
 	bool threw = false;
 	try { (void)rom::sweepFileTrees({ tree }, "fr"); }

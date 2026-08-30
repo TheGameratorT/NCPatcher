@@ -51,7 +51,7 @@ NitroFs NitroFs::parse(std::span<const u8> data)
 	if (data.size() < DIR_ROW_SIZE)
 		throw ncp::exception("Invalid file name table: too short to hold the root directory.");
 
-	// The root row's "parent id" is really the directory count -- GBATEK's one
+	// The root row's "parent id" is really the directory count, GBATEK's one
 	// piece of overloading in this structure.
 	const std::size_t dirCount = le::readU16(data, 6);
 	if (dirCount == 0 || dirCount * DIR_ROW_SIZE > data.size())

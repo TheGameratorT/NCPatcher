@@ -1,12 +1,12 @@
 #pragma once
 
-// cfg::Document / cfg::Node -- the reader every configuration file goes through,
+// cfg::Document / cfg::Node, the reader every configuration file goes through,
 // v1 JSON and v2 YAML alike. JSON is a subset of YAML 1.2, so one parser serves
 // both and the v1 path gets the better diagnostics for free.
 //
 // This keeps the part of the JsonReader/JsonMember design it replaces that
-// earned its keep -- a node remembers the path that reached it, so an error can
-// name the key it is about -- and adds the part that design could not have: a
+// earned its keep (a node remembers the path that reached it, so an error can
+// name the key it is about) and adds the part that design could not have: a
 // line and column, because yaml-cpp records a Mark for every node. "Invalid
 // mode" becomes "ncpatcher.yaml:88:9, in targets.arm9.regions[12].mode".
 //
@@ -35,7 +35,7 @@
 namespace cfg {
 
 // A position in a configuration file, 1-based for display. Not every node has
-// one -- a node that was never in the file has nothing to point at -- so the
+// one (a node that was never in the file has nothing to point at), so the
 // validity flag is checked before rendering rather than assumed.
 struct Mark
 {
@@ -105,7 +105,7 @@ public:
 	[[nodiscard]] int asInt() const;
 
 	// Addresses and sizes reach 0x80000000 and above, where the old getInt()
-	// returning int was undefined behaviour rather than a diagnostic.
+	// returning int was undefined behavior rather than a diagnostic.
 	[[nodiscard]] u32 asU32() const;
 
 	// Value if present and non-null, fallback otherwise.
@@ -116,7 +116,7 @@ public:
 	[[nodiscard]] const std::string& path() const { return m_path; }
 	[[nodiscard]] const Mark& mark() const { return m_mark; }
 
-	// "ncpatcher.yaml:88:9, in targets.arm9.regions[12]" -- the same "where"
+	// "ncpatcher.yaml:88:9, in targets.arm9.regions[12]", the same "where"
 	// cfg_error prints, as a plain string. Diagnostics that outlive the
 	// document, or that report many problems at once rather than throwing at
 	// the first, keep this instead of the node.
@@ -130,7 +130,7 @@ public:
 
 	[[noreturn]] void fail(std::string message) const;
 
-	// "Invalid type for <path>, expected <what>." -- the single most common
+	// "Invalid type for <path>, expected <what>.", the single most common
 	// config error, so it gets one spelling everywhere.
 	[[noreturn]] void failType(std::string_view expected) const;
 

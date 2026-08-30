@@ -2,17 +2,17 @@
 
 // A .nds cartridge image, held whole in memory.
 //
-// Holding all of it is a deliberate simplification. The alternative -- seeking
-// around an open file -- buys nothing here: a DS ROM is at most 256 MiB and
+// Holding all of it is a deliberate simplification. The alternative (seeking
+// around an open file) buys nothing here: a DS ROM is at most 256 MiB and
 // usually a fraction of that, every write this tool makes is to a region whose
-// neighbours may have to move, and a half-written .nds is not a ROM at all. In
+// neighbors may have to move, and a half-written .nds is not a ROM at all. In
 // memory, "grow arm9 and shift everything after it" is a buffer edit rather
 // than a careful dance of overlapping reads and writes, and the file is
 // replaced atomically at the end.
 //
-// It also means the bytes this tool does not model -- the secure area, the
+// It also means the bytes this tool does not model (the secure area, the
 // banner, every level and texture, and whatever a dumper left in the padding
-// past the end -- survive untouched, because nothing ever rebuilds them from a
+// past the end) survive untouched, because nothing ever rebuilds them from a
 // parsed representation.
 
 #include <cstddef>
@@ -66,7 +66,7 @@ public:
 	[[nodiscard]] u32 fileSize(u32 fileId) const;
 
 	// The icon/title banner, as a whole region. Its length is fixed by the
-	// version word it starts with, so a replacement has to be the same size --
+	// version word it starts with, so a replacement has to be the same size:
 	// growing it would mean moving whatever follows it, and a banner is not
 	// worth laying the container out again for.
 	[[nodiscard]] std::vector<u8> readBanner() const;

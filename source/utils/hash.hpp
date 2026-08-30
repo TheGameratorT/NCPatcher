@@ -4,7 +4,7 @@
 //
 // Used to tell whether a build's configuration is the one the objects on disk
 // were compiled under. That is a change-detection question, not a security
-// one -- nobody is trying to forge a rebuild -- so a short non-cryptographic
+// one (nobody is trying to forge a rebuild), so a short non-cryptographic
 // hash with a stable, obvious definition is the right tool. It has no external
 // dependency and produces the same digest on every platform, which matters
 // because the digest is written into a file that is shared through git.

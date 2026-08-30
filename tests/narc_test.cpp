@@ -1,4 +1,4 @@
-// Tests for source/rom/narc.cpp -- Nitro archives, the filesystem inside a file.
+// Tests for source/rom/narc.cpp: Nitro archives, the filesystem inside a file.
 //
 // Two properties carry the weight. An archive nobody edited has to come back out
 // byte-identical, because that is the cheapest evidence the writer agrees with
@@ -148,7 +148,7 @@ int main()
 	};
 	const std::vector<u8> original = buildNarc(members, nameTable());
 
-	check(rom::isNarc(original), "the magic is recognised");
+	check(rom::isNarc(original), "the magic is recognized");
 	check(!rom::isNarc(filled(64, 0)), "a file of zeroes is not an archive");
 
 	{
@@ -180,7 +180,7 @@ int main()
 
 		rom::Narc reread = rom::Narc::parse(written);
 		check(reread.file(0).size() == 9 && reread.file(0)[0] == 0x5A, "the new bytes are there");
-		check(reread.file(2).size() == 17 && reread.file(2)[0] == 0xC3, "its neighbours are not");
+		check(reread.file(2).size() == 17 && reread.file(2)[0] == 0xC3, "its neighbors are not");
 	}
 
 	{
@@ -230,12 +230,12 @@ int main()
 		std::vector<u8> unknownChunk = original;
 		unknownChunk[0x10] = 'X';
 		check(threw([&] { (void)rom::Narc::parse(unknownChunk); }, "unknown chunk"),
-			"an unrecognised chunk is refused rather than skipped");
+			"an unrecognized chunk is refused rather than skipped");
 	}
 
 	{
-		// A nameless archive is legal -- its members have numbers and nothing
-		// else -- and has to survive a round trip like any other.
+		// A nameless archive is legal (its members have numbers and nothing
+		// else) and has to survive a round trip like any other.
 		std::vector<u8> emptyNames;
 		appendU32(emptyNames, 0x08);
 		appendU16(emptyNames, 0);

@@ -259,7 +259,7 @@ std::string scalar(const std::string& value)
 }
 
 // Addresses are padded to eight digits because that is how they are written
-// everywhere else -- 0x02026CE0, not 0x2026CE0 -- and a column of ragged
+// everywhere else (0x02026CE0, not 0x2026CE0) and a column of ragged
 // addresses is harder to scan. Sizes are not, because 0x00056400 reads worse
 // than 0x56400.
 std::string hex(u32 value, int minDigits = 0)
@@ -405,7 +405,7 @@ void buildTargetPlan(TargetPlan& plan, const TargetConfig& target, const fs::pat
 	Tokens definesCpp = extractDefines(plan.flags.cpp);
 	Tokens definesAsm = extractDefines(plan.flags.asm_);
 
-	// In v2 a define reaches all three languages -- assembly included, since it
+	// In v2 a define reaches all three languages, assembly included, since it
 	// is compiled through -x assembler-with-cpp. So the union is hoisted, not
 	// the intersection, and the assembler gains the defines v1 only gave to C.
 	// That is the one thing the conversion deliberately changes, and the
@@ -443,7 +443,7 @@ void buildTargetPlan(TargetPlan& plan, const TargetConfig& target, const fs::pat
 		if (regionPlan.overridesFlags)
 		{
 			// A v1 region flag string replaced the target's outright, and it
-			// replaced all of it -- so the converted region has to say so for
+			// replaced all of it, so the converted region has to say so for
 			// every language, not just the one it happened to mention.
 			auto pick = [&](const ListOp& regionOp, const Tokens& fallback) {
 				return regionOp.empty() ? fallback : flagTokens(regionOp);
@@ -559,8 +559,8 @@ void emitRegion(Emitter& emitter, int indent, const RegionPlan& plan)
 	if (plan.overridesFlags)
 	{
 		// `set:` on every list, including an empty one for common: a v1 region
-		// flag string replaced everything it inherited, and append -- the v2
-		// default -- would silently keep it.
+		// flag string replaced everything it inherited, and append (the v2
+		// default) would silently keep it.
 		emitter.line(body, "flags:");
 		emitter.line(body + 1, "common: { set: [] }");
 		emitter.line(body + 1, "c:");

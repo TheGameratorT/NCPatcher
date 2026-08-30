@@ -5,7 +5,7 @@
 // On Linux and macOS this is nothing: a path is bytes, the bytes are UTF-8, and
 // `path::string()` hands them back unchanged. Windows is where it matters. There
 // a path is UTF-16, and `path::string()` encodes it down to the machine's ANSI
-// code page -- which under MSVC cannot represent a user called José, so the
+// code page, which under MSVC cannot represent a user called José, so the
 // characters are lost before any of this code sees them. (libstdc++ happens to
 // use UTF-8 for the same call, so a MinGW build has always been fine, which is
 // exactly why the problem is easy to miss.)

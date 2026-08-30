@@ -78,9 +78,9 @@ std::vector<fs::path> expandSources(const ModuleDef& def, const std::string& pat
 			<< OREASONNL "in " << what << ' ' << OSTR(owner) << std::endl;
 	}
 
-	// Normalised, because a module reaching a sibling with "../other/x.cpp"
+	// Normalized, because a module reaching a sibling with "../other/x.cpp"
 	// would otherwise produce a different string for the same file than the
-	// sibling's own pattern does -- and two components claiming one file is
+	// sibling's own pattern does, and two components claiming one file is
 	// exactly what the next pass has to be able to see.
 	std::vector<fs::path> out;
 	out.reserve(matched.size());
@@ -434,7 +434,7 @@ void ModuleResolver::applyOverrides()
 					oss << "Component " << OSTR(qualify(*module, *component))
 					    << " does not define " << OSTRa(name) << ", so there is nothing to override."
 					    << OREASONNL "A project can change what a component defines; it cannot "
-					    << "add a define of its own here -- use the target's "
+					    << "add a define of its own here; use the target's "
 					    << OSTRa("defines") << " list for that.";
 					m_problems.addAt(override_.location, oss.str());
 				}
@@ -558,7 +558,7 @@ void ModuleResolver::collectClaims()
 			{
 				// A component with sources and no target has nowhere to put
 				// them, and the module's own catch-all would have swept them up
-				// anyway -- silently, into whichever region it names.
+				// anyway, silently, into whichever region it names.
 				std::ostringstream oss;
 				oss << "Component " << OSTR(owner) << " lists sources but names no "
 				    << OSTRa("target") << "." OREASONNL
@@ -610,7 +610,7 @@ void ModuleResolver::fold()
 			continue;
 
 		// MODULE_<ID> first, so that a module define of the same name is the one
-		// that stands -- a module is allowed to say what its own flag means.
+		// that stands, since a module is allowed to say what its own flag means.
 		const std::string moduleDefine = "MODULE_" + upper(module.id);
 		std::ostringstream originStream;
 		originStream << "module " << module.key;

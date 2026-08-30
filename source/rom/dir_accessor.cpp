@@ -240,8 +240,8 @@ void DirRomAccessor::writeOverlay(bool arm9, u32 id, std::span<const u8> data)
 u32 DirRomAccessor::createOverlay(bool arm9, u32 id, std::span<const u8> data)
 {
 	// A new overlay needs a file id, and file ids come from the FAT. A
-	// directory that holds only the code binaries -- which is what an editor
-	// hands us -- has no FAT to take one from, and inventing an id would
+	// directory that holds only the code binaries (which is what an editor
+	// hands us) has no FAT to take one from, and inventing an id would
 	// produce an overlay the game cannot load.
 	const fs::path fatFile = path(m_layout.fat);
 	if (!fs::exists(fatFile))
@@ -256,8 +256,8 @@ u32 DirRomAccessor::createOverlay(bool arm9, u32 id, std::span<const u8> data)
 
 	Fat fat = Fat::parse(readWholeFile(fatFile));
 
-	// The extent is meaningless in an extracted directory -- the bytes live in
-	// their own file -- but the entry has to exist so that the id is taken and
+	// The extent is meaningless in an extracted directory (the bytes live in
+	// their own file) but the entry has to exist so that the id is taken and
 	// a later repack can place it.
 	const u32 fileId = fat.add(FatEntry{ 0, u32(data.size()) });
 	writeWholeFile(fatFile, fat.serialize());
@@ -309,7 +309,7 @@ std::vector<NitroFileInfo> DirRomAccessor::listNitroFiles() const
 		info.path = filePath;
 
 		// An extracted layout keeps the bytes in loose files, and the FAT it
-		// ships is not necessarily in step with them -- the sizes there are the
+		// ships is not necessarily in step with them, since the sizes there are the
 		// ones the extraction recorded. The file on disk is the truth.
 		std::error_code error;
 		const std::uintmax_t size = fs::file_size(path(m_layout.dataDir) / fs::path(filePath), error);

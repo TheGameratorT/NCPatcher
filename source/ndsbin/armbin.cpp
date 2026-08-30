@@ -22,8 +22,8 @@ static const char* InvResn = "Invalid ARM| file.";
 
 ArmBin::ArmBin() = default;
 
-// Takes the binary's bytes rather than a path: where they came from -- a loose
-// arm9.bin, a backup copy, or an extent inside a .nds -- is the ROM accessor's
+// Takes the binary's bytes rather than a path: where they came from (a loose
+// arm9.bin, a backup copy, or an extent inside a .nds) is the ROM accessor's
 // business, and this class has no reason to know which.
 void ArmBin::load(std::vector<u8> bytes, u32 entryAddr, u32 ramAddr, u32 autoLoadHookOff, bool isArm9)
 {
@@ -49,8 +49,8 @@ void ArmBin::load(std::vector<u8> bytes, u32 entryAddr, u32 ramAddr, u32 autoLoa
 	// Every word here is read the way the container code reads a ROM: with
 	// shifts, over a bounds-checked span. Pointing a u32* at the module's bytes
 	// gets the byte order wrong on a big-endian host, is an aliasing bet the
-	// optimiser is free to call, and -- since these offsets come out of the
-	// file itself -- reads off the end of a truncated binary without noticing.
+	// optimizer is free to call, and (since these offsets come out of the
+	// file itself) reads off the end of a truncated binary without noticing.
 	m_moduleParamsOff = ncp::le::readU32(m_bytes, autoLoadHookOff - m_ramAddr - 4) - m_ramAddr;
 
 	Log::out << OINFO << "Found ModuleParams at: 0x" << std::uppercase << std::hex << m_moduleParamsOff << std::endl;
@@ -187,8 +187,8 @@ void ArmBin::refreshAutoloadData()
 }
 
 // One field of the ModuleParams block. Resolved against m_bytes on every call
-// rather than cached, so that resizing the binary -- which decompression and
-// PatchMaker both do -- cannot leave a caller reading freed storage.
+// rather than cached, so that resizing the binary (which decompression and
+// PatchMaker both do) cannot leave a caller reading freed storage.
 u32 ArmBin::moduleParam(u32 fieldOffset) const
 {
 	return ncp::le::readU32(m_bytes, m_moduleParamsOff + fieldOffset);

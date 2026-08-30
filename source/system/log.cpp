@@ -80,7 +80,7 @@ void setWarningObserver(std::function<void(std::string_view)> observer)
 	warningObserver = std::move(observer);
 }
 
-// Recognises a warning by its prefix and hands on what follows it.
+// Recognizes a warning by its prefix and hands on what follows it.
 static void observe(const std::string& text)
 {
 	if (!warningObserver)
@@ -103,9 +103,9 @@ static void observe(const std::string& text)
 //
 // It deliberately knows nothing about ANSI, files or consoles: a message is
 // rendered once, here, and each sink decides what to do with it. Buffering to a
-// flush is what keeps a styled line whole -- a sink that has to translate
-// escapes into console attributes cannot do so if the escape and the text it
-// applies to arrive in separate calls.
+// flush is what keeps a styled line whole, because a sink that has to
+// translate escapes into console attributes cannot do so if the escape and the
+// text it applies to arrive in separate calls.
 class OutputStreamBuffer : public std::stringbuf
 {
 public:
@@ -155,7 +155,7 @@ void init()
 #ifndef _WIN32
 	// The capability test below asks the terminal where its cursor is and waits
 	// for the reply. Against anything that is not a terminal there is no reply
-	// and, worse, the query itself is written to stdout -- which for
+	// and, worse, the query itself is written to stdout, which for
 	// `config path` or --message-format json is output somebody is parsing.
 	if (!isatty(STDOUT_FILENO) || !isatty(STDIN_FILENO))
 	{
@@ -307,7 +307,7 @@ void configureConsole(ColorMode color, bool toStderr)
 	default:
 		// Auto: the same question init() already answered. A console whose
 		// cursor cannot be addressed is also one whose escapes are unlikely to
-		// mean anything -- a pipe, a file, a CI job.
+		// mean anything (a pipe, a file, a CI job).
 		styled = hasSink(SinkKind::Terminal);
 		break;
 	}

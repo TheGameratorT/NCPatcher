@@ -27,7 +27,7 @@ int main(int argc, char* argv[])
 		// UTF-16, so narrow getenv would hand back the ANSI transcription of it
 		// and this would be measuring the CRT rather than the delivery. A hook
 		// that reads its environment narrowly on Windows has the same problem,
-		// and it is the hook's to solve -- what is being checked here is that
+		// and it is the hook's to solve. What is being checked here is that
 		// the value arrives whole.
 		const auto variable = [](const char* name) -> std::string {
 #ifdef _WIN32

@@ -16,8 +16,8 @@
 // for the French build and nothing at all for the German one. A `base-variant`
 // is applied underneath, which is what lets a project translate eight files out
 // of two thousand: the base supplies everything the variant does not override.
-// A variant may supply a file the base never had -- that is ordinary, not a
-// missing base -- and a variant directory that does not exist contributes
+// A variant may supply a file the base never had (that is ordinary, not a
+// missing base) and a variant directory that does not exist contributes
 // nothing rather than failing.
 //
 // *Ownership.* Every swept file records the module and component it came from,
@@ -32,7 +32,7 @@
 // to every variant, so a module translating one language beats a module
 // supplying the stock version for all of them. Then module order: within one
 // layer the first tree to claim a destination keeps it, and `modules.enabled`
-// is that order. The second rule is precedence, not a tiebreak -- a module that
+// is that order. The second rule is precedence, not a tiebreak: a module that
 // replaces a piece of artwork wholesale has to outrank one that only translates
 // what it replaced, and listing it first is how the project says so.
 
@@ -62,9 +62,9 @@ struct FileTree
 	// variant's own name, which is the usual case.
 	//
 	// Setting it also makes the layer mandatory: a variant directory that is
-	// missing is normally fine -- a module translates some languages and not
-	// others -- but a project that named a layer explicitly has asserted it is
-	// there, and honouring a typo by quietly falling back to the base is how a
+	// missing is normally fine (a module translates some languages and not
+	// others), but a project that named a layer explicitly has asserted it is
+	// there, and honoring a typo by quietly falling back to the base is how a
 	// build ships without its translations.
 	std::optional<std::string> variantLayer;
 

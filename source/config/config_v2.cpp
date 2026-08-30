@@ -4,7 +4,7 @@
 // v1 had neither, which is why every project that exists carries the same
 // hand-written string-concatenation boilerplate across two files: `$c_flags`
 // declared in the project, re-declared in the target as "${arm_flags}
-// $${c_flags} -DSDK_ARM9 ...", then assigned to `c_flags` -- three lines to
+// $${c_flags} -DSDK_ARM9 ...", then assigned to `c_flags`, three lines to
 // express "the project's flags, plus these". Here that is what happens by
 // default, and the mapping form is there for when it is not what you want.
 //
@@ -183,7 +183,7 @@ std::vector<FileConfig> readFiles(const cfg::Node& node, const Expander& expande
 				ANSI_RESET " and cannot also be written here.");
 		}
 
-		// A bare scalar is the common case -- a source path and nothing else.
+		// A bare scalar is the common case, a source path and nothing else.
 		// The mapping form is for the entries that need to say more, which today
 		// means claiming an existing file id.
 		const cfg::Node& source = body.isMap() ? body["source"] : body;
@@ -518,8 +518,8 @@ void readRegion(RegionConfig& region, const cfg::Node& node, const Expander& exp
 // overlays the game has and how far each one may grow before it runs into
 // whatever the game put after it. One table serves every project built against
 // that game, which is why it lives outside the project and is referenced
-// rather than copied -- a copied table goes stale silently, and a stale ceiling
-// is an overlay that overruns its neighbour.
+// rather than copied: a copied table goes stale silently, and a stale ceiling
+// is an overlay that overruns its neighbor.
 //
 // Only the fields that describe the overlay itself are accepted here. Sources,
 // flags and defines are the project's business, so the catalog cannot smuggle
@@ -632,7 +632,7 @@ void applyCatalog(TargetConfig& target, std::vector<RegionConfig>&& catalog)
 // The project's half of the module system: which modules, and what the project
 // wants changed about them.
 //
-// Nothing here reads a module.yaml -- that happens later, once the working
+// Nothing here reads a module.yaml. That happens later, once the working
 // directory is settled and the graph is built, because `modules dump` has to
 // work without a toolchain and a build has to write the dump before its
 // pre-build commands run.
@@ -642,7 +642,7 @@ void readComponentOverride(ComponentOverride& override_, const cfg::Node& node)
 
 	if (node.isScalar() && !node.isNull())
 	{
-		// `SomeComponent: false` -- the short form, and by far the common one.
+		// `SomeComponent: false`, the short form, and by far the common one.
 		override_.hasEnabled = true;
 		override_.enabled = node.asBool();
 		return;
@@ -1068,8 +1068,8 @@ ProjectConfig loadV2(const fs::path& projectFile, const fs::path& projectRoot,
 		appendLegacyHooks(config.hooks, root["post-build"], HookWhen::PostBuild, expander);
 	}
 
-	// Resolved copies of the declared vars. Nothing in the build reads these --
-	// expansion already happened -- but `config dump` and `migrate` do.
+	// Resolved copies of the declared vars. Nothing in the build reads these
+	// (expansion already happened) but `config dump` and `migrate` do.
 	if (vars.defined() && !vars.isNull())
 	{
 		for (const auto& [name, value] : vars.fields())

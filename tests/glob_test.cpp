@@ -86,7 +86,7 @@ static void testMatching()
 static void testExpansion(const fs::path& root)
 {
 	// Everything here goes through an explicit baseDir, which is how the build
-	// calls it -- nothing may depend on the process working directory.
+	// calls it, and nothing may depend on the process working directory.
 	auto count = [&](const char* pattern, bool directoriesOnly) {
 		Glob::Options options;
 		options.directoriesOnly = directoriesOnly;

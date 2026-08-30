@@ -21,7 +21,7 @@ namespace ncp::patch {
 // It does no filesystem I/O of its own any more: reads and writes go through a
 // rom::RomAccessor, so the same code patches an extracted directory or a .nds
 // without knowing which. What it still owns is the policy that surrounds those
-// reads -- patch the pristine binary, not the last build's output -- which is
+// reads (patch the pristine binary, not the last build's output) which is
 // what the backup store is for.
 class FileSystemManager
 {

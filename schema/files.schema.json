@@ -35,7 +35,7 @@
         "id": {
           "type": "integer",
           "minimum": 0,
-          "description": "The FAT index, exactly as the ROM stores it. A game that offsets file ids at run time -- NSMB subtracts its overlay count -- applies that itself; it is a property of that game, not of the ROM. Existing ids are never renumbered by a build."
+          "description": "The FAT index, exactly as the ROM stores it. A game that offsets file ids at run time (NSMB subtracts its overlay count) applies that itself; it is a property of that game, not of the ROM. Existing ids are never renumbered by a build."
         },
         "path": {
           "type": "string",
@@ -64,7 +64,7 @@
         },
         "from-variant": {
           "type": "string",
-          "description": "Which layer of a layered tree supplied the file -- the built variant, or the base variant underneath it. Grouping by path across manifests answers which variants translate a file."
+          "description": "Which layer of a layered tree supplied the file: the built variant, or the base variant underneath it. Grouping by path across manifests answers which variants translate a file."
         }
       }
     }

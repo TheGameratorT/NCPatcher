@@ -3,10 +3,10 @@
 // What the invocation asked for, before any of it has been checked against a
 // project.
 //
-// This is deliberately a plain struct with no behaviour: parsing and acting are
+// This is deliberately a plain struct with no behavior: parsing and acting are
 // separate so that `config dump` can report where every setting came from, and
-// so that the precedence rule -- command line, then NCPATCHER_* environment,
-// then the project file, then the built-in default -- is applied in one visible
+// so that the precedence rule (command line, then NCPATCHER_* environment,
+// then the project file, then the built-in default) is applied in one visible
 // place rather than being an emergent property of the order things were read.
 
 #include <filesystem>
@@ -110,8 +110,8 @@ struct CommandLine
 // Parses argv, then folds in the NCPATCHER_* environment for the settings that
 // have one.
 //
-// Returns an exit code when the process should stop right away -- because --help
-// or --version was asked for, or because the command line did not parse -- and
+// Returns an exit code when the process should stop right away (because --help
+// or --version was asked for, or because the command line did not parse) and
 // nothing when the parsed result in `out` should be acted on.
 [[nodiscard]] std::optional<int> parseCommandLine(int argc, char* argv[], CommandLine& out);
 

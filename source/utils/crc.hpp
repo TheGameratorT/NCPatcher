@@ -1,6 +1,6 @@
 #pragma once
 
-// CRC-16/MODBUS -- the checksum the DS cartridge header uses.
+// CRC-16/MODBUS, the checksum the DS cartridge header uses.
 //
 // Reflected polynomial 0xA001 (0x8005 read the other way round), initial value
 // 0xFFFF, no final inversion. The header stores three of these: over the

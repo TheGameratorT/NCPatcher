@@ -246,7 +246,7 @@ static void testRenameKeepsTheIdAndMovesTheName()
 	tree.renameFile(1, "data/claimed.bin");
 	check(tree.findFile("data/claimed.bin") == 1, "the renamed path resolves to the same id");
 	check(tree.findFile("data/a.bin") == -1, "and the old path is gone");
-	check(tree.findFile("data/b.bin") == 2, "the neighbour it shares a directory with is untouched");
+	check(tree.findFile("data/b.bin") == 2, "the neighbor it shares a directory with is untouched");
 	check(tree.fileCount() == 3, "nothing was added or removed");
 }
 
@@ -262,7 +262,7 @@ static void testRenameRefusesWhatWouldRenumber()
 
 	// The trap the Python version walks into: it indexes the destination's
 	// parent directory by (id - firstFileId), so an id belonging to a different
-	// directory silently renames whichever neighbour that arithmetic lands on.
+	// directory silently renames whichever neighbor that arithmetic lands on.
 	refuses([](NitroFs& tree) { tree.renameFile(1, "readme.txt"); },
 		"an id cannot be renamed out of the directory that holds it");
 	refuses([](NitroFs& tree) { tree.renameFile(99, "data/claimed.bin"); },
@@ -397,7 +397,7 @@ SyntheticRom makeRom(u32 arm9Slack = 0)
 	writeU32(s, 0x80, used);
 	writeU32(s, 0x84, HEADER_SIZE);
 
-	// Recognisable contents, so a move can be spotted.
+	// Recognizable contents, so a move can be spotted.
 	for (u32 i = 0; i < rom.arm9Size; i++) b[rom.arm9Offset + i] = u8(i);
 	writeU32(s, rom.arm9Offset + rom.arm9Size, NITROCODE);
 	for (u32 i = 0; i < arm7Size; i++) b[rom.arm7Offset + i] = u8(0x80 + i);
@@ -488,7 +488,7 @@ static void testHeader()
 	check(header.storedChecksum() == header.computeChecksum(), "the checksum we wrote is the one we compute");
 	check(header.deviceCapacityBytes() == 0x20000, "capacity 0 is 128 KiB");
 
-	// Editing one field must leave every other byte alone -- that is the whole
+	// Editing one field must leave every other byte alone, which is the whole
 	// reason the header is kept as bytes rather than parsed into a struct.
 	const std::vector<u8> before = header.bytes();
 	header.setTotalUsedRomSize(0xDEADBEEF);

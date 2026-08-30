@@ -62,9 +62,9 @@ static void testNormalExitLeavesNothing()
 }
 
 // The bug this class exists to fix: setErrorContext(x) ... setErrorContext(nullptr)
-// only cleared on the success path, so a phase that returned early -- or one that
-// simply forgot the pairing -- left its description attached to whatever failed
-// next, in a completely unrelated phase.
+// only cleared on the success path, so a phase that returned early (or one
+// that simply forgot the pairing) left its description attached to whatever
+// failed next, in a completely unrelated phase.
 static void testNoLeakIntoLaterPhase()
 {
 	diagnostics::clearFailureContext();

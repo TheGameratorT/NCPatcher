@@ -46,7 +46,7 @@ replaced the first time `scoop update` runs against a real release.
 ## winget
 
 winget manifests live in `microsoft/winget-pkgs`, not here, and each one pins
-the SHA256 of a published installer -- so there is nothing to commit in this
+the SHA256 of a published installer, so there is nothing to commit in this
 repository that would stay true. At release time:
 
 ```

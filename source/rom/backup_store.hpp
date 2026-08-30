@@ -10,8 +10,8 @@
 // reads from here rather than from the ROM.
 //
 // The file names are fixed rather than taken from the ROM layout. A backup
-// directory outlives the configuration that produced it -- `ncpatcher restore`
-// has to be able to put a directory back years later -- and existing projects
+// directory outlives the configuration that produced it (`ncpatcher restore`
+// has to be able to put a directory back years later) and existing projects
 // have these names on disk already.
 
 #include <filesystem>

@@ -29,16 +29,15 @@ namespace ncp::paths {
 
 // Where data files are looked for, highest priority first:
 //
-//   1. $NCPATCHER_DATA_DIR      -- dev trees, CI, and images that lay the files
-//                                  out somewhere of their own choosing.
+//   1. $NCPATCHER_DATA_DIR
+//        Dev trees, CI, and images that lay the files out somewhere of their
+//        own choosing.
 //   2. exeDir()/../share/ncpatcher
-//                               -- a relocatable prefix. Covers /usr/bin ->
-//                                  /usr/share, /usr/local, an AppImage, and any
-//                                  --prefix, without the path being baked in.
+//        A relocatable prefix. Covers /usr/bin -> /usr/share, /usr/local, an
+//        AppImage, and any --prefix, without the path being baked in.
 //   3. exeDir() and exeDir()/include
-//                               -- the Windows install directory and today's
-//                                  portable release zips, which keep working
-//                                  exactly as they did.
+//        The Windows install directory and today's portable release zips,
+//        which keep working exactly as they did.
 //
 // Non-existent directories are kept in the list rather than filtered out: when
 // nothing is found, the error has to be able to say where it looked.
@@ -54,8 +53,8 @@ namespace ncp::paths {
 //
 // A mismatched copy has to be an error rather than a warning. The header is
 // where the section attributes and the ncp_* macros are defined, so an old one
-// found ahead of the right one does not fail the compile -- it compiles
-// cleanly, emits sections the patcher no longer recognises, and produces a ROM
+// found ahead of the right one does not fail the compile. It compiles
+// cleanly, emits sections the patcher no longer recognizes, and produces a ROM
 // with the patches quietly missing. That has happened; it cost an afternoon.
 //
 // Throws ncp::exception naming every directory searched, or both versions.

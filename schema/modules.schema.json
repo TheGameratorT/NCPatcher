@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/TheGameratorT/NCPatcher/main/schema/modules.schema.json",
   "title": "NCPatcher module graph",
-  "description": "The resolved module graph: which modules and components a build enabled, what each contributes, and where every source, include and define came from. Written by modules.dump, or by `ncpatcher modules dump`. This is the whole of what a code generator needs to know about a project's structure -- everything game-specific in it rides in `extra`, which NCPatcher preserves and never interprets.",
+  "description": "The resolved module graph: which modules and components a build enabled, what each contributes, and where every source, include and define came from. Written by modules.dump, or by `ncpatcher modules dump`. This is the whole of what a code generator needs to know about a project's structure, and everything game-specific in it rides in `extra`, which NCPatcher preserves and never interprets.",
   "type": "object",
   "required": ["schema", "dir", "modules", "targets"],
   "additionalProperties": false,
@@ -17,7 +17,7 @@
     },
     "modules": {
       "type": "array",
-      "description": "Every module the project names, in `modules.enabled` order -- which is also the order that settles two modules claiming one NitroFS destination. Disabled modules appear too, carrying only the four fields that need no module.yaml.",
+      "description": "Every module the project names, in `modules.enabled` order, which is also the order that settles two modules claiming one NitroFS destination. Disabled modules appear too, carrying only the four fields that need no module.yaml.",
       "items": { "$ref": "#/$defs/module" }
     },
     "targets": {
@@ -51,7 +51,7 @@
         },
         "enabled": {
           "type": "boolean",
-          "description": "Whether the project enabled it. A disabled module ends here -- its module.yaml was never read, so there is nothing further to report, and saying it exists answers why it contributed nothing."
+          "description": "Whether the project enabled it. A disabled module ends here, since its module.yaml was never read, so there is nothing further to report, and saying it exists answers why it contributed nothing."
         },
         "description": { "type": "string" },
         "repo": { "type": "string" },
@@ -71,7 +71,7 @@
           "type": "object",
           "required": ["dir", "layered"],
           "additionalProperties": false,
-          "description": "The tree this module sweeps into the ROM, if it declares one. Which files that produced is not here -- it is in the file manifest, where each entry names the module it came from.",
+          "description": "The tree this module sweeps into the ROM, if it declares one. Which files that produced is not here, but in the file manifest, where each entry names the module it came from.",
           "properties": {
             "dir": {
               "type": "string",
@@ -115,7 +115,7 @@
         },
         "disabled-because": {
           "type": "string",
-          "description": "Why, when it is not simply that the project switched it off -- an unmet `requires`, most often."
+          "description": "Why, when it is not simply that the project switched it off, such as an unmet `requires`."
         },
         "target": {
           "oneOf": [
@@ -230,7 +230,7 @@
         },
         "origin": {
           "type": "string",
-          "description": "What put it there -- a module, a component, or the project -- so that a define appearing twice can be traced."
+          "description": "What put it there (a module, a component, or the project) so that a define appearing twice can be traced."
         }
       }
     }

@@ -7,8 +7,8 @@
 // this tool assembles into them. None of it may be read by pointing a struct or
 // a u32* at the bytes: that gets the byte order wrong on a big-endian host,
 // gets the layout wrong wherever the compiler inserts padding, is an aliasing
-// bet the optimiser is free to call, and -- for the overlay table's 24-bit size
-// field -- leaves the bit order entirely up to the implementation. Shifts have
+// bet the optimizer is free to call, and (for the overlay table's 24-bit size
+// field) leaves the bit order entirely up to the implementation. Shifts have
 // none of those degrees of freedom, so every one of those readers uses them.
 //
 // Reads and writes are bounds-checked. A truncated file is something someone

@@ -1,7 +1,7 @@
 // Tests for source/utils/json.{hpp,cpp}.
 //
-// Three outputs go through this writer -- the rebuild record, `config dump` and
-// the --message-format json event stream -- and two of them are parsed by other
+// Three outputs go through this writer (the rebuild record, `config dump` and
+// the --message-format json event stream) and two of them are parsed by other
 // programs. A missing comma or an unescaped quote there is not a cosmetic bug:
 // it is a caller that cannot read the build's result at all.
 // Run via ctest, or directly: ./json_test

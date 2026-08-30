@@ -9,7 +9,7 @@ namespace Glob {
 
 namespace {
 
-std::string normalise(std::string_view pattern)
+std::string normalize(std::string_view pattern)
 {
 	std::string out(pattern);
 	std::replace(out.begin(), out.end(), '\\', '/');
@@ -38,7 +38,7 @@ std::vector<std::string_view> split(std::string_view path)
 
 /// Match a bracket expression starting at pattern[i] (which is '['), against c.
 /// On success advances i past the closing ']'. On a malformed class the '[' is
-/// treated as a literal, matching shell behaviour.
+/// treated as a literal, matching shell behavior.
 bool matchClass(std::string_view pat, size_t& i, char c)
 {
 	size_t j = i + 1;
@@ -238,8 +238,8 @@ std::vector<std::string> expandBraces(std::string_view pattern)
 
 bool match(std::string_view pattern, std::string_view path)
 {
-	std::string np = normalise(pattern);
-	std::string ns = normalise(path);
+	std::string np = normalize(pattern);
+	std::string ns = normalize(path);
 	std::vector<std::string_view> pathSegments = split(ns);
 
 	if (np.find('{') != std::string::npos)
@@ -269,13 +269,13 @@ std::vector<fs::path> expand(std::string_view pattern, const fs::path& baseDir, 
 
 	auto emit = [&](const fs::path& asWritten) { out.push_back(asWritten); };
 
-	for (const std::string& single : expandBraces(normalise(pattern)))
+	for (const std::string& single : expandBraces(normalize(pattern)))
 	{
 		std::error_code ec;
 
 		if (!hasWildcard(single))
 		{
-			// Literal path: preserve the historical non-glob behaviour.
+			// Literal path: preserve the historical non-glob behavior.
 			const fs::path literal = fs::path(single);
 			const fs::path probe = literal.is_absolute() ? literal : root / literal;
 			if (!fs::exists(probe, ec))

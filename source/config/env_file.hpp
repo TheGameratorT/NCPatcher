@@ -9,7 +9,7 @@
 //
 // So a project may carry a `.ncpatcher.env` naming the values it needs, and a
 // tool that manages those trees can generate it. NCPatcher stays out of the
-// business of knowing what the values mean -- this reads KEY=VALUE and nothing
+// business of knowing what the values mean, and reads KEY=VALUE and nothing
 // more. No shell expansion, no `export`, no command substitution: a
 // configuration file that can run commands is a configuration file that cannot
 // be validated safely.
@@ -18,7 +18,7 @@
 // these entries *override* the ambient environment rather than yielding to it.
 // A stale global left in a shell profile is exactly the failure this exists to
 // prevent, so letting it win would defeat the point. What still outranks the
-// file is the command line -- `--var` and the explicit CLI options -- because
+// file is the command line (`--var` and the explicit CLI options) because
 // that is the caller deliberately overriding the project, one invocation at a
 // time.
 
@@ -36,8 +36,8 @@ public:
 	// The name looked for in the project directory.
 	static constexpr std::string_view DEFAULT_NAME = ".ncpatcher.env";
 
-	// Reads `file`. A file that is not there is not an error -- most projects
-	// have none -- and leaves this empty with `loaded()` false. A file that is
+	// Reads `file`. A file that is not there is not an error (most projects
+	// have none) and leaves this empty with `loaded()` false. A file that is
 	// there and malformed is an error naming the line, because a typo silently
 	// dropping a variable would surface much later as a missing include path.
 	void load(const std::filesystem::path& file);

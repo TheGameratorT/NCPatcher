@@ -44,7 +44,7 @@ static void writeU32(std::vector<u8>& data, size_t offset, u32 value)
 }
 
 // Builds an image around a hand-written token stream. The stream is given in
-// the order the decompressor reads it -- first element first -- which is the
+// the order the decompressor reads it (first element first) which is the
 // reverse of the order it sits in memory, since the decompressor runs
 // downwards from the end.
 static std::vector<u8> makeImage(const std::vector<u8>& stream, u32 offsetOut, u32 topOverride = 0)

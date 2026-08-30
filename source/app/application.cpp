@@ -58,7 +58,7 @@ std::optional<int> Application::initialize(int argc, char* argv[])
 	// Console styling and the destination of the human log are decided before
 	// anything else can print. Two things move the log to stderr: json output,
 	// whose event stream has to be the only thing on stdout, and the commands
-	// whose product *is* stdout -- a `config dump` with a deprecation warning
+	// whose product *is* stdout, since a `config dump` with a deprecation warning
 	// mixed into it is not something a caller can pipe anywhere.
 	//
 	// The rom reporting commands belong to the second group for the same
@@ -440,7 +440,7 @@ int Application::runRestore()
 	// The backup directory records, by its own contents, every binary the
 	// patcher has ever touched. Restoring writes each one back through the ROM
 	// accessor rather than copying files into place, so that a project which
-	// patches a .nds is restorable too -- and so that a project using a
+	// patches a .nds is restorable too, and so that a project using a
 	// non-default extracted layout gets its own file names back.
 	static const char* NOT_A_BINARY[] = { "rebuild.json", "rebuild.bin" };
 
@@ -965,7 +965,7 @@ Application::InsertedFiles Application::insertFiles(rom::RomAccessor& rom)
 
 	// Members to write into archives, grouped by the archive's own ROM path.
 	// Grouped because one archive has to be opened, edited and written back
-	// once however many of its members the build replaces -- and ordered, so
+	// once however many of its members the build replaces, and ordered, so
 	// that two runs of the same project produce the same bytes.
 	std::map<std::string, std::vector<PreparedFile>> archives;
 
@@ -1024,7 +1024,7 @@ Application::InsertedFiles Application::insertFiles(rom::RomAccessor& rom)
 		{
 			// Claiming an existing id. Everything the FNT will not catch is
 			// checked here, because the failure mode of getting it wrong is a
-			// quietly renamed neighbour rather than an error.
+			// quietly renamed neighbor rather than an error.
 			const std::string current = rom.nitroFilePath(u32(file.id));
 			if (current.empty())
 			{
@@ -1070,10 +1070,10 @@ Application::InsertedFiles Application::insertFiles(rom::RomAccessor& rom)
 		}
 	}
 
-	// Archives, resolved before anything is written -- like every other source
+	// Archives, resolved before anything is written, like every other source
 	// above, and for the same reason: the directory backend writes as it goes,
 	// so a container that turns out not to be an archive has to be found before
-	// its neighbour has already been repacked on disk.
+	// its neighbor has already been repacked on disk.
 	//
 	// A plain replacement of the archive itself, if the build has one, is what
 	// the members are applied on top of. That is the layered case working the
@@ -1090,7 +1090,7 @@ Application::InsertedFiles Application::insertFiles(rom::RomAccessor& rom)
 
 	// What the manifest should say about an archive the build edited. The
 	// entries that did the editing name members, which are not ROM files, so
-	// the archive needs a record of its own -- and it can only carry the
+	// the archive needs a record of its own, and it can only carry the
 	// provenance its members agree on. One member gives the whole answer; five
 	// from three modules give the honest one, which is that no single source
 	// stands behind the file.
@@ -1191,13 +1191,13 @@ Application::InsertedFiles Application::insertFiles(rom::RomAccessor& rom)
 	// is still total.
 	//
 	// This is a different question from how a path is looked up. Lookup has a
-	// right answer -- the FNT stores bytes, and NitroFs::findFile compares them
+	// right answer: the FNT stores bytes, and NitroFs::findFile compares them
 	// exactly so that a config naming one entry can never resolve to a
-	// differently-cased neighbour. Ordering has no right answer: nothing reads
+	// differently-cased neighbor. Ordering has no right answer: nothing reads
 	// the order, it only has to be stable, so the rule to pick is the one a
 	// person browsing an extracted ROM expects, which is the case-insensitive
 	// one every mainstream desktop filesystem presents. It is also what already
-	// shipped -- sorting bytewise instead puts SE_VOC_LU_SHOT ahead of
+	// shipped, since sorting bytewise instead puts SE_VOC_LU_SHOT ahead of
 	// desyncwarn_top and renumbers five z_new files.
 	std::sort(additions.begin(), additions.end(), [](const PreparedFile& left, const PreparedFile& right) {
 		auto key = [](const std::string& path) {
@@ -1435,7 +1435,7 @@ std::filesystem::path Application::projectFile() const
 // v1 projects keep their targets in separate files, read later than the project
 // file itself. They must see the same .ncpatcher.env the project file saw, or a
 // pinned reference would apply to `includes` at the project level and not at the
-// target level -- which is where v1 projects actually put theirs.
+// target level, which is where v1 projects actually put theirs.
 config::V1Options Application::targetLoadOptions() const
 {
 	config::V1Options options;
@@ -1578,7 +1578,7 @@ bool Application::looksLikeRomFile(const fs::path& path)
 void Application::resolveRomDir()
 {
 	// The project and the command line can contradict each other here, which is
-	// a configuration problem rather than an unanticipated one -- and the exit
+	// a configuration problem rather than an unanticipated one, and the exit
 	// code has to say so.
 	ScopedContext ctx(Diag::ConfigLoad, "The ROM to patch is not settled.");
 
@@ -1667,7 +1667,7 @@ void Application::initializeLogging()
 	// An explicit path is a path; it can be opened now. The default one cannot:
 	// it lives in the build directory, which is something the configuration
 	// answers, so until then the log is held in memory. Commands other than a
-	// build get no log file unless one was asked for -- `config dump` and
+	// build get no log file unless one was asked for: `config dump` and
 	// `clean` have no build directory of their own to write into, and creating
 	// one as a side effect of printing is not a trade worth making.
 	if (m_cli.logPathSet)
@@ -1680,7 +1680,7 @@ void Application::initializeLogging()
 //
 // The ARM9 target's build directory, or the only enabled target's. Not the
 // directory the two share: nsmb-coop builds into code/build and code/build7,
-// whose common parent is code/ -- the source tree. A log is a build artifact,
+// whose common parent is code/, the source tree. A log is a build artifact,
 // so it belongs somewhere `clean` will take it away again.
 std::filesystem::path Application::logDirectory() const
 {

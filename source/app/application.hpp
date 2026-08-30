@@ -28,8 +28,8 @@ public:
 	~Application();
 
 	// Sets up logging, parses the command line and works out where the project
-	// is. Returns an exit code when the process should stop here -- because
-	// --help was asked for, or because the command line did not parse -- and
+	// is. Returns an exit code when the process should stop here (because
+	// --help was asked for, or because the command line did not parse) and
 	// nothing when run() should be called.
 	[[nodiscard]] std::optional<int> initialize(int argc, char* argv[]);
 
@@ -87,7 +87,7 @@ private:
 				  const char* errorContext);
 	// What one insertion pass did. The manifest needs both halves: the
 	// resolved list says where a file's bytes came from, and the ids say which
-	// of those files the ROM did not already have -- by the time the manifest
+	// of those files the ROM did not already have, since by the time the manifest
 	// is written, a created file and a replaced one look alike.
 	struct InsertedFiles
 	{

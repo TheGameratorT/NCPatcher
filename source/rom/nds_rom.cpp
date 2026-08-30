@@ -46,7 +46,7 @@ void NdsRom::load(const fs::path& path)
 
 // A region of the image, refusing to point outside it.
 //
-// std::span::subspan is undefined behaviour when the offset is past the end,
+// std::span::subspan is undefined behavior when the offset is past the end,
 // and every one of these offsets comes out of a header some other program
 // wrote. A truncated download has to produce a message naming the region that
 // does not fit, not a crash.
@@ -330,7 +330,7 @@ void NdsRom::commit(u32 arm9Slack)
 
 	// Does everything still fit where it is? The ARM binaries and the two
 	// overlay tables are named by fixed header fields, so growing one past its
-	// neighbour means moving the neighbour, which means moving everything --
+	// neighbor means moving the neighbor, which means moving everything:
 	// there is no way to relocate ARM9 on its own, because the secure area is
 	// encrypted against its being at the fixed offset the header size names.
 	bool needsRebuild = false;
@@ -477,7 +477,7 @@ void NdsRom::commit(u32 arm9Slack)
 // because every file offset in the ROM changes, so a slack allowance is left
 // after ARM9. The patcher rebuilds ARM9 from the pristine backup on every
 // build, so its patched size is a function of the code and not of how many
-// times the project has been built -- which is what makes one rebuild enough
+// times the project has been built, which is what makes one rebuild enough
 // rather than one per build.
 void NdsRom::rebuildLayout(u32 arm9Slack)
 {
@@ -522,7 +522,7 @@ void NdsRom::rebuildLayout(u32 arm9Slack)
 	//
 	// The new image starts as padding rather than as a copy of the old one. A
 	// rebuild moves every file, so nothing outside a placed region is worth
-	// keeping -- including whatever a dumper left past the end of the old
+	// keeping, including whatever a dumper left past the end of the old
 	// image, which would otherwise sit in the middle of the new one.
 	std::vector<u8> out(m_bytes.size(), 0xFF);
 	std::copy(m_bytes.begin(), m_bytes.begin() + std::ptrdiff_t(m_header.headerSize()), out.begin());

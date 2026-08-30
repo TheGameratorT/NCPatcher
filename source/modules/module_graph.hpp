@@ -3,9 +3,9 @@
 // The resolved module graph: what the enabled modules amount to, once the
 // project has had its say.
 //
-// This is not a BuildTarget and deliberately so. The dump needs the graph --
-// which module a source file came from, which component a define belongs to,
-// why a component is disabled -- and a BuildTarget has thrown all of that away
+// This is not a BuildTarget and deliberately so. The dump needs the graph
+// (which module a source file came from, which component a define belongs to,
+// why a component is disabled) and a BuildTarget has thrown all of that away
 // by construction. `modules dump` also has to work with no toolchain and no
 // ROM present, which resolving a target does not.
 //
@@ -29,7 +29,7 @@ struct ResolvedDefine
 	std::string value;
 	bool hasValue = false;
 
-	// "module coop", "component Coop.SpikeBassFix" -- what the conflict warning
+	// "module coop", "component Coop.SpikeBassFix", what the conflict warning
 	// names, and what `modules explain` prints.
 	std::string origin;
 };
@@ -105,7 +105,7 @@ struct TargetContribution
 
 	std::vector<ResolvedDefine> defines;
 
-	// Region destination -- -1 for the main binary, otherwise the overlay id --
+	// Region destination (-1 for the main binary, otherwise the overlay id)
 	// to the sources that land in it. Ordered, so region creation is too.
 	std::map<int, std::vector<std::filesystem::path>> regionSources;
 

@@ -18,7 +18,7 @@ namespace Glob {
  *   **        as a whole segment, matches zero or more path segments
  *   !pattern  as a whole pattern, excludes previously matched entries
  *
- * Separators are '/'; on Windows '\' is accepted and normalised.
+ * Separators are '/'; on Windows '\' is accepted and normalized.
  */
 
 struct Options
@@ -38,9 +38,9 @@ struct Options
  * directory when it is empty).
  *
  * Results are returned as the pattern wrote them: relative to baseDir for a
- * relative pattern, absolute for an absolute one. baseDir is never prepended --
- * callers that need absolute paths join it themselves. This keeps source paths
- * relative, which is what the object-file layout is derived from.
+ * relative pattern, absolute for an absolute one. baseDir is never prepended,
+ * and callers that need absolute paths join it themselves. This keeps source
+ * paths relative, which is what the object-file layout is derived from.
  *
  * A pattern with no wildcard is treated as a literal path:
  *   - directoriesOnly: the directory itself is returned

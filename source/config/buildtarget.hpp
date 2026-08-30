@@ -11,7 +11,7 @@
 //
 // This is the boundary between configuration and building. Everything upstream
 // of it knows about YAML, v1 JSON, inheritance and merge policy; everything
-// downstream -- all of source/build and source/patch -- knows only this. That
+// downstream (all of source/build and source/patch) knows only this. That
 // is why the config rewrite could replace both readers without touching either.
 //
 // It is built by config::TargetResolver and is read-only afterwards, apart from

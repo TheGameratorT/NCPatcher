@@ -1,4 +1,4 @@
-// Tests for source/rom/file_manifest.cpp -- the ROM file table a build writes
+// Tests for source/rom/file_manifest.cpp: the ROM file table a build writes
 // out for whoever has to name a file by number.
 //
 // The interesting part is not the listing, which the accessor already does. It

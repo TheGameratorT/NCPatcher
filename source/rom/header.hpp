@@ -5,8 +5,8 @@
 // Held as the original bytes with typed accessors reading and writing through
 // them, rather than as a struct the file is read into. That is not only about
 // endianness and padding: the header has regions this tool has no business
-// modelling -- the DSi extension past 0x180, the Nintendo logo, the secure-area
-// checksum of an encrypted region we never touch -- and a header that is parsed
+// modeling (the DSi extension past 0x180, the Nintendo logo, the secure-area
+// checksum of an encrypted region we never touch) and a header that is parsed
 // into fields and written back out again loses every one of them. Patching the
 // handful of fields a code patch actually moves keeps the rest byte-identical.
 
@@ -102,9 +102,9 @@ public:
 	[[nodiscard]] u16 storedChecksum() const;
 	[[nodiscard]] u16 computeChecksum() const;
 	// Recomputes the header checksum in place. The logo and secure-area
-	// checksums are deliberately left alone -- we never modify what they cover,
-	// and recomputing the secure-area one would mean deciding what to do about
-	// encryption.
+	// checksums are deliberately left alone, since we never modify what they
+	// cover, and recomputing the secure-area one would mean deciding what to do
+	// about encryption.
 	void updateChecksum();
 
 	// True when the header advertises the DSi extension. Its extra fields are

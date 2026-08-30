@@ -4,7 +4,7 @@
 //
 // All of this used to be file-scope statics: BuildConfig's settings, and
 // Application's verbose tags and command-line defines. That made every one of
-// them readable from anywhere, which was convenient right up until it wasn't --
+// them readable from anywhere, which was convenient right up until it wasn't:
 // nothing could be built twice in one process with different settings, nothing
 // could be tested without a global fixture, and `modules dump` could not run in
 // a project whose toolchain is not installed because loading the config

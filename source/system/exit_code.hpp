@@ -3,7 +3,7 @@
 // What the process returns, and why.
 //
 // A caller that only ever sees 0 or 1 has to parse the log to find out what
-// went wrong -- which is exactly what NSMB-Editor does today, and why it can
+// went wrong, which is exactly what NSMB-Editor does today, and why it can
 // only ever put up a "compilation failed" box. The categories below are coarse
 // on purpose: fine-grained identification is the NCPxxxx code's job, and lives
 // in the diagnostic stream. This is for shell scripts and `if` statements.

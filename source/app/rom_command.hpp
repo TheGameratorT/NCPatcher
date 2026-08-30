@@ -2,7 +2,7 @@
 
 // `ncpatcher rom info | files | extract | pack`.
 //
-// extract and pack move the *code* binaries between a .nds and a directory --
+// extract and pack move the *code* binaries between a .nds and a directory:
 // the header, the two ARM binaries, the two overlay tables and the overlay
 // files. That is exactly the set the patcher works on, and exactly the set
 // every project currently extracts with a script of its own. Pulling the whole
@@ -16,7 +16,7 @@
 namespace ncp::romcmd {
 
 // Both of these report rather than build, so what they print is the product
-// and it goes to the `out` they are handed -- stdout -- while the log goes to
+// and it goes to the `out` they are handed (stdout) while the log goes to
 // stderr. A caller piping `rom files --json` into a parser gets the document
 // and nothing else; a caller reading the human form still sees the warnings,
 // on the stream warnings belong on.
@@ -26,8 +26,9 @@ namespace ncp::romcmd {
 void info(std::ostream& out, const std::filesystem::path& path, const rom::DirLayout& layout);
 
 // Prints the ROM's NitroFS table: every file, its id, its size and its path.
-// `json` emits `ncpatcher.files/1` instead, with every entry `unchanged` --
-// this reads a ROM rather than building one, so nothing here has provenance.
+// `json` emits `ncpatcher.files/1` instead, with every entry `unchanged`,
+// since this reads a ROM rather than building one and nothing here has
+// provenance.
 void files(std::ostream& out, const std::filesystem::path& path, const rom::DirLayout& layout, bool json);
 
 // Writes the code binaries of `romFile` into `directory`.

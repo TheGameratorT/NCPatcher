@@ -14,7 +14,7 @@ namespace ncp::config {
 namespace {
 
 // The on-disk schema version, bumped when the meaning of a field changes.
-// An unrecognised value is treated as "no record", not as an error: a build
+// An unrecognized value is treated as "no record", not as an error: a build
 // must never fail because of a cache it could simply rebuild.
 constexpr int FORMAT_VERSION = 1;
 

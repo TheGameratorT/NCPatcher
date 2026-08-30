@@ -165,7 +165,7 @@ std::vector<NitroFileInfo> NdsRomAccessor::listNitroFiles() const
 
 		// Staged writes included: the manifest is written before commit(), so
 		// asking the FAT would report the size the file had before this build
-		// replaced it -- and zero for every file it added.
+		// replaced it, and zero for every file it added.
 		info.size = m_rom.fileSize(id);
 		out.push_back(std::move(info));
 	}
@@ -188,7 +188,7 @@ void NdsRomAccessor::commit()
 {
 	if (!m_rom.dirty())
 	{
-		// Nothing was staged, so there is nothing to write -- and writing the
+		// Nothing was staged, so there is nothing to write, and writing the
 		// file anyway would change its timestamp for no reason. An explicit
 		// output is the exception: the caller asked for that file to exist.
 		if (m_output.empty())

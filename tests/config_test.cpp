@@ -2,7 +2,7 @@
 //
 // The configuration layer is the one part of NCPatcher whose mistakes are
 // silent: a misread flag does not crash, it produces a ROM that is subtly
-// wrong. So the cases here lean towards the things that used to go unnoticed --
+// wrong. So the cases here lean toward the things that used to go unnoticed:
 // a size limit that quietly became the default, a define that reached one
 // language and not another, a variable that could only be read if it was
 // declared above its user.
@@ -86,7 +86,7 @@ static void testNodeReading()
 	check(root["sizes"]["small"].asU32() == 16, "a decimal reads as u32");
 
 	// getInt() returned int, so every address at or above 0x80000000 was
-	// undefined behaviour rather than a diagnostic.
+	// undefined behavior rather than a diagnostic.
 	check(root["sizes"]["huge"].asU32() == 0xFFFF0000u, "a hex string above 2^31 reads as u32");
 	check(!errorFrom([&] { (void)root["sizes"]["signed"].asU32(); }).empty(), "a negative is not a u32");
 
@@ -334,7 +334,7 @@ static void testExpanderDefersNames()
 		"a deferred reference survives expansion verbatim");
 
 	const std::string unknown = errorFrom([&] { (void)expander.expand("${variant.other}", origin); });
-	check(contains(unknown, "Unknown reference"), "deferring one name does not defer its neighbours");
+	check(contains(unknown, "Unknown reference"), "deferring one name does not defer its neighbors");
 }
 
 // v1 reader ==============================================================
@@ -584,7 +584,7 @@ static void testV2Reader(const fs::path& root)
 	check(!config::splitNitroDestination("uiStudio/title.bin").inArchive,
 		"an ordinary path is not an archive destination");
 
-	// Both halves are ordinary NitroFS paths, so both get the ordinary rules --
+	// Both halves are ordinary NitroFS paths, so both get the ordinary rules,
 	// and a second '!' has no reading at all, since nothing here opens an
 	// archive inside an archive.
 	check(config::nitroDestinationProblem("ARCHIVE/x.narc!a/b.bin").empty(),
@@ -639,7 +639,7 @@ static void testV2Reader(const fs::path& root)
 	check(resolved.arenaLo == 0x02065F10, "arena-lo reads as an address");
 
 	// Inheritance: project common, then target common, then the language list,
-	// then the defines -- which reach assembly too.
+	// then the defines, which reach assembly too.
 	checkEqual(resolved.regions[0].cFlags,
 		"-mabi=aapcs -march=armv5te -Os -DSDK_GCC -DSDK_ARM9",
 		"a region inherits project and target flags in order");
@@ -819,7 +819,7 @@ static void testRebuildStore(const fs::path& root)
 	check(loaded.patchedOverlays(false).empty(), "an absent overlay list reads as empty");
 
 	// A record that cannot be read costs one rebuild. Refusing to build over a
-	// damaged cache would be the worse failure -- and the binary format this
+	// damaged cache would be the worse failure, and the binary format this
 	// replaces could be misread rather than rejected, because it wrote raw
 	// std::time_t values whose width is a property of the compiler.
 	write(root / "corrupt.json", "{ not: [valid");

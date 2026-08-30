@@ -200,7 +200,7 @@ void writeDump(std::ostream& out, const ModuleGraph& graph)
 
 		// The tree a module sweeps into NitroFS. Reported so that a consumer can
 		// answer "which module owns this ROM path, and where on disk is it"
-		// without re-reading every module.yaml -- which is the question an
+		// without re-reading every module.yaml, which is the question an
 		// editor showing pending insertions has to answer constantly.
 		if (module.def->nitrofs.declared)
 		{
@@ -396,7 +396,7 @@ void writeExplanation(std::ostream& out, const ModuleGraph& graph, const std::st
 
 		if (module->def == nullptr)
 		{
-			out << "  enabled:     no -- the project switched it off, so its module.yaml was not read\n";
+			out << "  enabled:     no (the project switched it off, so its module.yaml was not read)\n";
 			out << std::flush;
 			return;
 		}
@@ -457,7 +457,7 @@ void writeExplanation(std::ostream& out, const ModuleGraph& graph, const std::st
 	}
 	else
 	{
-		out << "  target:      none -- it contributes defines only\n";
+		out << "  target:      none (it contributes defines only)\n";
 	}
 
 	if (!component->requires_.empty())

@@ -116,7 +116,7 @@ int Process::start(const char* cmd, const std::filesystem::path& cwd,
 	//
 	// Wide, and CreateProcessW below. The narrow half of the pair encodes
 	// through the machine's ANSI code page, which on an install whose user name
-	// is not ASCII cannot spell the paths in a compiler command line at all --
+	// is not ASCII cannot spell the paths in a compiler command line at all,
 	// and `cmd` is UTF-8 because every path in it came through ncp::pathToUtf8.
 	const std::wstring wideCommand = ncp::toWide(cmd);
 	std::vector<wchar_t> commandLine(wideCommand.begin(), wideCommand.end());

@@ -5,7 +5,7 @@
 // A project's settings arrive from four places and pass through three levels of
 // inheritance, a variable expander and a glob matcher before anything is
 // compiled. When the result is not what someone expected, the useful question
-// is not "what does the file say" -- they can read that -- but "what did you
+// is not "what does the file say" (they can read that) but "what did you
 // make of it, and which line won". That is what this answers.
 //
 // The JSON form is also the equivalence check between the two schemas: a v1

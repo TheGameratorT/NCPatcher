@@ -41,7 +41,7 @@ public:
 // interpret them itself.
 //
 // This is the sink that takes LogMode::Console, because everything sent that
-// way is transient -- animation frames, characters rewritten in place -- and
+// way is transient (animation frames, characters rewritten in place) and
 // only means anything where the cursor can be moved.
 class TerminalSink final : public Sink
 {
@@ -63,7 +63,7 @@ private:
 //
 // It takes LogMode::File rather than LogMode::Console on purpose. With no
 // cursor to move there is no progress display to draw, so what this sink shows
-// is the same settled record that goes to the log file -- which is why a piped
+// is the same settled record that goes to the log file, which is why a piped
 // build still ends up with one line per source file.
 class PlainSink final : public Sink
 {
@@ -81,7 +81,7 @@ private:
 // Holds output in memory until a log file path is known.
 //
 // The log belongs in the project's build directory, and where that is only
-// becomes clear once the configuration has been read -- which for a v1 project
+// becomes clear once the configuration has been read, which for a v1 project
 // is after the pre-build commands have run, since those are allowed to generate
 // the target files. Everything logged before that point is kept here and
 // written to the file as its first lines, so the log still starts at the
@@ -126,7 +126,7 @@ void removeSinks(SinkKind kind);
 void dispatch(std::string_view text);
 
 #ifdef _WIN32
-// ANSI colour code (30-37 foreground, 40-47 background) to the colour bits the
+// ANSI color code (30-37 foreground, 40-47 background) to the color bits the
 // Windows console uses, which order red and blue the other way round. Shared
 // with the cursor API, which paints attributes directly.
 [[nodiscard]] int ansiColorToConsole(int ansiCode);

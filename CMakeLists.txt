@@ -6,7 +6,7 @@ include(GNUInstallDirs)
 
 # The contract version between the binary and sdk/ncp.h. It is checked at
 # run time against the header that is actually found, which may be an older one
-# left behind by a previous install -- the failure mode that makes this worth
+# left behind by a previous install. The failure mode that makes this worth
 # checking is silent, since a stale header compiles fine and simply stops
 # emitting the sections the patcher looks for.
 set(NCP_SDK_VERSION 1)
@@ -39,7 +39,7 @@ endif()
 
 # Where the data files sit relative to the binary. Computed rather than
 # hardcoded so that a prefix using bin64/, or a distro with an unusual datadir,
-# still resolves -- and passed as a relative path rather than an absolute one so
+# still resolves, and passed as a relative path rather than an absolute one so
 # that the install can be moved, copied into a container or turned into an
 # AppImage without the lookup breaking.
 file(RELATIVE_PATH NCP_DATA_RELDIR
@@ -286,7 +286,7 @@ if (NCP_BUILD_TESTS)
 		# Every test, whether or not it parses anything: several of them pull in
 		# a header that includes yaml-cpp's, and the link is what carries its
 		# include directory. A system package hides the omission by sitting in
-		# /usr/include, so it only surfaces where yaml-cpp was fetched -- which
+		# /usr/include, so it only surfaces where yaml-cpp was fetched, which
 		# is every machine without the package, and every cross-build.
 		target_link_libraries(${name} PRIVATE ${YAML_CPP_TARGET})
 
@@ -409,8 +409,8 @@ if (NCP_BUILD_TESTS)
 		source/build/gcc_diagnostics.cpp)
 	target_link_libraries(gcc_diagnostics_test PRIVATE ${YAML_CPP_TARGET})
 
-	# The config test exercises the whole reader stack -- both schemas, the
-	# expander, inheritance and migration -- so it needs the same sources the
+	# The config test exercises the whole reader stack (both schemas, the
+	# expander, inheritance and migration) so it needs the same sources the
 	# program does, minus everything that would drag in the build and patch
 	# phases.
 	ncp_add_test(config_test

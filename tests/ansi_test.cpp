@@ -1,7 +1,7 @@
 // Tests for source/system/ansi.{hpp,cpp}.
 //
 // The parser sits between every log message and every sink, so malformed input
-// -- which arrives for real, in compiler output piped through the build log --
+// (which arrives for real, in compiler output piped through the build log)
 // must come out unchanged rather than being swallowed or looping forever.
 // Run via ctest, or directly: ./ansi_test
 
@@ -59,13 +59,13 @@ static void testPlainText()
 static void testSequences()
 {
 	check(trace("\x1b[31mred\x1b[0m") == "code(m:31)|text(red)|code(m:0)",
-		"a colour sequence brackets its text");
+		"a color sequence brackets its text");
 	check(trace("\x1b[31;1mx") == "code(m:31,1)|text(x)",
 		"semicolon-separated parameters");
 	check(trace("\x1b[mx") == "code(m:0)|text(x)",
 		"an omitted parameter reads as 0");
 	check(trace("\x1b[?25l") == "code(l:25)",
-		"a private-use sequence is recognised, marker and all");
+		"a private-use sequence is recognized, marker and all");
 	check(Ansi::strip("a\x1b[?25lb") == "ab",
 		"a private-use sequence leaves no residue in stripped output");
 	check(trace("a\x1b[1mb\x1b[0mc") == "text(a)|code(m:1)|text(b)|code(m:0)|text(c)",

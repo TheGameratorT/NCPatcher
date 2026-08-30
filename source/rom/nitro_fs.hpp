@@ -1,6 +1,6 @@
 #pragma once
 
-// The File Name Table -- NitroFS's directory tree.
+// The File Name Table, NitroFS's directory tree.
 //
 // A directory table of 8-byte rows, one per directory, followed by one subtable
 // per directory listing its children. File ids are implicit: a subtable's files
@@ -72,8 +72,8 @@ public:
 	// holds it. Nothing is renumbered and nothing moves: this rewrites one FNT
 	// entry's name and no more.
 	//
-	// It exists because a ROM's file ids are its stable identity -- code and
-	// saved data refer to them -- while a project may need a path the retail
+	// It exists because a ROM's file ids are its stable identity (code and
+	// saved data refer to them) while a project may need a path the retail
 	// ROM never had. Appending would allocate a fresh id at the end of the
 	// table; renaming an existing one keeps every id where it was. The trade is
 	// that the old name is gone, so the caller has to know the file it is
@@ -99,8 +99,8 @@ public:
 	// overlay a name so that tools which resolve files by path can see it; the
 	// game itself loads overlays by id and never consults this.
 	//
-	// The id must already be reachable -- this does not renumber anything, and
-	// refuses when it would have to.
+	// The id must already be reachable, since this does not renumber anything,
+	// and refuses when it would have to.
 	void nameFile(u16 directoryId, const std::string& name, u16 fileId);
 
 	// Builds the '/'-separated path of a directory, root first, without a

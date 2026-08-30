@@ -6,14 +6,14 @@
 //
 // It is lazy: a `vars:` entry is expanded the first time something reads it,
 // not when its line is parsed. v1 expanded at parse time, which meant a
-// variable could only refer to one declared above it -- the reason every
+// variable could only refer to one declared above it, the reason every
 // shipped project's target JSON opens with the same fixed ordering of
 // $arm_flags, $c_flags, $cpp_flags. Order stops mattering here, and a cycle is
 // reported as a cycle instead of running out of stack.
 //
 // And it is namespaced: ${vars.x}, ${env.HOME}, ${project.root}. v1 had three
-// syntaxes -- ${x} for a local variable, $${x} for a project one, ${env:X} for
-// the environment -- because there was no other way to say which scope was
+// syntaxes (${x} for a local variable, $${x} for a project one, ${env:X} for
+// the environment) because there was no other way to say which scope was
 // meant. Scoping comes from the inheritance chain now, so the sigils are gone.
 
 #include <functional>
@@ -50,7 +50,7 @@ public:
 	void setEnvFile(const EnvFile* envFile);
 
 	// A name whose value is not known yet: it expands to itself, so a later
-	// pass can finish the job. `${variant.name}` is the motivating case -- the
+	// pass can finish the job. `${variant.name}` is the motivating case: the
 	// configuration is read once, before a variant has been chosen, but a hook
 	// command wants to name the variant it is running for. Registering it here
 	// is what keeps it from being reported as an unknown reference, and keeps

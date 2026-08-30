@@ -63,8 +63,8 @@ extern const char* log_OREASON;
 namespace Log {
 // The two severity prefixes are function calls rather than constants so that
 // tallying them costs nothing at the call site. Every warning in this program
-// is written as `Log::out << OWARN << ...`, and the run summary -- and the
-// `{"type":"result","warnings":N}` event -- has to be able to say how many
+// is written as `Log::out << OWARN << ...`, and the run summary (and the
+// `{"type":"result","warnings":N}` event) has to be able to say how many
 // there were without anyone remembering to increment a counter alongside.
 [[nodiscard]] const char* warnPrefix();
 [[nodiscard]] const char* errorPrefix();
@@ -155,7 +155,7 @@ void resetCounts();
 // prefix removed.
 //
 // Warnings are written as `Log::out << OWARN << ...` in three dozen places, and
-// the machine-readable output needs the same text. Recognising them here rather
+// the machine-readable output needs the same text. Recognizing them here rather
 // than rewriting every site is the difference between a small change and a
 // sweeping one, and the prefix is already exactly the assertion "this is a
 // warning". Errors are deliberately not observed: they are reported once,

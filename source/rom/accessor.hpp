@@ -22,7 +22,7 @@
 namespace ncp::rom {
 
 // One entry of the ROM's file table, as reported rather than as stored: `size`
-// is the file's length in bytes, and `id` is raw -- whatever offset a
+// is the file's length in bytes, and `id` is raw, so whatever offset a
 // particular game applies to file ids at run time is that game's business.
 struct NitroFileInfo
 {

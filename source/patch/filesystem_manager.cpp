@@ -142,7 +142,7 @@ OverlayBin* FileSystemManager::loadOverlayBin(std::size_t ovID)
 
 		// The backup is the decompressed form, and the backed-up table row has
 		// its compression flag cleared to match. Storing the compressed bytes
-		// with a cleared flag -- or the plain bytes with it set -- would make
+		// with a cleared flag (or the plain bytes with it set) would make
 		// the next build read nonsense.
 		overlay->backupData() = overlay->data();
 
@@ -219,8 +219,8 @@ void FileSystemManager::saveOverlayBins()
 		// `compress: true` on the region was parsed and then ignored for as
 		// long as the key has existed, so an overlay it named went into the ROM
 		// uncompressed and the project silently got a bigger ROM than it asked
-		// for. The ram size stays the decompressed length -- that is what the
-		// loader allocates -- while the table's own 24-bit field carries what
+		// for. The ram size stays the decompressed length (that is what the
+		// loader allocates) while the table's own 24-bit field carries what
 		// is actually stored.
 		const BuildTarget::Region* region = m_target->getRegionByDestination(int(ovID));
 		std::vector<u8> stored;

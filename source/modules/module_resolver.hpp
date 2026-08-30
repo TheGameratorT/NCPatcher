@@ -6,8 +6,8 @@
 // dozen modules at once; a resolver that stopped at the first mistake would
 // turn one bad afternoon of edits into a dozen builds.
 //
-// It needs no toolchain, no ROM and no target configuration -- only the project
-// directory -- which is what lets `modules dump` run in a checkout that has
+// It needs no toolchain, no ROM and no target configuration, only the project
+// directory, which is what lets `modules dump` run in a checkout that has
 // never been built, and what lets a build write the dump before its pre-build
 // commands run.
 

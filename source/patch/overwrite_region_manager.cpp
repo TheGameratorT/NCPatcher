@@ -271,14 +271,14 @@ void OverwriteRegionManager::finalizeOverwritesWithElfData(const Elf32& elf)
                 // unchanged while the region's contents grew from 25252 to
                 // 25284 bytes, so it does not track the code in it. The emitted
                 // section aligns to 8 rather than the 4 assumed here, and the
-                // linker used *more* room than predicted -- which rules out the
+                // linker used *more* room than predicted, which rules out the
                 // simplest explanation, that padding input sections of
                 // alignment 1 and 2 up to 4 over-counts. The real cause has not
                 // been established.
                 //
                 // Fixing it properly means one of two things: model the layout
-                // exactly -- every input section's own sh_addralign, in the
-                // order the linker script actually emits them -- or stop
+                // exactly (every input section's own sh_addralign, in the
+                // order the linker script actually emits them) or stop
                 // predicting and let the linker answer. The second is the more
                 // honest of the two, since the prediction has no other consumer
                 // once the sections are assigned.

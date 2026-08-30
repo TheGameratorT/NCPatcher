@@ -60,7 +60,7 @@ struct DiagContext
 // inside it can be reported as "this is what was being attempted".
 //
 // Unlike the setErrorContext/setErrorContext(nullptr) pair it replaces, the
-// scope always ends -- including when it ends by throwing, which is precisely
+// scope always ends, including when it ends by throwing, which is precisely
 // the case the manual pairing got wrong. Leaving normally pops the context so
 // it cannot be misattributed to a later phase; leaving by exception freezes the
 // whole stack first, so the handler at the top still sees where the throw came

@@ -7,8 +7,8 @@
 // signedness differ between toolchains, so a file written by one build of
 // NCPatcher could be silently misread by another. And it decided staleness by
 // comparing the config file's modification time against a stored one, which a
-// git checkout gets wrong in both directions -- it can rewrite an mtime without
-// changing a byte, or restore an old file with an old mtime -- and which stops
+// git checkout gets wrong in both directions (it can rewrite an mtime without
+// changing a byte, or restore an old file with an old mtime) and which stops
 // meaning anything at all once a config can include other files or be assembled
 // from modules.
 //
@@ -28,8 +28,8 @@ class RebuildStore
 {
 public:
 	// Reads the record if there is one. A missing, unreadable or
-	// unrecognised-version file leaves every hash empty, which compares unequal
-	// to any real one and so asks for a full rebuild -- the safe direction.
+	// unrecognized-version file leaves every hash empty, which compares unequal
+	// to any real one and so asks for a full rebuild, the safe direction.
 	void load(const std::filesystem::path& file);
 	void save(const std::filesystem::path& file) const;
 

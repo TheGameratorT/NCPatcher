@@ -4,11 +4,11 @@
 // today is written in this schema, so what it accepts and what it produces must
 // match what the previous release did, down to the whitespace of an assembled
 // compiler command line. That is why flag strings stay whole here instead of
-// being tokenised: joining tokens back together would normalise spacing that
-// nobody asked to have normalised.
+// being tokenized: joining tokens back together would normalize spacing that
+// nobody asked to have normalized.
 //
 // Three deliberate departures, all of them cases where matching the old
-// behaviour would mean keeping a silent failure:
+// behavior would mean keeping a silent failure:
 //
 //   * `length` is accepted again as a spelling of `maxsize`. It was renamed
 //     without an alias, so every project still saying `length` silently lost

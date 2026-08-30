@@ -31,7 +31,7 @@ std::string join(const std::vector<std::string>& parts, char separator)
 // Expands one level's worth of patterns.
 //
 // A leading '!' excludes rather than includes, and exclusions are applied after
-// everything has matched -- so the order of entries in the list does not change
+// everything has matched, so the order of entries in the list does not change
 // the outcome, which is what people expect from a list of paths and not what
 // they would get from applying each entry in sequence.
 std::vector<fs::path> expandPatterns(const std::vector<std::string>& patterns,
@@ -145,7 +145,7 @@ void applyDefines(DefineSet& defines, const ListOp& op, const char* origin)
 // resolved.
 //
 // This runs after the declared regions are built rather than before, because a
-// module region inherits the flags of the region it lands in -- and because a
+// module region inherits the flags of the region it lands in, and because a
 // module targeting an overlay nobody declared is a question the target has to
 // answer, not the module.
 void foldModuleSources(BuildTarget& out, const modules::TargetContribution& contribution,
@@ -169,7 +169,7 @@ void foldModuleSources(BuildTarget& out, const modules::TargetContribution& cont
 	if (!missing.empty())
 	{
 		// Silently inventing the region is how a mistyped overlay id becomes
-		// an overlay full of code the game never loads -- and an invented
+		// an overlay full of code the game never loads, and an invented
 		// region has no size limit worth the name, so the first thing it would
 		// do is let that code run past the end of its overlay into the next.
 		std::ostringstream oss;
@@ -259,7 +259,7 @@ BuildTarget TargetResolver::resolve(const ProjectConfig& config, const TargetCon
 	applyDefines(targetDefines, target.defines, "the target");
 
 	// The modules speak after the target does. A module define that collides
-	// with one the project wrote by hand is the project's to keep -- but it is
+	// with one the project wrote by hand is the project's to keep, but it is
 	// also exactly the kind of thing nobody notices, so it is reported.
 	const modules::TargetContribution* contribution = nullptr;
 	if (graph != nullptr && !graph->empty())

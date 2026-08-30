@@ -23,7 +23,7 @@ namespace TargetResolver {
 struct Options
 {
 	// Suppresses the "pattern matched nothing" warnings. Set when a resolve is
-	// a self-check rather than a build -- `migrate` resolves both schemas to
+	// a self-check rather than a build: `migrate` resolves both schemas to
 	// compare them, and reporting the same unmatched pattern twice would only
 	// make the real output harder to read.
 	bool quiet = false;

@@ -2,8 +2,8 @@
 
 // Just enough JSON to emit it.
 //
-// Three things in this program produce machine-readable output -- the rebuild
-// record, `config dump`, and the --message-format json event stream -- and
+// Three things in this program produce machine-readable output (the rebuild
+// record, `config dump`, and the --message-format json event stream) and
 // before this they each hand-wrote their braces. That is survivable while the
 // only values are hex hashes, and stops being survivable the moment a Windows
 // path or a compiler message with a quote in it goes through.
@@ -68,8 +68,8 @@ public:
 
 	Writer& null();
 
-	// "0x02065F10" -- an address is far more legible as one, and JSON has no
-	// hexadecimal literal, so it goes out as a string.
+	// "0x02065F10", because an address is far more legible as one and JSON has
+	// no hexadecimal literal, so it goes out as a string.
 	Writer& hex(u32 number, int minDigits = 8);
 
 	template <typename T>

@@ -14,7 +14,7 @@ namespace ncp {
 struct PathContext
 {
 	// Project directory, holding ncpatcher.json. The project config's relative
-	// paths -- backup dir, filesystem dir, build dirs -- are relative to this.
+	// paths (backup dir, filesystem dir, build dirs) are relative to this.
 	std::filesystem::path workDir;
 
 	// Extracted ROM filesystem. arm9.bin, the overlay tables and the overlay
@@ -33,8 +33,8 @@ struct PathContext
 	[[nodiscard]] std::filesystem::path target(const std::filesystem::path& p) const { return resolve(targetWorkDir, p); }
 
 private:
-	// Config values are allowed to be absolute -- an ${env:...} expansion usually
-	// is -- and such a path must not be re-anchored. operator/ already does this,
+	// Config values are allowed to be absolute (an ${env:...} expansion usually
+	// is) and such a path must not be re-anchored. operator/ already does this,
 	// but spelling it out keeps it a deliberate rule rather than a side effect.
 	[[nodiscard]] static std::filesystem::path resolve(
 		const std::filesystem::path& base, const std::filesystem::path& p)

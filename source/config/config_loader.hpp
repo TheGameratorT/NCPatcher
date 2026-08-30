@@ -3,8 +3,8 @@
 // Finding and reading a project's configuration.
 //
 // Two schemas are read here. v2 is the YAML one; v1 is the JSON one every
-// existing project is written in, and it keeps working for the whole 2.x line
-// -- there is no flag day, only a deprecation notice pointing at `migrate`.
+// existing project is written in, and it keeps working for the whole 2.x line:
+// there is no flag day, only a deprecation notice pointing at `migrate`.
 // Both produce the same ProjectConfig, which is what keeps the rest of the
 // program from having to know which it was.
 

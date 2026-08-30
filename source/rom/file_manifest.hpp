@@ -3,7 +3,7 @@
 // The ROM's file table, written out for whoever needs to name a file by id.
 //
 // A DS game refers to its files by number, not by path, so any code that loads
-// one needs a constant -- and that constant has to be regenerated whenever the
+// one needs a constant, and that constant has to be regenerated whenever the
 // table changes. The generator cannot read `files:` to work them out, because
 // most of the table is whatever the retail ROM already had and only a handful
 // of entries come from the project. So the whole table is reported: two
@@ -12,11 +12,11 @@
 // The other consumer is an editor. Every entry says whether it is vanilla,
 // replaced by a module, or added by one, and which variant supplied the bytes.
 // That is the difference between a file browser and a view of what this project
-// changes about the ROM -- and grouping by path across variants answers "which
+// changes about the ROM, and grouping by path across variants answers "which
 // languages translate this file", which is otherwise a directory crawl.
 //
 // Ids are raw, exactly as the FAT stores them. A game that offsets file ids at
-// run time -- NSMB subtracts its overlay count -- applies that itself; it is a
+// run time (NSMB subtracts its overlay count) applies that itself; it is a
 // property of that game, not of the ROM.
 
 #include <filesystem>
@@ -57,7 +57,7 @@ struct ManifestEntry
 // Folds the ROM's file table together with what was just inserted.
 //
 // `files` is the resolved insertion list, and `before` is the set of ids that
-// already existed when the build started -- that is what separates a file this
+// already existed when the build started, which is what separates a file this
 // run created from one it replaced, since by the time the manifest is written
 // both are simply present.
 [[nodiscard]] std::vector<ManifestEntry> buildManifest(

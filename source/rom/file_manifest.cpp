@@ -55,7 +55,7 @@ std::vector<ManifestEntry> buildManifest(
 	const fs::path& projectRoot)
 {
 	// Indexed by destination, because that is the only thing the insertion list
-	// and the ROM's table share -- an entry claiming an id was renamed on the
+	// and the ROM's table share: an entry claiming an id was renamed on the
 	// way in, so its path is the one it has now.
 	std::unordered_map<std::string, const config::FileConfig*> inserted;
 	inserted.reserve(files.size());

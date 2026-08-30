@@ -6,7 +6,7 @@
 // needs are different things: the file says "append -O2 to the inherited cpp
 // flags for this one region", the build needs one finished command-line string.
 // Keeping the two apart is what lets three levels of inheritance, a v1 reader
-// and a v2 reader, and a migration tool all meet in one place -- and what lets
+// and a v2 reader, and a migration tool all meet in one place, and what lets
 // `config dump` answer "why is this flag here" at all.
 //
 // TargetResolver turns this into the BuildTarget that source/build and
@@ -58,8 +58,8 @@ struct Setting
 //
 // Every inherited list defaults to append, because that is what the projects
 // this replaces were emulating by hand with $${var} string concatenation. The
-// mapping form exists for the cases append cannot express -- a region that
-// needs -O2 where the project said -Os -- and is spelled out rather than
+// mapping form exists for the cases append cannot express (a region that
+// needs -O2 where the project said -Os) and is spelled out rather than
 // encoded in sigils, so a reader who has never seen the syntax can still guess
 // what it does.
 struct ListOp
@@ -73,7 +73,7 @@ struct ListOp
 
 	[[nodiscard]] bool empty() const;
 
-	// set, then remove, then append -- so a level can replace an inherited entry
+	// set, then remove, then append, so a level can replace an inherited entry
 	// in one step without caring whether it was there.
 	[[nodiscard]] std::vector<std::string> applyTo(std::vector<std::string> inherited) const;
 };
@@ -163,7 +163,7 @@ struct Overwrite
 
 struct RegionConfig
 {
-	// As written -- "main" or "ovNN" -- kept for diagnostics that should echo
+	// As written ("main" or "ovNN"), kept for diagnostics that should echo
 	// the user's own spelling.
 	std::string dest;
 
@@ -219,8 +219,8 @@ struct ComponentOverride
 	// would land in the build with nothing to explain where it came from.
 	std::vector<std::pair<std::string, std::string>> defines;
 
-	// cfg::Node::location(), kept rather than the node -- the project document
-	// is closed long before modules are resolved.
+	// cfg::Node::location(), kept rather than the node, because the project
+	// document is closed long before modules are resolved.
 	std::string location;
 };
 
@@ -342,8 +342,8 @@ struct FileConfig
 	// Where this entry came from. Empty for a file written in the project's own
 	// `files:`; otherwise the module, and the component whose `files:` patterns
 	// claimed it. `fromVariant` is the layer of a layered tree that supplied
-	// the bytes, which is not always the variant being built -- a base layer
-	// supplies everything a variant does not override.
+	// the bytes, which is not always the variant being built (a base layer
+	// supplies everything a variant does not override).
 	std::string module;
 	std::string component;
 	std::string fromVariant;
@@ -391,8 +391,8 @@ struct VariantConfig
 	std::vector<std::pair<std::string, std::string>> moduleVariants;
 
 	// Overrides `rom.banner` for this variant. Empty means the project's, which
-	// is the usual case -- a banner holds a title in all six console languages
-	// at once, so one of them normally serves every build.
+	// is the usual case, since a banner holds a title in all six console
+	// languages at once, so one of them normally serves every build.
 	std::filesystem::path banner;
 };
 
@@ -421,8 +421,8 @@ struct TargetConfig
 	Setting<u32> arenaLo;
 
 	// A file listing the overlays this game has and how large each may grow.
-	// It is shared game knowledge -- the same table serves every project built
-	// against one game -- so it lives outside the project, and the target's own
+	// It is shared game knowledge (the same table serves every project built
+	// against one game), so it lives outside the project, and the target's own
 	// `regions` override whatever it says.
 	Setting<std::filesystem::path> regionCatalog;
 
@@ -456,8 +456,8 @@ struct ProjectConfig
 	// is, because there is nothing to copy it into.
 	Setting<std::filesystem::path> romOutput;
 
-	// Which extracted layout the ROM directory uses -- see rom/dir_accessor.hpp
-	// for the presets. Ignored when romFile is set, since a .nds has only one
+	// Which extracted layout the ROM directory uses (see rom/dir_accessor.hpp
+	// for the presets). Ignored when romFile is set, since a .nds has only one
 	// layout.
 	Setting<std::string> romLayoutPreset;
 
@@ -494,7 +494,7 @@ struct ProjectConfig
 	//
 	// A top-level key rather than `files.dump`, because `files:` is a mapping
 	// of ROM paths and a ROM is perfectly entitled to contain a file called
-	// `dump` -- there would be no way to tell the two apart.
+	// `dump`, and there would be no way to tell the two apart.
 	Setting<std::filesystem::path> filesDump;
 
 	// A zero-byte placeholder created before any z_new/ addition, to burn the
@@ -502,7 +502,7 @@ struct ProjectConfig
 	//
 	// It exists because a game's compiled code can hold arrays of file ids
 	// terminated by a sentinel, and the sentinel a compiler picked is the id
-	// one past the last file the ROM shipped with -- exactly the id NCPatcher
+	// one past the last file the ROM shipped with, exactly the id NCPatcher
 	// hands to the first file it adds. Putting real content there gives the
 	// game a loadable file at an id its own code reads as "stop", so the id has
 	// to be spent on nothing.

@@ -4,7 +4,7 @@
 //
 // The conversion is not a transcription. Reading the JSON and writing the same
 // shape back in YAML would leave every project carrying the boilerplate v1
-// forced on it -- the same flag strings pasted across two files, the same
+// forced on it: the same flag strings pasted across two files, the same
 // $${var} concatenation standing in for inheritance it did not have, the same
 // -D switches buried inside those strings. Undoing that by hand, in every
 // downstream project, is the migration cost this command exists to remove.

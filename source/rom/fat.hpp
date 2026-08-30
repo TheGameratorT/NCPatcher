@@ -1,7 +1,7 @@
 #pragma once
 
 // The File Allocation Table: one { start, end } ROM offset pair per file id,
-// in id order. Overlays are files too -- an overlay table row names a file id,
+// in id order. Overlays are files too: an overlay table row names a file id,
 // and this is what turns that into an extent.
 
 #include <cstddef>
