@@ -144,6 +144,43 @@ static void testReference()
 	check(std::string(out.end() - 11, out.end()) == "hgfhgfedcba", "reference copies backwards");
 }
 
+// A reference may be longer than its distance, so the copy reads bytes it is
+// itself writing. BLZ::compress never emits one (findMatch caps the length at
+// the distance), so nothing that round trips through it covers this path, but
+// Nintendo's compressor emits them constantly and every retail ARM9 is full of
+// them. It is also what the decode loop MSVC 19.51 miscompiles spends its time
+// doing, so this is the test that catches that.
+static void testOverlappingReferences()
+{
+	constexpr size_t REFS = 2000;  // a multiple of 8, so no partial flag group
+	constexpr size_t LITERALS = 8;
+	constexpr size_t REF_LENGTH = 18;
+
+	std::vector<u8> stream = { 0x00, 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h' };
+	for (size_t i = 0; i < REFS; i++)
+	{
+		if (i % 8 == 0)
+			stream.push_back(0xFF);
+		stream.push_back(0xF0);  // length 18
+		stream.push_back(0x00);  // distance 3
+	}
+
+	const size_t outSize = LITERALS + REFS * REF_LENGTH;
+	const size_t imageSize = ((stream.size() + 8) + 3) & ~size_t(3);
+
+	// Each reference byte is a copy of the one three above it, so the output is
+	// the eight literals with a period-three pattern extending down from them.
+	std::vector<u8> expected(outSize);
+	const char* const literals = "hgfedcba";
+	for (size_t i = 0; i < LITERALS; i++)
+		expected[outSize - LITERALS + i] = u8(literals[i]);
+	for (size_t i = outSize - LITERALS; i-- > 0; )
+		expected[i] = expected[i + 3];
+
+	check(BLZ::uncompress(makeImage(stream, u32(outSize - imageSize))) == expected,
+		"references longer than their distance repeat a pattern");
+}
+
 static void testMalformed()
 {
 	// A reference before anything has been decoded reaches past the end of the
@@ -191,6 +228,7 @@ int main()
 	testIncompressible();
 	testLiterals();
 	testReference();
+	testOverlappingReferences();
 	testMalformed();
 
 	if (g_failures != 0)

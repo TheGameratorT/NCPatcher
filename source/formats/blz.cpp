@@ -258,7 +258,14 @@ void uncompressBackward(u8* data, size_t dataSize, size_t bufferSize)
 			if (pOut <= pInTop)
 				throw std::runtime_error(DEST_OVERRUN);
 
-			if (!(flag & 0x80))
+			// Bit i of the flag byte, most significant first. Written as an
+			// indexed test rather than as a test of the top bit against a flag
+			// that is shifted every pass, because MSVC 19.51 unrolls the
+			// shifting form wrong at /O2 and decodes garbage. It is fine at
+			// /O1, and 19.50 and earlier are fine at /O2. Reported to
+			// Microsoft as "Possible loop unrolling bug with /Ot miscompiles
+			// bit-decoding loop".
+			if (!(flag & (0x80 >> i)))
 			{
 				*--pOut = *--pInBtm;
 			}
@@ -287,7 +294,6 @@ void uncompressBackward(u8* data, size_t dataSize, size_t bufferSize)
 			if (pInBtm <= pInTop)
 				break;
 
-			flag = u8(flag << 1);
 		}
 	}
 }
