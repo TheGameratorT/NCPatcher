@@ -292,7 +292,7 @@ void uncompressBackward(u8* data, size_t dataSize, size_t bufferSize)
 	}
 }
 
-}
+} // namespace
 
 namespace BLZ
 {
@@ -368,4 +368,4 @@ namespace BLZ
 	{
 		uncompressBackward(data, dataSize, bufferSize);
 	}
-}
+} // namespace BLZ
