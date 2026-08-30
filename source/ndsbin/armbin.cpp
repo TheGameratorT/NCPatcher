@@ -10,6 +10,7 @@
 #include "../system/log.hpp"
 #include "../system/except.hpp"
 #include "../formats/blz.hpp"
+#include "../rom/endian.hpp"
 #include "../utils/util.hpp"
 
 namespace fs = std::filesystem;
@@ -45,7 +46,12 @@ void ArmBin::load(std::vector<u8> bytes, u32 entryAddr, u32 ramAddr, u32 autoLoa
 
 	// FIND MODULE PARAMS ================================
 
-	m_moduleParamsOff = *reinterpret_cast<u32*>(&bytesData[autoLoadHookOff - m_ramAddr - 4]) - m_ramAddr;
+	// Every word here is read the way the container code reads a ROM: with
+	// shifts, over a bounds-checked span. Pointing a u32* at the module's bytes
+	// gets the byte order wrong on a big-endian host, is an aliasing bet the
+	// optimiser is free to call, and -- since these offsets come out of the
+	// file itself -- reads off the end of a truncated binary without noticing.
+	m_moduleParamsOff = ncp::rom::readU32(m_bytes, autoLoadHookOff - m_ramAddr - 4) - m_ramAddr;
 
 	Log::out << OINFO << "Found ModuleParams at: 0x" << std::uppercase << std::hex << m_moduleParamsOff << std::endl;
 
@@ -57,7 +63,8 @@ void ArmBin::load(std::vector<u8> bytes, u32 entryAddr, u32 ramAddr, u32 autoLoa
 	{
 		Log::out << OINFO << "Decompressing..." << std::endl;
 
-		u32 decompSize = fileSize + *reinterpret_cast<u32*>(&bytesData[moduleParams->compStaticEnd - m_ramAddr - 4]);
+		const u32 decompSize = u32(fileSize)
+			+ ncp::rom::readU32(m_bytes, moduleParams->compStaticEnd - m_ramAddr - 4);
 
 		m_bytes.resize(decompSize);
 		bytesData = m_bytes.data();
@@ -65,7 +72,10 @@ void ArmBin::load(std::vector<u8> bytes, u32 entryAddr, u32 ramAddr, u32 autoLoa
 
 		try
 		{
-			BLZ::uncompressInplace(&bytesData[moduleParams->compStaticEnd - m_ramAddr]);
+			// The image ends at compStaticEnd, which for the ARM9 binary is
+			// short of the end of the file: the secure area sits below it and
+			// the autoload lists sit above it, and neither is compressed.
+			BLZ::uncompressInplace(bytesData, moduleParams->compStaticEnd - m_ramAddr, m_bytes.size());
 		}
 		catch (const std::exception& e)
 		{
@@ -157,29 +167,26 @@ void ArmBin::writeBytes(u32 address, const void* data, u32 size)
 
 void ArmBin::refreshAutoloadData()
 {
-	u8* bytesData = m_bytes.data();
-	ModuleParams* moduleParams = getModuleParams();
+	const ModuleParams* moduleParams = getModuleParams();
 
 	m_autoloadList.clear();
 
-	u32* alIter = reinterpret_cast<u32*>(&bytesData[moduleParams->autoloadListStart - m_ramAddr]);
-	u32* alEnd = reinterpret_cast<u32*>(&bytesData[moduleParams->autoloadListEnd - m_ramAddr]);
+	// The list is three words per entry, read the same way as the words above.
+	std::size_t alIter = moduleParams->autoloadListStart - m_ramAddr;
+	const std::size_t alEnd = moduleParams->autoloadListEnd - m_ramAddr;
 	u32 alDataIter = moduleParams->autoloadStart - m_ramAddr;
 
 	while (alIter < alEnd)
 	{
-		u32 entryInfo[3];
-		std::memcpy(&entryInfo, alIter, 12);
-
 		AutoLoadEntry entry;
-		entry.address = entryInfo[0];
-		entry.size = entryInfo[1];
-		entry.bssSize = entryInfo[2];
+		entry.address = ncp::rom::readU32(m_bytes, alIter);
+		entry.size = ncp::rom::readU32(m_bytes, alIter + 4);
+		entry.bssSize = ncp::rom::readU32(m_bytes, alIter + 8);
 		entry.dataOff = alDataIter;
 
 		m_autoloadList.push_back(entry);
 
-		alIter += 3;
+		alIter += 12;
 		alDataIter += entry.size;
 	}
 }
