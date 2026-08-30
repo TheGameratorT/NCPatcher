@@ -363,9 +363,12 @@ So a project may carry a `.ncpatcher.env` beside its configuration, and
 `${env.NAME}` reads it before the real environment:
 
 ```
-# Generated. Do not edit.
+# The reference this project builds against, written by `nsmbtool reference sync`.
 NSMBREF_ROOT=/home/you/.local/share/nsmbtool/reference/ac82391
 ```
+
+The file is the project's own. A tool that manages one of those trees keeps its
+own entry in it, and leaves the rest to you.
 
 The format is `NAME=VALUE`, one per line, with `#` comments and optional
 surrounding quotes. There is no expansion, no substitution and no `export`

@@ -8,9 +8,9 @@
 // nowhere to say so: whichever NSMBREF_ROOT the profile exports wins for both.
 //
 // So a project may carry a `.ncpatcher.env` naming the values it needs, and a
-// tool that manages those trees can generate it. NCPatcher stays out of the
-// business of knowing what the values mean, and reads KEY=VALUE and nothing
-// more. No shell expansion, no `export`, no command substitution: a
+// tool that manages those trees can keep its own entry up to date in it.
+// NCPatcher stays out of the business of knowing what the values mean, and
+// reads KEY=VALUE and nothing more. No shell expansion, no `export`, no command substitution: a
 // configuration file that can run commands is a configuration file that cannot
 // be validated safely.
 //
