@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <limits>
 #include <map>
@@ -34,6 +35,7 @@
 #include "../rom/backup_store.hpp"
 #include "../rom/file_tree.hpp"
 #include "../rom/file_manifest.hpp"
+#include "../rom/plan_accessor.hpp"
 #include "../rom/narc.hpp"
 #include "rom_command.hpp"
 #include "project_init.hpp"
@@ -72,7 +74,8 @@ std::optional<int> Application::initialize(int argc, char* argv[])
 		m_cli.command == Command::ModulesDump ||
 		m_cli.command == Command::ModulesExplain ||
 		m_cli.command == Command::RomInfo ||
-		m_cli.command == Command::RomFiles;
+		m_cli.command == Command::RomFiles ||
+		m_cli.command == Command::FilesPlan;
 	Log::configureConsole(m_cli.color, logToStderr);
 	msg::configure(m_cli.messageFormat, m_cli.resultPath);
 
@@ -126,6 +129,7 @@ int Application::run()
 		case Command::RomFiles:
 		case Command::RomExtract:
 		case Command::RomPack:        code = runRomCommand(); break;
+		case Command::FilesPlan:      code = runFilesPlan(); break;
 		default:                      runBuild(); break;
 		}
 	} catch (std::exception& e) {
@@ -237,6 +241,98 @@ int Application::runRomCommand()
 		break;
 	}
 
+	return exitValue(ExitCode::Ok);
+}
+
+// `files plan`: what a build would place in the ROM's file table, without a
+// build having to happen first.
+//
+// An editor showing "this file is pending" has to know which id a file it has
+// not yet built will be given, and until now the only way to find out was to
+// build. The answer comes from running the real insertion pass against a ROM
+// accessor that writes nothing (see plan_accessor.hpp), so a prediction and the
+// build that confirms it come out of the same code rather than out of two
+// implementations of the same rules.
+int Application::runFilesPlan()
+{
+	loadConfigurations();
+
+	if (m_cli.variant.empty())
+	{
+		// The same refusal `build` makes, for the same reason: which file a
+		// tree contributes depends on the variant, so there is no variant-less
+		// answer that any build would ever confirm.
+		if (!m_config.variants.empty())
+		{
+			ScopedContext variantCtx(Diag::ConfigLoad, "Could not select the variant to plan for.");
+			throw ncp::exception("This project has variants; choose one with "
+				ANSI_bCYAN "--variant NAME" ANSI_RESET "."
+				OREASONNL "Which files a build places depends on the variant it builds.");
+		}
+	}
+	else
+	{
+		applyVariant(m_cli.variant, false);
+	}
+
+	ScopedContext ctx(Diag::NitroFsInsert, "Could not plan the NitroFS files.");
+
+	resolveRomDir();
+	std::unique_ptr<rom::RomAccessor> base = openRom();
+
+	// Quiet, because standard output is the document when --json is given and
+	// the module listing is for a person.
+	loadModules(true);
+
+	rom::PlanRomAccessor plan(*base);
+	const InsertedFiles inserted = insertFiles(plan, true);
+	const std::vector<rom::ManifestEntry> entries = rom::buildManifest(
+		plan, inserted.files, inserted.createdIds, m_ctx.paths.workDir, inserted.missingSources);
+
+	std::ofstream file;
+	std::ostream* out = &std::cout;
+	if (!m_cli.filesOutPath.empty())
+	{
+		const fs::path path = fs::absolute(m_cli.filesOutPath);
+		std::error_code error;
+		fs::create_directories(path.parent_path(), error);
+		file.open(path);
+		if (!file.is_open())
+		{
+			std::ostringstream oss;
+			oss << "Could not open " << OSTR(path.string()) << " for writing.";
+			throw ncp::exception(oss.str());
+		}
+		out = &file;
+	}
+
+	if (m_cli.dumpJson)
+	{
+		rom::writeManifest(*out, entries, m_variant, true);
+		out->flush();
+		return exitValue(ExitCode::Ok);
+	}
+
+	std::size_t changed = 0;
+	for (const rom::ManifestEntry& entry : entries)
+	{
+		if (entry.action == rom::FileAction::Unchanged)
+			continue;
+		changed++;
+
+		const char* action = entry.action == rom::FileAction::Created ? "create" : "modify";
+		*out << std::setw(5) << entry.id << "  " << action << "  "
+		     << std::setw(9) << entry.size << "  " << entry.path;
+		if (!entry.module.empty())
+			*out << "  <- " << entry.module;
+		if (!entry.fromVariant.empty())
+			*out << " (" << entry.fromVariant << ")";
+		if (entry.sourceMissing)
+			*out << "  [source not generated yet]";
+		*out << '\n';
+	}
+	*out << changed << " of " << entries.size() << " file(s) would change.\n";
+	out->flush();
 	return exitValue(ExitCode::Ok);
 }
 
@@ -938,9 +1034,11 @@ std::vector<config::FileConfig> Application::resolveNitroFiles() const
 	return files;
 }
 
-Application::InsertedFiles Application::insertFiles(rom::RomAccessor& rom)
+Application::InsertedFiles Application::insertFiles(rom::RomAccessor& rom, bool planning)
 {
-	ScopedContext ctx(Diag::NitroFsInsert, "Could not insert the NitroFS files.");
+	ScopedContext ctx(Diag::NitroFsInsert, planning
+		? "Could not plan the NitroFS files."
+		: "Could not insert the NitroFS files.");
 
 	InsertedFiles inserted;
 	inserted.files = resolveNitroFiles();
@@ -948,7 +1046,8 @@ Application::InsertedFiles Application::insertFiles(rom::RomAccessor& rom)
 	if (files.empty())
 		return inserted;
 
-	Log::info("Inserting NitroFS files...");
+	if (!planning)
+		Log::info("Inserting NitroFS files...");
 
 	struct PreparedFile
 	{
@@ -975,24 +1074,40 @@ Application::InsertedFiles Application::insertFiles(rom::RomAccessor& rom)
 	for (const config::FileConfig& file : files)
 	{
 		const fs::path source = m_ctx.paths.work(file.source);
-		if (!fs::exists(source) || !fs::is_regular_file(source))
-			throw ncp::file_error(source, ncp::file_error::find);
+		const bool present = fs::exists(source) && fs::is_regular_file(source);
 
-		const std::uintmax_t size = fs::file_size(source);
-		if (size > std::numeric_limits<u32>::max())
-			throw ncp::exception("NitroFS source is too large: " + source.string());
+		// A build needs the bytes. A plan needs the destination, and a project
+		// whose NitroFS sources are written by a pre-build hook has none of
+		// them until it has been built once -- so refusing would make the
+		// command useless exactly where it is most wanted. The destination is
+		// planned with an empty file instead, and the entry says its source was
+		// not there to be measured.
+		if (!present)
+		{
+			if (!planning)
+				throw ncp::file_error(source, ncp::file_error::find);
+			inserted.missingSources.push_back(file.path);
+		}
 
 		PreparedFile prepared;
 		prepared.config = &file;
-		prepared.data.resize(std::size_t(size));
-		std::ifstream input(source, std::ios::binary);
-		if (!input.is_open())
-			throw ncp::file_error(source, ncp::file_error::read);
-		if (!prepared.data.empty())
+
+		if (present)
 		{
-			input.read(reinterpret_cast<char*>(prepared.data.data()), std::streamsize(prepared.data.size()));
-			if (!input)
+			const std::uintmax_t size = fs::file_size(source);
+			if (size > std::numeric_limits<u32>::max())
+				throw ncp::exception("NitroFS source is too large: " + source.string());
+
+			prepared.data.resize(std::size_t(size));
+			std::ifstream input(source, std::ios::binary);
+			if (!input.is_open())
 				throw ncp::file_error(source, ncp::file_error::read);
+			if (!prepared.data.empty())
+			{
+				input.read(reinterpret_cast<char*>(prepared.data.data()), std::streamsize(prepared.data.size()));
+				if (!input)
+					throw ncp::file_error(source, ncp::file_error::read);
+			}
 		}
 
 		const config::NitroDestination destination = config::splitNitroDestination(file.path);
@@ -1224,7 +1339,9 @@ Application::InsertedFiles Application::insertFiles(rom::RomAccessor& rom)
 			inserted.createdIds.push_back(rom.addNitroFile(reserved, std::span<const u8>()));
 	}
 
-	auto report = [](const PreparedFile& file, u32 fileId, const char* action) {
+	auto report = [planning](const PreparedFile& file, u32 fileId, const char* action) {
+		if (planning)
+			return;
 		Log::info(std::string(std::string_view(action) == "created" ? "Added " : "Replaced ")
 			+ file.config->path + " [" + std::to_string(fileId) + "]");
 		msg::Artifact artifact;
@@ -1259,6 +1376,8 @@ Application::InsertedFiles Application::insertFiles(rom::RomAccessor& rom)
 		// however many the build touched.
 		for (const PreparedFile& edit : archives.at(archive.path))
 		{
+			if (planning)
+				continue;
 			Log::info("Replaced " + edit.config->path);
 			msg::Artifact member;
 			member.kind = "archive-file";
@@ -1269,6 +1388,8 @@ Application::InsertedFiles Application::insertFiles(rom::RomAccessor& rom)
 		}
 
 		const u32 fileId = rom.replaceNitroFile(archive.path, archive.data);
+		if (planning)
+			continue;
 
 		Log::info("Repacked " + archive.path + " [" + std::to_string(fileId) + "]");
 		msg::Artifact artifact;

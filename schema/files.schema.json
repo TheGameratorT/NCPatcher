@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/TheGameratorT/NCPatcher/main/schema/files.schema.json",
   "title": "NCPatcher file manifest",
-  "description": "The ROM's NitroFS table after a build, with per-entry provenance. Written by files-dump, or by `ncpatcher rom files --json`. Consumers turn file ids into constants, or show what a project changes about a ROM.",
+  "description": "The ROM's NitroFS table after a build, with per-entry provenance. Written by files-dump, by `ncpatcher rom files --json`, or by `ncpatcher files plan --json` for a build that has not happened yet. Consumers turn file ids into constants, or show what a project changes about a ROM.",
   "type": "object",
   "required": ["schema", "count", "files"],
   "additionalProperties": false,
@@ -14,6 +14,10 @@
     "variant": {
       "type": "string",
       "description": "The variant this build produced. Absent when the run had no variant, which includes `rom files --json` reading a ROM off disk."
+    },
+    "planned": {
+      "type": "boolean",
+      "description": "Present and true only in a document written by `ncpatcher files plan`, which reports what a build would place without building. Every id under z_new/ in one is a prediction that a build confirms; everything else is read from the ROM as it stands. Absent means a build wrote this."
     },
     "count": {
       "type": "integer",
@@ -65,6 +69,10 @@
         "from-variant": {
           "type": "string",
           "description": "Which layer of a layered tree supplied the file: the built variant, or the base variant underneath it. Grouping by path across manifests answers which variants translate a file."
+        },
+        "source-missing": {
+          "type": "boolean",
+          "description": "Planning only, and present only when true: the source named above was not on disk to be measured, because a hook generates it. The destination, the id and the provenance still hold; the size does not. A build never reports this, because it refuses to start without the file."
         }
       }
     }

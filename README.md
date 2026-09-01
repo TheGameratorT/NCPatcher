@@ -162,6 +162,8 @@ ncpatcher build [--variant NAME | --all-variants]
           rom files [--json]         list the ROM's NitroFS files and their ids
           rom extract DIR            write the ROM's code binaries into DIR
           rom pack DIR               fold a directory of code binaries into the ROM
+          files plan [--json] [-o PATH]
+                                     report what a build would place, without building
           version
 ```
 
@@ -769,6 +771,48 @@ ncpatcher rom files --rom build/nds/rom_fr.nds --json | jq '.files[] | select(.i
 that pipeline needs no filtering. Every command whose product *is* stdout does
 the same.
 
+### Planning a build
+
+`ncpatcher files plan` answers the same question for a build that has not
+happened:
+
+```sh
+ncpatcher files plan --variant fr --json -o build/generated/plan.json
+```
+
+It sweeps the file trees, folds in `files:`, classifies every destination and
+assigns the ids the additions would get -- and writes nothing at all, not into
+the ROM and not into an extracted directory. No toolchain is needed, exactly as
+`modules dump` needs none.
+
+The document is `ncpatcher.files/1` with one extra root field, `"planned":
+true`. A consumer must never mistake a prospective id for a settled one, so the
+flag is on the document rather than left to be inferred from the command that
+produced it. Everything else means what it means after a build: `action` is what
+a build *would* do, and the provenance fields say which module, component and
+variant layer would supply the bytes.
+
+This is what lets an editor show a file as *pending* with the id it is going to
+get, instead of showing it as pending with no id and waiting for a build to say.
+
+The prediction is produced by running the real insertion pass against a ROM
+accessor that holds every write in memory, so a plan and the build that confirms
+it come out of the same code rather than out of two implementations of the same
+rules. That is the property worth testing, and it is exact:
+
+```sh
+ncpatcher files plan --variant en --json > plan.json
+ncpatcher build --variant en
+diff <(jq -S .files plan.json) <(jq -S .files build/generated/files.json)
+```
+
+One caveat, and it is visible in the document rather than silent. A build reads
+its NitroFS sources, and a project may generate some of them in a `pre-build`
+hook, which a plan does not run. A destination whose source is not on disk yet is
+still planned -- with its id, its action and its provenance -- and its entry
+carries `"source-missing": true`, because the one thing that cannot be known is
+its size.
+
 ### The invariant a consumer can rely on
 
 **Existing file ids are never renumbered. Only `z_new/` additions may move.**
@@ -788,7 +832,8 @@ What follows for anything built on the manifest:
 - **Adding a file is a build, not an edit.** There is no way to append to a ROM's
   table from outside; only insertion assigns an id. A tool that wants a new file
   in the ROM puts it in a module tree and lets a build place it, which is why
-  an editor shows such a file as *pending* rather than writing into the ROM.
+  an editor shows such a file as *pending* rather than writing into the ROM --
+  and `files plan` is how it knows which id that file is going to be given.
 - Identity that has to survive should not be an id. Where something must be
   referred to across builds (a level naming an object it places, say) the
   durable name is a string or a hash of one, and the id is looked up from it.

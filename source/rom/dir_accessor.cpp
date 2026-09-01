@@ -371,6 +371,16 @@ std::string DirRomAccessor::nitroFilePath(u32 fileId) const
 	return NitroFs::parse(readWholeFile(path(m_layout.fnt))).pathOfFile(fileId);
 }
 
+NitroFs DirRomAccessor::nitroFs() const
+{
+	return NitroFs::parse(readWholeFile(path(m_layout.fnt)));
+}
+
+u32 DirRomAccessor::nextNitroFileId() const
+{
+	return u32(Fat::parse(readWholeFile(path(m_layout.fat))).size());
+}
+
 u32 DirRomAccessor::addNitroFile(std::string_view nitroPath, std::span<const u8> data)
 {
 	const fs::path fntFile = path(m_layout.fnt);

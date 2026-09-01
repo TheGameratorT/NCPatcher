@@ -18,7 +18,7 @@ _ncpatcher()
 	local globals='-C --project --rom --out -D --define --var --toolchain -j --jobs
 		-v --verbose --verbose-tag --color --message-format --result
 		--log --no-log --no-env-file -h --help --version'
-	local commands='build init clean restore config migrate modules rom version'
+	local commands='build init clean restore config migrate modules rom files version'
 
 	# Options taking a value are completed from the value, not the option list.
 	case "$prev" in
@@ -73,14 +73,22 @@ _ncpatcher()
 			dump)
 				[[ $command == config || $command == modules ]] && sub="${words[i]}"
 				;;
+			files)
+				# Both a `rom` subcommand and a command of its own, so which
+				# one this is depends on whether `rom` came first.
+				if [[ $command == rom ]]; then sub="${words[i]}"; else command=files; fi
+				;;
 			validate|path)
 				[[ $command == config ]] && sub="${words[i]}"
 				;;
 			list|explain)
 				[[ $command == modules ]] && sub="${words[i]}"
 				;;
-			info|files|extract|pack)
+			info|extract|pack)
 				[[ $command == rom ]] && sub="${words[i]}"
+				;;
+			plan)
+				[[ $command == files ]] && sub="${words[i]}"
 				;;
 		esac
 		[[ -n $command && -n $sub ]] && break
@@ -117,6 +125,13 @@ _ncpatcher()
 				_filedir -d
 				return
 			fi
+			;;
+		files)
+			if [[ -z $sub ]]; then
+				COMPREPLY=($(compgen -W 'plan' -- "$cur"))
+				return
+			fi
+			extra='--json -o --output --variant'
 			;;
 	esac
 

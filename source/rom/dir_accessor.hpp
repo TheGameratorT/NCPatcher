@@ -97,6 +97,8 @@ public:
 	u32 addNitroFile(std::string_view path, std::span<const u8> data) override;
 	void renameNitroFile(u32 fileId, std::string_view path) override;
 	[[nodiscard]] std::string nitroFilePath(u32 fileId) const override;
+	[[nodiscard]] NitroFs nitroFs() const override;
+	[[nodiscard]] u32 nextNitroFileId() const override;
 
 	[[nodiscard]] bool hasBanner() const override;
 	[[nodiscard]] std::vector<u8> readBanner() override;

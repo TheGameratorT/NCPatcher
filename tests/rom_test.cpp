@@ -14,6 +14,7 @@
 #include "../source/rom/nds_rom.hpp"
 #include "../source/rom/nitro_fs.hpp"
 #include "../source/rom/overlay_table.hpp"
+#include "../source/rom/plan_accessor.hpp"
 #include "../source/formats/blz.hpp"
 #include "../source/utils/crc.hpp"
 
@@ -333,6 +334,74 @@ static void testExtractedNitroFs()
 	check(afterFat.size() == 5, "the extracted FAT grows with both files");
 	check(readFile(root / "data/z_new/coop/new.bin") == std::vector<u8>({ 0x44 }),
 		"the extracted new file is written below data-dir");
+
+	fs::remove_all(root, ignored);
+}
+
+// The planner's accessor: every answer the real one would give, and not one
+// byte written anywhere.
+//
+// Wrapped around the extracted backend deliberately. That is the one that
+// writes as it goes rather than buffering until commit(), so if a plan can
+// leave an extracted ROM untouched it can leave anything untouched.
+static void testPlanAccessorWritesNothing()
+{
+	const fs::path root = fs::temp_directory_path() / "ncp_plan_accessor_test";
+	std::error_code ignored;
+	fs::remove_all(root, ignored);
+
+	const NitroFs tree = buildTree();
+	writeFile(root / "fnt.bin", tree.serialize());
+	Fat fat;
+	for (int i = 0; i < 3; i++)
+		fat.add(FatEntry{});
+	writeFile(root / "fat.bin", fat.serialize());
+	writeFile(root / "data/data/a.bin", std::vector<u8>({ 0x11 }));
+
+	DirRomAccessor base(root, DirLayout{});
+	PlanRomAccessor plan(base);
+
+	check(plan.findNitroFile("data/a.bin") == 1, "a plan resolves the ROM's own paths");
+	check(plan.readNitroFile("data/a.bin") == std::vector<u8>({ 0x11 }),
+		"and reads through to the bytes underneath");
+
+	check(plan.replaceNitroFile("data/a.bin", std::vector<u8>({ 0x22, 0x33 })) == 1,
+		"a planned replacement keeps the file's id");
+	check(plan.readNitroFile("data/a.bin") == std::vector<u8>({ 0x22, 0x33 }),
+		"and is what the plan reads back afterwards");
+
+	// The whole point of the command: which id the build is going to hand out.
+	check(plan.addNitroFile("z_new/reserved", {}) == 3,
+		"the reserved placeholder takes the first free id");
+	check(plan.addNitroFile("z_new/coop/new.bin", std::vector<u8>({ 0x44 })) == 4,
+		"and the addition after it takes the next one");
+	check(plan.nextNitroFileId() == 5, "the next id moves on with each addition");
+
+	const std::vector<NitroFileInfo> listed = plan.listNitroFiles();
+	auto sizeOf = [&](u32 id) -> long long {
+		for (const NitroFileInfo& file : listed)
+			if (file.id == id)
+				return file.size;
+		return -1;
+	};
+	check(sizeOf(1) == 2, "a planned replacement reports the size it would write");
+	check(sizeOf(4) == 1, "so does a planned addition");
+	check(plan.nitroFilePath(4) == "z_new/coop/new.bin", "a planned file answers to its path");
+
+	// And now the part that matters more than any of it.
+	check(readFile(root / "data/data/a.bin") == std::vector<u8>({ 0x11 }),
+		"planning never wrote the loose data file");
+	check(NitroFs::parse(readFile(root / "fnt.bin")).findFile("z_new/reserved") < 0,
+		"planning never wrote the name table");
+	check(Fat::parse(readFile(root / "fat.bin")).size() == 3, "planning never grew the FAT");
+	check(base.findNitroFile("z_new/coop/new.bin") < 0,
+		"the ROM underneath never heard of the planned file");
+
+	// Reaching a code-binary write would mean the planner had started patching.
+	bool refused = false;
+	try { plan.writeArm(true, std::vector<u8>({ 0x00 })); }
+	catch (const std::exception&) { refused = true; }
+	check(refused, "a plan refuses to write a code binary rather than quietly dropping it");
 
 	fs::remove_all(root, ignored);
 }
@@ -687,6 +756,7 @@ int main()
 	testRenameRefusesWhatWouldRenumber();
 	testExtractedRenameMovesTheLooseFile();
 	testExtractedNitroFs();
+	testPlanAccessorWritesNothing();
 	testHeader();
 	testRomRoundTrip();
 	testOverlayInPlace();

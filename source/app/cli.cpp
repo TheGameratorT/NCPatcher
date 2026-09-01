@@ -238,6 +238,20 @@ std::optional<int> parseCommandLine(int argc, char* argv[], CommandLine& out)
 	romPack->add_option("dir", out.romDirArgument, "Directory to read from")
 		->required()->type_name("DIR");
 
+	// Its own group rather than a `rom` subcommand: `rom files` reports a ROM
+	// that exists, and this reports one that does not yet. Filing the two under
+	// the same noun would suggest they answer the same question.
+	CLI::App* files = app.add_subcommand("files",
+		"Inspect the NitroFS files a build would place");
+	files->require_subcommand(1);
+
+	CLI::App* filesPlan = files->add_subcommand("plan",
+		"Report what a build would place in the ROM's file table, without building");
+	filesPlan->add_flag("--json", out.dumpJson, "Print it as ncpatcher.files/1 JSON");
+	filesPlan->add_option("-o,--output", out.filesOutPath,
+		"Write it to this file instead of standard output")
+		->type_name("PATH");
+
 	CLI::App* version = app.add_subcommand("version", "Show the version and exit");
 
 	// Every subcommand accepts the global options too, so that both
@@ -250,7 +264,7 @@ std::optional<int> parseCommandLine(int argc, char* argv[], CommandLine& out)
 	// obvious question, which ROM. The footer says where they are.
 	for (CLI::App* sub : { build, init, clean, restore, configDump, configValidate, configPath, migrate,
 	                       modulesList, modulesDump, modulesExplain,
-	                       romInfo, romFiles, romExtract, romPack })
+	                       romInfo, romFiles, romExtract, romPack, filesPlan })
 	{
 		sub->fallthrough();
 		sub->footer("The global options are accepted here too, before or after the command;\n"
@@ -295,6 +309,7 @@ std::optional<int> parseCommandLine(int argc, char* argv[], CommandLine& out)
 	else if (*romFiles)      out.command = Command::RomFiles;
 	else if (*romExtract)    out.command = Command::RomExtract;
 	else if (*romPack)       out.command = Command::RomPack;
+	else if (*filesPlan)     out.command = Command::FilesPlan;
 	else if (*version)       out.command = Command::Version;
 	else if (*build)         out.command = Command::Build;
 	else

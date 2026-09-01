@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "header.hpp"
+#include "nitro_fs.hpp"
 #include "overlay_table.hpp"
 #include "../utils/types.hpp"
 
@@ -89,6 +90,16 @@ public:
 
 	// The path a file id is currently named by, or empty when nothing names it.
 	[[nodiscard]] virtual std::string nitroFilePath(u32 fileId) const = 0;
+
+	// The name table as a value, and the id addNitroFile would hand out next.
+	//
+	// Reporting what a build *would* place needs both: which id a z_new/
+	// addition is going to get, and whether naming it in its directory is even
+	// legal, are questions about this tree rather than about anyone's bytes.
+	// See plan_accessor.hpp, which is the only caller and answers them without
+	// writing anything.
+	[[nodiscard]] virtual NitroFs nitroFs() const = 0;
+	[[nodiscard]] virtual u32 nextNitroFileId() const = 0;
 
 	// The icon/title banner. Not a NitroFS file and not addressable as one: it
 	// is a region of its own that the header points at, which is why it needs

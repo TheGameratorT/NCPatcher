@@ -71,6 +71,7 @@ private:
 	int runMigrate();
 	int runModulesCommand();
 	int runRomCommand();
+	int runFilesPlan();
 
 	static int reportFailure(const std::exception& e);
 	void processTarget(ncp::rom::RomAccessor& rom, bool isArm9);
@@ -93,9 +94,17 @@ private:
 	{
 		std::vector<config::FileConfig> files;
 		std::vector<u32> createdIds;
+
+		// Planning only: destinations whose source was not on disk yet, because
+		// a hook generates it. See insertFiles.
+		std::vector<std::string> missingSources;
 	};
 
-	InsertedFiles insertFiles(ncp::rom::RomAccessor& rom);
+	// `planning` runs the whole pass for its answers rather than its effects:
+	// nothing is announced, and a source a hook has not generated yet is
+	// planned as empty instead of refused. It is still the same pass, which is
+	// the only way a plan and a build can be relied on to agree.
+	InsertedFiles insertFiles(ncp::rom::RomAccessor& rom, bool planning = false);
 	void writeFileDump(const ncp::rom::RomAccessor& rom, const InsertedFiles& inserted) const;
 
 	// Overwrites the ROM's icon/title banner, if the project supplies one. Its

@@ -173,6 +173,7 @@ set(SOURCES
 	source/rom/nds_rom.cpp
 	source/rom/nitro_fs.cpp
 	source/rom/overlay_table.cpp
+	source/rom/plan_accessor.cpp
 	source/system/ansi.cpp
 	source/system/cache.cpp
 	source/system/diagnostics.cpp
@@ -322,6 +323,7 @@ if (NCP_BUILD_TESTS)
 		source/rom/nds_rom.cpp
 		source/rom/nitro_fs.cpp
 		source/rom/overlay_table.cpp
+		source/rom/plan_accessor.cpp
 		source/system/ansi.cpp
 		source/system/diagnostics.cpp
 		source/system/except.cpp

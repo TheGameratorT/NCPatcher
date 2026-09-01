@@ -39,6 +39,7 @@ enum class Command
 	RomFiles,
 	RomExtract,
 	RomPack,
+	FilesPlan,
 	Version
 };
 
@@ -105,6 +106,9 @@ struct CommandLine
 	// modules dump -o, and the Module or Module.Component `modules explain` names
 	std::filesystem::path modulesOutPath;
 	std::string modulesTarget;
+
+	// files plan -o
+	std::filesystem::path filesOutPath;
 };
 
 // Parses argv, then folds in the NCPATCHER_* environment for the settings that

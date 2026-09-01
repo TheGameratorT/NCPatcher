@@ -60,6 +60,8 @@ public:
 	u32 addNitroFile(std::string_view, std::span<const u8>) override { return 0; }
 	void renameNitroFile(u32, std::string_view) override {}
 	[[nodiscard]] std::string nitroFilePath(u32) const override { return {}; }
+	[[nodiscard]] rom::NitroFs nitroFs() const override { return {}; }
+	[[nodiscard]] u32 nextNitroFileId() const override { return 0; }
 	[[nodiscard]] bool hasBanner() const override { return false; }
 	[[nodiscard]] std::vector<u8> readBanner() override { return {}; }
 	void writeBanner(std::span<const u8>) override {}
@@ -196,6 +198,46 @@ int main()
 		std::ostringstream out;
 		rom::writeManifest(out, entries, std::string_view());
 		check(!contains(out.str(), "\"variant\""), "no variant key without a variant");
+	}
+
+	// `files plan`. The ids under z_new/ in one of these are predictions, so
+	// the document has to say so on its face: a consumer that could not tell a
+	// plan from a build would show a prospective id as a settled one.
+	{
+		std::ostringstream out;
+		rom::writeManifest(out, entries, "en", true);
+		check(contains(out.str(), "\"planned\": true"), "a plan says it is one");
+
+		std::ostringstream built;
+		rom::writeManifest(built, entries, "en");
+		check(!contains(built.str(), "\"planned\""),
+			"and a build's manifest carries no such key at all");
+	}
+
+	// A source a pre-build hook has not generated yet. The destination, the id
+	// and the provenance are still right; the size is the only thing that is
+	// not, and the entry says which entries those are rather than leaving a
+	// reader to guess.
+	{
+		const std::vector<rom::ManifestEntry> planned =
+			rom::buildManifest(rom, files, createdIds, root, { "uiStudio/title.bin" });
+
+		const rom::ManifestEntry* missing = entry(planned, 500);
+		check(missing != nullptr && missing->sourceMissing,
+			"a destination whose source was not there is flagged");
+		check(missing != nullptr && missing->action == rom::FileAction::Modified
+			&& missing->module == "coop",
+			"and keeps the action and provenance the plan resolved");
+
+		const rom::ManifestEntry* present = entry(planned, 2101);
+		check(present != nullptr && !present->sourceMissing,
+			"a file whose source was read is not flagged");
+
+		std::ostringstream out;
+		rom::writeManifest(out, planned, "en", true);
+		check(contains(out.str(), "\"source-missing\": true"), "and the flag reaches the document");
+		check(!contains(out.str(), "\"source-missing\": false"),
+			"which carries the key only where it is true");
 	}
 
 	if (g_failures == 0)

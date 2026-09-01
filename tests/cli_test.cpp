@@ -58,6 +58,23 @@ int main()
 		g_failures++;
 	}
 
+	// `files plan` takes the variant through the same global option a build
+	// does, which is what lets a caller ask for a plan and a build of the same
+	// thing without knowing which options belong to which command.
+	const CommandLine plan = parse({ "ncpatcher", "files", "plan", "--variant", "fr", "--json" });
+	if (plan.command != Command::FilesPlan || plan.variant != "fr" || !plan.dumpJson)
+	{
+		std::cout << "FAIL: files plan takes a variant and --json\n";
+		g_failures++;
+	}
+
+	const CommandLine planOut = parse({ "ncpatcher", "files", "plan", "-o", "plan.json" });
+	if (planOut.command != Command::FilesPlan || planOut.filesOutPath != "plan.json")
+	{
+		std::cout << "FAIL: files plan writes to a named file\n";
+		g_failures++;
+	}
+
 	if (g_failures == 0)
 		std::cout << "cli_test: all checks passed\n";
 	return g_failures == 0 ? 0 : 1;
