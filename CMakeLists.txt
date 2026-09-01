@@ -177,6 +177,7 @@ set(SOURCES
 	source/rom/plan_accessor.cpp
 	source/system/ansi.cpp
 	source/system/cache.cpp
+	source/system/cancel.cpp
 	source/system/diagnostics.cpp
 	source/system/except.cpp
 	source/system/exit_code.cpp

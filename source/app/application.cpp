@@ -15,6 +15,7 @@
 #include "../system/process.hpp"
 #include "../system/except.hpp"
 #include "../system/cache.hpp"
+#include "../system/cancel.hpp"
 #include "../system/diagnostics.hpp"
 #include "../system/exit_code.hpp"
 #include "../system/message.hpp"
@@ -96,6 +97,10 @@ std::optional<int> Application::initialize(int argc, char* argv[])
 	// Initialize caches
 	ncp::cache::CacheManager::getInstance().clearCaches();
 
+	// After logging, so a cancellation has somewhere to be reported, and before
+	// anything long-running, which is everything below.
+	cancel::install();
+
 	m_options.defines = m_cli.defines;
 	m_options.verboseTags = m_cli.verboseTags;
 
@@ -132,11 +137,20 @@ int Application::run()
 		case Command::FilesPlan:      code = runFilesPlan(); break;
 		default:                      runBuild(); break;
 		}
+	} catch (const ncp::cancelled&) {
+		// Not a failure, and reported as one it would be: nothing is wrong with
+		// the project, nothing has to be fixed, and the next run picks up from
+		// the pristine binaries the backup store holds.
+		Log::info("Cancelled.");
+		code = exitValue(ExitCode::Cancelled);
 	} catch (std::exception& e) {
 		code = reportFailure(e);
 	}
 
-	msg::finish(code == 0 ? "ok" : "error", code);
+	// The result document is written either way, so a caller that asked for one
+	// learns what had finished before the stop rather than nothing at all.
+	msg::finish(code == 0 ? "ok" : (code == exitValue(ExitCode::Cancelled) ? "cancelled" : "error"),
+		code);
 	return code;
 }
 
@@ -694,6 +708,10 @@ void Application::runConfiguredBuild()
 	loadModules();
 	writeModuleDump();
 
+	// Between phases, which is where stopping leaves nothing half-done. See
+	// system/cancel.hpp for why these are chosen rather than sprinkled.
+	cancel::checkpoint();
+
 	runHooks(config::HookWhen::PreBuild,
 			 "Running pre-build hooks...",
 			 Diag::PreBuildCommand,
@@ -702,6 +720,8 @@ void Application::runConfiguredBuild()
 	// Hooks may generate the source files. Insert them after hooks but before
 	// target resolution and compilation, so every generated file id is settled
 	// before code which refers to it is built.
+	cancel::checkpoint();
+
 	const rom::InsertionRecord inserted = insertFiles(*rom);
 	insertBanner(*rom);
 
@@ -722,6 +742,8 @@ void Application::runConfiguredBuild()
 	}
 	openDefaultLogFile();
 
+	cancel::checkpoint();
+
 	if (m_config.arm7.enabled) {
 		processTarget(*rom, false); // ARM7
 	}
@@ -729,6 +751,10 @@ void Application::runConfiguredBuild()
 	if (m_config.arm9.enabled) {
 		processTarget(*rom, true);  // ARM9
 	}
+
+	// The last one. Past here the ROM is written, and a build that has produced
+	// its output has finished whatever anyone asked of it since.
+	cancel::checkpoint();
 
 	// After both targets: the container backend holds its writes until here, so
 	// a build that fails half way through never leaves a ROM with one

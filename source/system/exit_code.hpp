@@ -26,6 +26,11 @@ enum class ExitCode : int
 	RomIo       = 9,
 	Hook        = 10,  // a pre-build or post-build command failed
 
+	// Someone asked the build to stop, and it did. Not a failure: nothing is
+	// wrong with the project and nothing has to be fixed before the next run.
+	// See system/cancel.hpp for what to send and where it takes effect.
+	Cancelled   = 11,
+
 	// 128 + SIGINT, the shell convention. Reserved rather than returned: a
 	// Ctrl-C today terminates the process through the default disposition, and
 	// the shell reports this value itself. It is named here so that a handler

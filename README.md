@@ -250,6 +250,30 @@ to learn that a project or a variant overrides nothing.
 | 8 | Patching |
 | 9 | ROM file I/O |
 | 10 | A hook command failed |
+| 11 | Cancelled |
+
+
+### Cancelling a build
+
+A ROM editor that starts a build needs a Cancel button, and it needs to know
+what to send and what will come back.
+
+**Send `SIGINT` (POSIX) or `CTRL_BREAK_EVENT` (Windows) to the process group.**
+Compiler children are in that group and stop with it. The build notices at its
+next checkpoint, unwinds the ordinary way, and exits **11**. A `--result`
+document is still written, with `status: "cancelled"`, so a caller learns what
+had finished before the stop rather than nothing at all.
+
+Checkpoints are between build phases and between compilations. A compilation
+already running finishes -- its object file is complete and correct, and the
+next build will not redo it -- while everything still queued is dropped, so a
+cancelled build drains instead of compiling its way to the exit.
+
+Stopping is safe by construction rather than by care. `BackupStore` holds the
+pristine binaries, so the next run starts from those and not from half-written
+output, and the `.nds` backend holds every write until the end, so a ROM is
+written whole or not at all. Cancel a build, run it again, and you get the ROM
+you would have got without the interruption.
 
 
 ## Configuration

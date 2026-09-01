@@ -41,6 +41,19 @@ namespace ncp
 		file_error::operation m_operation;
 	};
 
+	// cancelled =============================
+
+	// Thrown at a checkpoint once a stop has been asked for. Its own type
+	// rather than an exception with a recognisable message, because the caller
+	// has to tell "you asked us to stop" from "the build failed": they are
+	// different exit codes, a different result status, and different things to
+	// put in front of a person.
+	class cancelled : public exception
+	{
+	public:
+		cancelled();
+	};
+
 	// dir_error =============================
 
 	class dir_error : public exception

@@ -21,6 +21,12 @@ namespace ncp
 		return m_msg.c_str();
 	}
 
+	// cancelled =============================
+
+	cancelled::cancelled() :
+		exception("The build was cancelled.")
+	{}
+
 	// file_error =============================
 
 	static const char* file_ops[] = {

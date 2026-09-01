@@ -11,6 +11,7 @@
 #include <BS_thread_pool.hpp>
 
 #include "../config/buildtarget.hpp"
+#include "../system/cancel.hpp"
 #include "../system/except.hpp"
 #include "../system/log.hpp"
 #include "../system/ansi.hpp"
@@ -314,7 +315,18 @@ void ObjMaker::compileSources()
 
 		pool.push_task([unit, this, completed, pendingCount](){
 			core::BuildInfo& buildInfo = unit->getBuildInfo();
-			
+
+			// A queued compilation that has not started yet is simply dropped,
+			// so a cancelled build drains rather than compiling the other two
+			// hundred files on the way out. One already running finishes; its
+			// object is complete and correct, and the next build will not have
+			// to redo it.
+			if (ncp::cancel::requested())
+			{
+				buildInfo.buildComplete = true;
+				return;
+			}
+
 			buildInfo.buildStarted = true;
 
 			std::ostringstream out;
@@ -459,6 +471,11 @@ void ObjMaker::compileSources()
 	pool.wait_for_tasks();
 
 	logger.finish();
+
+	// Before the failure check: a cancelled build's dropped compilations are
+	// not compile errors, and reporting them as such would send a caller
+	// looking for a mistake in their code.
+	ncp::cancel::checkpoint();
 
 	if (logger.getFailed())
 	{
