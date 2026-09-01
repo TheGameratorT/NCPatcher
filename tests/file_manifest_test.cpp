@@ -113,8 +113,10 @@ int main()
 		files.push_back(std::move(added));
 	}
 
-	const std::vector<u32> createdIds = { 2100, 2101 };
-	const std::vector<rom::ManifestEntry> entries = rom::buildManifest(rom, files, createdIds, root);
+	rom::InsertionRecord record;
+	record.files = files;
+	record.createdIds = { 2100, 2101 };
+	const std::vector<rom::ManifestEntry> entries = rom::buildManifest(rom, record, root);
 
 	// Every file in the table, not only the two the build wrote: a generator
 	// naming files by id needs the ones it did not touch just as much.
@@ -167,7 +169,9 @@ int main()
 		file.source = fs::path("/elsewhere/store/title.bin");
 		outside.push_back(std::move(file));
 
-		const std::vector<rom::ManifestEntry> result = rom::buildManifest(rom, outside, {}, root);
+		rom::InsertionRecord elsewhere;
+		elsewhere.files = std::move(outside);
+		const std::vector<rom::ManifestEntry> result = rom::buildManifest(rom, elsewhere, root);
 		const rom::ManifestEntry* found = entry(result, 500);
 		check(found != nullptr && found->source == "/elsewhere/store/title.bin",
 			"a source outside the project stays absolute");
@@ -219,8 +223,9 @@ int main()
 	// not, and the entry says which entries those are rather than leaving a
 	// reader to guess.
 	{
-		const std::vector<rom::ManifestEntry> planned =
-			rom::buildManifest(rom, files, createdIds, root, { "uiStudio/title.bin" });
+		rom::InsertionRecord incomplete = record;
+		incomplete.missingSources = { "uiStudio/title.bin" };
+		const std::vector<rom::ManifestEntry> planned = rom::buildManifest(rom, incomplete, root);
 
 		const rom::ManifestEntry* missing = entry(planned, 500);
 		check(missing != nullptr && missing->sourceMissing,
@@ -238,6 +243,71 @@ int main()
 		check(contains(out.str(), "\"source-missing\": true"), "and the flag reaches the document");
 		check(!contains(out.str(), "\"source-missing\": false"),
 			"which carries the key only where it is true");
+	}
+
+	// Members of an edited archive. The container's own entry can carry no more
+	// provenance than its members agree on, so without these the per-member
+	// truth is discarded and an editor showing the inside of an archive has to
+	// re-derive it from the module trees -- which is the duplication all of
+	// this exists to remove.
+	{
+		rom::InsertionRecord edited;
+		{
+			// What insertion pushes for an archive whose members were replaced
+			// but whose container no entry supplied.
+			config::FileConfig summary;
+			summary.path = "ARCHIVE/menu_title.narc";
+			summary.module = "message";
+			edited.files.push_back(std::move(summary));
+		}
+		edited.archiveEdits.push_back(rom::ArchiveEdit{
+			"ARCHIVE/menu_title.narc", 43, "menu/title/USA/vs.bmg", 2031,
+			root / "modules/message/nitrofs/fr/ARCHIVE/menu_title_narc/menu/title/USA/vs.bmg",
+			"message", "Vanilla", "fr", false });
+		edited.archiveEdits.push_back(rom::ArchiveEdit{
+			"ARCHIVE/menu_title.narc", 14, "menu/title/USA/opening.bmg", 64,
+			root / "modules/message/nitrofs/fr/ARCHIVE/menu_title_narc/menu/title/USA/opening.bmg",
+			"message", "Vanilla", "fr", false });
+
+		FakeRom archived;
+		archived.files = { { 812, "ARCHIVE/menu_title.narc", 40960, } };
+
+		const std::vector<rom::ManifestEntry> result = rom::buildManifest(archived, edited, root);
+		const rom::ManifestEntry* container = entry(result, 812);
+		check(container != nullptr && container->action == rom::FileAction::Modified,
+			"an archive whose members were edited is modified");
+		check(container != nullptr && container->members.size() == 2,
+			"both edited members are recorded");
+
+		// Sorted by index, so two runs of the same project produce the same
+		// document whatever order the edits were resolved in.
+		check(container != nullptr && container->members.size() == 2
+			&& container->members[0].index == 14 && container->members[1].index == 43,
+			"members are ordered by index");
+		check(container != nullptr && !container->members.empty()
+			&& container->members[0].path == "menu/title/USA/opening.bmg"
+			&& container->members[0].module == "message"
+			&& container->members[0].fromVariant == "fr"
+			&& container->members[0].source
+				== "modules/message/nitrofs/fr/ARCHIVE/menu_title_narc/menu/title/USA/opening.bmg",
+			"a member carries the provenance the container cannot");
+
+		std::ostringstream out;
+		rom::writeManifest(out, result, "fr");
+		const std::string text = out.str();
+		check(contains(text, "\"members\""), "members reach the document");
+		check(contains(text, "\"index\": 43"), "a member is addressed by index");
+		check(!contains(text, "\"id\": 43"),
+			"and never by id, which a member does not have");
+
+		// Every other file in the ROM: no members key at all, rather than an
+		// empty array on two thousand entries.
+		FakeRom plain;
+		plain.files = { { 133, "sound_data.sdat", 4096, } };
+		std::ostringstream untouched;
+		rom::writeManifest(untouched, rom::buildManifest(plain, {}, root), std::string_view());
+		check(!contains(untouched.str(), "\"members\""),
+			"a file that is not an edited archive carries no members key");
 	}
 
 	if (g_failures == 0)

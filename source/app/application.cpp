@@ -285,9 +285,9 @@ int Application::runFilesPlan()
 	loadModules(true);
 
 	rom::PlanRomAccessor plan(*base);
-	const InsertedFiles inserted = insertFiles(plan, true);
-	const std::vector<rom::ManifestEntry> entries = rom::buildManifest(
-		plan, inserted.files, inserted.createdIds, m_ctx.paths.workDir, inserted.missingSources);
+	const rom::InsertionRecord inserted = insertFiles(plan, true);
+	const std::vector<rom::ManifestEntry> entries =
+		rom::buildManifest(plan, inserted, m_ctx.paths.workDir);
 
 	std::ofstream file;
 	std::ostream* out = &std::cout;
@@ -702,7 +702,7 @@ void Application::runConfiguredBuild()
 	// Hooks may generate the source files. Insert them after hooks but before
 	// target resolution and compilation, so every generated file id is settled
 	// before code which refers to it is built.
-	const InsertedFiles inserted = insertFiles(*rom);
+	const rom::InsertionRecord inserted = insertFiles(*rom);
 	insertBanner(*rom);
 
 	// Before the post-files hooks: a generator that turns file ids into
@@ -1034,13 +1034,13 @@ std::vector<config::FileConfig> Application::resolveNitroFiles() const
 	return files;
 }
 
-Application::InsertedFiles Application::insertFiles(rom::RomAccessor& rom, bool planning)
+rom::InsertionRecord Application::insertFiles(rom::RomAccessor& rom, bool planning)
 {
 	ScopedContext ctx(Diag::NitroFsInsert, planning
 		? "Could not plan the NitroFS files."
 		: "Could not insert the NitroFS files.");
 
-	InsertedFiles inserted;
+	rom::InsertionRecord inserted;
 	inserted.files = resolveNitroFiles();
 	const std::vector<config::FileConfig>& files = inserted.files;
 	if (files.empty())
@@ -1057,6 +1057,10 @@ Application::InsertedFiles Application::insertFiles(rom::RomAccessor& rom, bool 
 
 		// '/'-separated path within a Nitro archive, empty for a loose file.
 		std::string inner;
+
+		// Planning only: the source was not on disk, so `data` is empty rather
+		// than the file's contents.
+		bool missing = false;
 	};
 	std::vector<PreparedFile> replacements;
 	std::vector<PreparedFile> additions;
@@ -1091,6 +1095,7 @@ Application::InsertedFiles Application::insertFiles(rom::RomAccessor& rom, bool 
 
 		PreparedFile prepared;
 		prepared.config = &file;
+		prepared.missing = !present;
 
 		if (present)
 		{
@@ -1290,6 +1295,21 @@ Application::InsertedFiles Application::insertFiles(rom::RomAccessor& rom, bool 
 				throw ncp::exception(oss.str());
 			}
 			narc.replaceFile(std::size_t(index), edit.data);
+
+			// The manifest needs this and cannot recover it later: once the
+			// container is written back, the ROM's table shows one modified
+			// file and nothing at all about which of its members moved.
+			rom::ArchiveEdit record;
+			record.archive = archivePath;
+			record.index = u32(index);
+			record.member = edit.inner;
+			record.size = u32(edit.data.size());
+			record.source = edit.config->source;
+			record.module = edit.config->module;
+			record.component = edit.config->component;
+			record.fromVariant = edit.config->fromVariant;
+			record.sourceMissing = edit.missing;
+			inserted.archiveEdits.push_back(std::move(record));
 		}
 
 		entry.data = narc.serialize();
@@ -1487,7 +1507,7 @@ void Application::insertBanner(rom::RomAccessor& rom) const
 	msg::artifact(std::move(artifact));
 }
 
-void Application::writeFileDump(const rom::RomAccessor& rom, const InsertedFiles& inserted) const
+void Application::writeFileDump(const rom::RomAccessor& rom, const rom::InsertionRecord& inserted) const
 {
 	if (!m_config.filesDump.configured())
 		return;
@@ -1508,7 +1528,7 @@ void Application::writeFileDump(const rom::RomAccessor& rom, const InsertedFiles
 	}
 
 	const std::vector<rom::ManifestEntry> entries =
-		rom::buildManifest(rom, inserted.files, inserted.createdIds, m_ctx.paths.workDir);
+		rom::buildManifest(rom, inserted, m_ctx.paths.workDir);
 	rom::writeManifest(file, entries, m_variant);
 	Log::info("Wrote the file manifest.");
 }

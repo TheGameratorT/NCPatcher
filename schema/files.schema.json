@@ -73,6 +73,56 @@
         "source-missing": {
           "type": "boolean",
           "description": "Planning only, and present only when true: the source named above was not on disk to be measured, because a hook generates it. The destination, the id and the provenance still hold; the size does not. A build never reports this, because it refuses to start without the file."
+        },
+        "members": {
+          "type": "array",
+          "description": "Present only for a Nitro archive this run edited, and then only for the members it edited. A container's own entry can carry no more provenance than its members agree on, which for five members from three modules is none, so the per-member truth would otherwise be lost. Members the run did not touch are deliberately absent: enumerating every member of every archive would dwarf the rest of the document, and a consumer holding the ROM can list them itself. Sorted by index.",
+          "items": { "$ref": "#/$defs/member" }
+        }
+      }
+    },
+    "member": {
+      "type": "object",
+      "required": ["index", "path", "size", "action"],
+      "additionalProperties": false,
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The member's position in its container, which is how the game addresses it. Never an `id`: a member index is not a NitroFS file id, the ROM's table does not name members at all, and treating the two alike would replace the wrong file."
+        },
+        "path": {
+          "type": "string",
+          "description": "Slash-separated path inside the archive, as the container's own name table spells it. The address a `files:` entry writes for it is `<container path>!<this>`."
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Size in bytes of the member after this run."
+        },
+        "action": {
+          "enum": ["unchanged", "modified"],
+          "description": "Always `modified` in practice, since only edited members are listed. Never `created`: the archive codec is replace-only, because a game reads a member by index and inserting one renumbers every member after it."
+        },
+        "source": {
+          "type": "string",
+          "description": "Where the member's bytes came from, relative to the project directory when it is inside it."
+        },
+        "module": {
+          "type": "string",
+          "description": "The module whose tree supplied the member."
+        },
+        "component": {
+          "type": "string",
+          "description": "The component that names this member in its files: patterns."
+        },
+        "from-variant": {
+          "type": "string",
+          "description": "Which layer of a layered tree supplied the member."
+        },
+        "source-missing": {
+          "type": "boolean",
+          "description": "As on a file entry: planning only, and only when true."
         }
       }
     }

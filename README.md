@@ -566,6 +566,9 @@ archive nothing edited is written back byte for byte.
 `id:` cannot be combined with an archive destination, since it renames a loose
 file and a member of an archive is not one.
 
+The manifest records what happened inside: see *Members of an edited archive*
+below.
+
 ### Replacing the ROM banner
 
 The icon and title shown on the console's menu are not a NitroFS file: they are
@@ -770,6 +773,43 @@ ncpatcher rom files --rom build/nds/rom_fr.nds --json | jq '.files[] | select(.i
 `rom files` and `rom info` put their output on stdout and the log on stderr, so
 that pipeline needs no filtering. Every command whose product *is* stdout does
 the same.
+
+### Members of an edited archive
+
+The ROM's table has one entry for a `.narc`, however many of its members a
+build replaced, and that entry can only carry the provenance its members agree
+on. One member gives the whole answer; five from three modules give the honest
+one, which is that no single source stands behind the file. That is the right
+summary, but on its own it is also the *only* record, and the per-member truth
+would be thrown away -- leaving an editor that wants to show the inside of an
+archive to re-derive it from the module trees, which is precisely the
+duplication `files plan` exists to remove.
+
+So an archive this run edited also carries `members`:
+
+```jsonc
+{ "id": 152, "path": "ARCHIVE/menu_title.narc", "size": 53600, "action": "modified",
+  "source": "modules/message/nitrofs/fr/ARCHIVE/menu_title_narc/menu/title/USA/vs.bmg",
+  "module": "message", "from-variant": "fr",
+  "members": [
+    { "index": 43, "path": "menu/title/USA/vs.bmg", "size": 1344, "action": "modified",
+      "source": "modules/message/nitrofs/fr/ARCHIVE/menu_title_narc/menu/title/USA/vs.bmg",
+      "module": "message", "from-variant": "fr" } ] }
+```
+
+`index`, never `id`. A member index is not a NitroFS file id: the ROM's table
+does not name members at all, so nothing outside the container can address one
+by number, and a consumer that treated the two alike would be one confusion away
+from replacing the wrong file. A member's `action` is never `created` either,
+for the reason above -- the codec is replace-only.
+
+Only the members the run edited are listed. Enumerating every member of every
+archive would dwarf the rest of the document, and a consumer with the ROM open
+can list them itself; what it cannot work out on its own is where the bytes came
+from, so that is what this carries.
+
+Additive, so the document is still `ncpatcher.files/1`, and a consumer that
+reads only the container entry is unaffected.
 
 ### Planning a build
 

@@ -37,6 +37,34 @@ enum class FileAction
 	Created
 };
 
+// One member of a Nitro archive that this run replaced.
+//
+// `index`, never `id`. A member index is not a NitroFS file id and the two must
+// be impossible to confuse: the ROM's table does not name members at all, so
+// nothing outside the container itself can address one by number, and an
+// editor that treated the two alike would be one typo away from replacing the
+// wrong file entirely.
+//
+// `action` is only ever `Modified`. The archive codec is replace-only, because
+// a game reads a member by index and inserting one renumbers every member after
+// it -- so there is no such thing as a created member.
+struct ManifestMember
+{
+	u32 index = 0;
+
+	// '/'-separated path inside the archive, as the container's own name table
+	// spells it.
+	std::string path;
+	u32 size = 0;
+	FileAction action = FileAction::Modified;
+
+	std::string source;
+	std::string module;
+	std::string component;
+	std::string fromVariant;
+	bool sourceMissing = false;
+};
+
 // The manifest's view of one file: the ROM's own facts, plus what the build
 // knows about where the bytes came from.
 struct ManifestEntry
@@ -57,22 +85,57 @@ struct ManifestEntry
 	// measured, because a hook has not generated it yet. The destination, the
 	// id and the provenance are still right; the size is not.
 	bool sourceMissing = false;
+
+	// Present only for an archive this run edited, and then only for the
+	// members it edited. Enumerating every member of every archive would dwarf
+	// the rest of the document, and a consumer holding the ROM can list them
+	// itself; what it cannot work out on its own is provenance, so that is
+	// what this carries.
+	std::vector<ManifestMember> members;
+};
+
+// What one member replacement did, before the manifest relativises its source.
+struct ArchiveEdit
+{
+	// The container's own ROM path, which is what the manifest entry this
+	// belongs to is keyed by.
+	std::string archive;
+
+	u32 index = 0;
+	std::string member;
+	u32 size = 0;
+
+	std::filesystem::path source;
+	std::string module;
+	std::string component;
+	std::string fromVariant;
+	bool sourceMissing = false;
+};
+
+// What one insertion pass did, in the terms the manifest needs to hear it.
+//
+// `files` is the resolved insertion list, which says where each file's bytes
+// came from. `createdIds` is what separates a file this run created from one it
+// replaced, since by the time the manifest is written both are simply present.
+// `archiveEdits` is what happened inside a container, which the ROM's table
+// cannot show, because it does not name members at all.
+struct InsertionRecord
+{
+	std::vector<config::FileConfig> files;
+	std::vector<u32> createdIds;
+
+	// Planning only: destinations whose source was not on disk to be measured.
+	// Always empty after a real build, which refuses to start without them.
+	std::vector<std::string> missingSources;
+
+	std::vector<ArchiveEdit> archiveEdits;
 };
 
 // Folds the ROM's file table together with what was just inserted.
-//
-// `files` is the resolved insertion list, and `before` is the set of ids that
-// already existed when the build started, which is what separates a file this
-// run created from one it replaced, since by the time the manifest is written
-// both are simply present.
-// `missingSources` names the destinations whose source a plan could not read.
-// Always empty after a real build, which refuses to start without them.
 [[nodiscard]] std::vector<ManifestEntry> buildManifest(
 	const RomAccessor& rom,
-	const std::vector<config::FileConfig>& files,
-	const std::vector<u32>& createdIds,
-	const std::filesystem::path& projectRoot,
-	const std::vector<std::string>& missingSources = {});
+	const InsertionRecord& inserted,
+	const std::filesystem::path& projectRoot);
 
 // Writes `ncpatcher.files/1`.
 //

@@ -50,21 +50,45 @@ std::string sourceText(const fs::path& source, const fs::path& projectRoot)
 
 std::vector<ManifestEntry> buildManifest(
 	const RomAccessor& rom,
-	const std::vector<config::FileConfig>& files,
-	const std::vector<u32>& createdIds,
-	const fs::path& projectRoot,
-	const std::vector<std::string>& missingSources)
+	const InsertionRecord& record,
+	const fs::path& projectRoot)
 {
 	// Indexed by destination, because that is the only thing the insertion list
 	// and the ROM's table share: an entry claiming an id was renamed on the
 	// way in, so its path is the one it has now.
 	std::unordered_map<std::string, const config::FileConfig*> inserted;
-	inserted.reserve(files.size());
-	for (const config::FileConfig& file : files)
+	inserted.reserve(record.files.size());
+	for (const config::FileConfig& file : record.files)
 		inserted.emplace(file.path, &file);
 
-	const std::unordered_set<u32> created(createdIds.begin(), createdIds.end());
-	const std::unordered_set<std::string> missing(missingSources.begin(), missingSources.end());
+	const std::unordered_set<u32> created(record.createdIds.begin(), record.createdIds.end());
+	const std::unordered_set<std::string> missing(
+		record.missingSources.begin(), record.missingSources.end());
+
+	// Members, grouped by the container they belong to and ordered within it,
+	// so that two runs of the same project produce the same document.
+	std::unordered_map<std::string, std::vector<ManifestMember>> members;
+	for (const ArchiveEdit& edit : record.archiveEdits)
+	{
+		ManifestMember member;
+		member.index = edit.index;
+		member.path = edit.member;
+		member.size = edit.size;
+		member.action = FileAction::Modified;
+		member.source = sourceText(edit.source, projectRoot);
+		member.module = edit.module;
+		member.component = edit.component;
+		member.fromVariant = edit.fromVariant;
+		member.sourceMissing = edit.sourceMissing;
+		members[edit.archive].push_back(std::move(member));
+	}
+	for (auto& [archive, list] : members)
+	{
+		std::sort(list.begin(), list.end(),
+			[](const ManifestMember& left, const ManifestMember& right) {
+				return left.index < right.index;
+			});
+	}
 
 	std::vector<ManifestEntry> out;
 	for (const NitroFileInfo& file : rom.listNitroFiles())
@@ -89,6 +113,16 @@ std::vector<ManifestEntry> buildManifest(
 			// The reserved placeholder: NCPatcher's own, created out of nothing,
 			// so there is no source to name.
 			entry.action = FileAction::Created;
+		}
+
+		const auto edited = members.find(file.path);
+		if (edited != members.end())
+		{
+			// An archive whose members were edited is modified even when no
+			// entry replaced the container itself, which is the whole reason
+			// the summary entry exists.
+			entry.action = FileAction::Modified;
+			entry.members = edited->second;
 		}
 
 		out.push_back(std::move(entry));
@@ -138,6 +172,34 @@ void writeManifest(std::ostream& out,
 			writer.field("from-variant", entry.fromVariant);
 		if (entry.sourceMissing)
 			writer.field("source-missing", true);
+
+		// Only the members this run replaced. An editor with the ROM open can
+		// list the other four hundred itself; what it cannot derive is where
+		// these ones came from.
+		if (!entry.members.empty())
+		{
+			writer.key("members").beginArray();
+			for (const ManifestMember& member : entry.members)
+			{
+				writer.beginObject();
+				writer.field("index", member.index);
+				writer.field("path", member.path);
+				writer.field("size", member.size);
+				writer.field("action", actionName(member.action));
+				if (!member.source.empty())
+					writer.field("source", member.source);
+				if (!member.module.empty())
+					writer.field("module", member.module);
+				if (!member.component.empty())
+					writer.field("component", member.component);
+				if (!member.fromVariant.empty())
+					writer.field("from-variant", member.fromVariant);
+				if (member.sourceMissing)
+					writer.field("source-missing", true);
+				writer.endObject();
+			}
+			writer.endArray();
+		}
 		writer.endObject();
 	}
 	writer.endArray();

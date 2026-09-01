@@ -16,6 +16,7 @@
 #include "../system/diagnostics.hpp"
 
 #include "../rom/dir_accessor.hpp"
+#include "../rom/file_manifest.hpp"
 
 namespace ncp::rom { class RomAccessor; }
 
@@ -86,26 +87,16 @@ private:
 				  const char* message,
 				  Diag code,
 				  const char* errorContext);
-	// What one insertion pass did. The manifest needs both halves: the
-	// resolved list says where a file's bytes came from, and the ids say which
-	// of those files the ROM did not already have, since by the time the manifest
-	// is written, a created file and a replaced one look alike.
-	struct InsertedFiles
-	{
-		std::vector<config::FileConfig> files;
-		std::vector<u32> createdIds;
-
-		// Planning only: destinations whose source was not on disk yet, because
-		// a hook generates it. See insertFiles.
-		std::vector<std::string> missingSources;
-	};
-
+	// What one insertion pass did, in the terms the manifest needs to hear it.
+	// See rom::InsertionRecord.
+	//
 	// `planning` runs the whole pass for its answers rather than its effects:
 	// nothing is announced, and a source a hook has not generated yet is
 	// planned as empty instead of refused. It is still the same pass, which is
 	// the only way a plan and a build can be relied on to agree.
-	InsertedFiles insertFiles(ncp::rom::RomAccessor& rom, bool planning = false);
-	void writeFileDump(const ncp::rom::RomAccessor& rom, const InsertedFiles& inserted) const;
+	ncp::rom::InsertionRecord insertFiles(ncp::rom::RomAccessor& rom, bool planning = false);
+	void writeFileDump(const ncp::rom::RomAccessor& rom,
+	                   const ncp::rom::InsertionRecord& inserted) const;
 
 	// Overwrites the ROM's icon/title banner, if the project supplies one. Its
 	// own step because a banner is not a NitroFS file: it is a region the
