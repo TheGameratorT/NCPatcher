@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/TheGameratorT/NCPatcher/main/schema/extraction.schema.json",
+  "title": "NCPatcher extraction manifest",
+  "description": "What `ncpatcher rom extract` wrote into a directory, and how. It exists because a directory of loose binaries cannot answer two questions about itself: which layout its file names follow, and what form each overlay was stored in. `rom pack` reads it to put the original form back; any other tool reading such a directory can read it for the same reason.",
+  "type": "object",
+  "required": ["schema", "layout", "overlays"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "ncpatcher.extraction/1",
+      "description": "Format identifier and version."
+    },
+    "rom": {
+      "type": "string",
+      "description": "File name of the ROM this came out of. Informational: a directory is packed back into whatever ROM the caller names, not into this one."
+    },
+    "code-only": {
+      "type": "boolean",
+      "description": "True when `--code-only` was used, so the directory holds the header, the ARM binaries, the overlay tables and the overlays and nothing else. A directory like that is not one a tool can read back as a whole ROM."
+    },
+    "decompressed-overlays": {
+      "type": "boolean",
+      "description": "True when `--decompress-overlays` was used. Per-overlay detail is in `overlays`; this is the summary."
+    },
+    "layout": {
+      "type": "object",
+      "description": "The DirLayout the extraction used, field by field, so a reader does not have to guess which extractor wrote the directory. These are the names actually used, which a project may have overridden rather than taken from a preset.",
+      "additionalProperties": false,
+      "required": ["header", "arm9", "arm7", "arm9-ovt", "arm7-ovt", "overlay9-dir", "overlay7-dir", "overlay9-name", "overlay7-name", "fnt", "fat", "banner", "data-dir"],
+      "properties": {
+        "header": { "type": "string" },
+        "arm9": { "type": "string" },
+        "arm7": { "type": "string" },
+        "arm9-ovt": { "type": "string" },
+        "arm7-ovt": { "type": "string" },
+        "overlay9-dir": { "type": "string" },
+        "overlay7-dir": { "type": "string" },
+        "overlay9-name": {
+          "type": "string",
+          "description": "`{id}` is the overlay number; `{id:4}` pads it to four digits."
+        },
+        "overlay7-name": { "type": "string" },
+        "fnt": { "type": "string" },
+        "fat": { "type": "string" },
+        "banner": { "type": "string" },
+        "data-dir": {
+          "type": "string",
+          "description": "Directory the NitroFS tree was written below, at the paths the ROM names."
+        }
+      }
+    },
+    "overlays": {
+      "type": "array",
+      "description": "One record per overlay, carrying what the ROM's own table said whatever the emitted table says. This is the half of the answer the directory cannot hold: once an overlay has been unpacked and its flag cleared, nothing on disk remembers that the ROM had it compressed, and a repack that guessed would be guessing about whether the console can boot.",
+      "items": { "$ref": "#/$defs/overlay" }
+    }
+  },
+  "$defs": {
+    "overlay": {
+      "type": "object",
+      "required": ["proc", "id", "stored", "rom-flags", "rom-compressed-size"],
+      "additionalProperties": false,
+      "properties": {
+        "proc": {
+          "enum": ["arm9", "arm7"],
+          "description": "Which processor's overlay table this row belongs to."
+        },
+        "id": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The overlay number, which is also its index in that table."
+        },
+        "stored": {
+          "enum": ["as-in-rom", "raw"],
+          "description": "`as-in-rom` means the file on disk is byte for byte what the ROM held, compression and all. `raw` means the extraction decompressed it and cleared the compression flag in the emitted overlay table to match; the two always move together, because decompressed bytes under a row still claiming a compressed size is the one combination that produces a ROM that hangs."
+        },
+        "rom-flags": {
+          "type": "string",
+          "description": "The flags byte the ROM's own overlay table row carried, as a hexadecimal string. Bit 0 is compressed, bit 1 is authenticated (GBATEK). Restored by `rom pack` when `stored` is `raw`."
+        },
+        "rom-compressed-size": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The compressed size the ROM's own row carried. Recorded for reference; a repack recomputes it, since recompressing does not have to reproduce the original stream byte for byte."
+        }
+      }
+    }
+  }
+}

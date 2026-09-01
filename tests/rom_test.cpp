@@ -16,6 +16,7 @@
 #include "../source/rom/overlay_table.hpp"
 #include "../source/rom/plan_accessor.hpp"
 #include "../source/formats/blz.hpp"
+#include "../source/app/rom_command.hpp"
 #include "../source/utils/crc.hpp"
 
 #include <algorithm>
@@ -717,6 +718,140 @@ static void testFntGrowthRebuilds()
 	check(again.readFile(3) == std::vector<u8>({ 1, 2, 3, 4 }), "the new data reloads");
 }
 
+// --- extraction ------------------------------------------------------------
+
+// A ROM with a file tree and a compressed overlay, which is what makes an
+// extraction interesting: the tables and the NitroFS files are the half that
+// `rom extract` never used to write, and the compressed overlay is the one
+// whose bytes and whose flags have to agree.
+static std::vector<u8> makeExtractableRom()
+{
+	SyntheticRom source = makeRom();
+	NdsRom rom;
+	rom.parse(source.bytes);
+
+	NitroFs tree;
+	tree.addFile("assets/hello.bin", 2);
+	check(rom.addFile(std::vector<u8>({ 'h', 'e', 'l', 'l', 'o' })) == 2,
+		"the named file gets the next FAT id");
+	tree.addFile("assets/sub/deeper.bin", 3);
+	check(rom.addFile(std::vector<u8>(64, 0x5E)) == 3, "and the one below it follows");
+	rom.setNitroFs(tree);
+
+	// Overlay 1, compressed. Repetitive enough that BLZ has something to do.
+	std::vector<u8> raw(4096);
+	for (std::size_t i = 0; i < raw.size(); i++)
+		raw[i] = u8(i & 0x0F);
+	const std::vector<u8> packed = BLZ::compress(raw);
+	check(!packed.empty(), "the fixture overlay compresses");
+
+	OverlayTable table = rom.overlayTable(true);
+	table.entries()[1].ramSize = u32(raw.size());
+	table.entries()[1].setCompressed(true);
+	table.entries()[1].compressedSize = u32(packed.size());
+	rom.setFile(table.entries()[1].fileId, packed);
+	rom.setOverlayTable(true, table);
+
+	rom.commit(0);
+	return rom.bytes();
+}
+
+static void testExtractWritesAWholeRom()
+{
+	const fs::path root = fs::temp_directory_path() / "ncp_extract_test";
+	std::error_code ignored;
+	fs::remove_all(root, ignored);
+	fs::create_directories(root);
+
+	const fs::path romFile = root / "game.nds";
+	writeFile(romFile, makeExtractableRom());
+
+	const fs::path out = root / "extracted";
+	ncp::romcmd::extract(romFile, out, DirLayout{});
+
+	// The half that never used to be written, and without which an extracted
+	// directory is not something any tool can read back on its own.
+	check(fs::is_regular_file(out / "fnt.bin"), "the name table is written");
+	check(fs::is_regular_file(out / "fat.bin"), "the allocation table is written");
+	check(fs::is_regular_file(out / "data" / "assets" / "hello.bin"),
+		"and the files the tree names, below the layout's data directory");
+	check(fs::is_regular_file(out / "data" / "assets" / "sub" / "deeper.bin"),
+		"at their own paths within it");
+	check(readFile(out / "data" / "assets" / "hello.bin") == std::vector<u8>({ 'h', 'e', 'l', 'l', 'o' }),
+		"with their contents");
+	check(fs::is_regular_file(out / "extraction.json"), "and a manifest describing all of it");
+
+	// What the directory holds is what DirRomAccessor reads, which is the
+	// property that makes `rom: dir:` usable on something this produced.
+	DirRomAccessor accessor(out, DirLayout{});
+	accessor.loadHeader();
+	check(accessor.findNitroFile("assets/sub/deeper.bin") == 3,
+		"the extracted directory resolves its own NitroFS paths");
+	check(accessor.listNitroFiles().size() == 2, "and lists every file in it");
+
+	// As stored, compression and all: a directory whose bytes disagreed with
+	// its own overlay table would be a trap for everything that repacks one.
+	const OverlayTable table = OverlayTable::parse(readFile(out / "arm9ovt.bin"));
+	check(table.entries()[1].compressed(), "an overlay stays compressed by default");
+	check(fs::file_size(out / "overlay9" / "overlay9_1.bin") == table.entries()[1].compressedSize,
+		"and the file on disk is the size the table says");
+
+	const fs::path packed = root / "packed.nds";
+	ncp::romcmd::pack(romFile, out, packed, DirLayout{}, 0);
+	check(readFile(packed) == readFile(romFile),
+		"extracting and packing a ROM nobody edited gives the same ROM back");
+
+	fs::remove_all(root, ignored);
+}
+
+// The one combination that is actively wrong is decompressed bytes under a
+// table still saying "compressed, compressedSize = N": that is what a naive
+// repack turns into a ROM that hangs. So the flag moves with the bytes both
+// ways, and the manifest is what remembers what the ROM had.
+static void testDecompressedOverlaysKeepTheirFlagsHonest()
+{
+	const fs::path root = fs::temp_directory_path() / "ncp_extract_raw_test";
+	std::error_code ignored;
+	fs::remove_all(root, ignored);
+	fs::create_directories(root);
+
+	const fs::path romFile = root / "game.nds";
+	writeFile(romFile, makeExtractableRom());
+
+	const fs::path out = root / "extracted";
+	ncp::romcmd::ExtractOptions options;
+	options.decompressOverlays = true;
+	ncp::romcmd::extract(romFile, out, DirLayout{}, options);
+
+	const OverlayTable written = OverlayTable::parse(readFile(out / "arm9ovt.bin"));
+	check(!written.entries()[1].compressed(),
+		"the emitted table has the compression flag cleared");
+	check(written.entries()[1].compressedSize == 0, "and no compressed size left over");
+	check(fs::file_size(out / "overlay9" / "overlay9_1.bin") == written.entries()[1].ramSize,
+		"and the overlay on disk is its full decompressed length");
+
+	const fs::path packed = root / "packed.nds";
+	ncp::romcmd::pack(romFile, out, packed, DirLayout{}, 0);
+
+	// Not byte-identical, and it cannot be: BLZ is not required to produce the
+	// same stream the game's own tooling did. What has to come back is the
+	// form -- the flags the ROM had, over bytes that decompress to what it had.
+	NdsRom before;
+	before.parse(readFile(romFile));
+	NdsRom after;
+	after.parse(readFile(packed));
+
+	const OverlayEntry& originalEntry = before.overlayTable(true).entries()[1];
+	const OverlayEntry& packedEntry = after.overlayTable(true).entries()[1];
+	check(packedEntry.flags == originalEntry.flags, "packing restores the flags the ROM had");
+	check(packedEntry.compressed(), "so the overlay is compressed again");
+	check(BLZ::uncompress(after.readFile(packedEntry.fileId))
+		== BLZ::uncompress(before.readFile(originalEntry.fileId)),
+		"and unpacks to exactly what it did before");
+
+	fs::remove_all(root, ignored);
+}
+
 // --- compression -----------------------------------------------------------
 
 static void testBlz()
@@ -764,6 +899,8 @@ int main()
 	testArm9GrowthRebuilds();
 	testTruncatedRom();
 	testFntGrowthRebuilds();
+	testExtractWritesAWholeRom();
+	testDecompressedOverlaysKeepTheirFlagsHonest();
 	testBlz();
 
 	if (g_failures == 0)

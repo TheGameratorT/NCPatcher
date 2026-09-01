@@ -225,13 +225,19 @@ std::optional<int> parseCommandLine(int argc, char* argv[], CommandLine& out)
 		"List the ROM's NitroFS files, with their ids");
 	romFiles->add_flag("--json", out.dumpJson, "Print it as ncpatcher.files/1 JSON");
 
-	// Deliberately the code binaries and nothing else: that is the set the
-	// patcher works on, and the set every project currently extracts with a
-	// script of its own. Extracting the whole filesystem is ndstool's job.
+	// The whole ROM, so that what comes out is a directory `rom: dir:` can be
+	// pointed at and read back in full. An extraction that stopped at the code
+	// binaries was only ever half of one, and every tool reading it had to know
+	// which half.
 	CLI::App* romExtract = rom->add_subcommand("extract",
-		"Write the ROM's code binaries into a directory the patcher can use");
+		"Write the ROM into a directory the patcher can read back");
 	romExtract->add_option("dir", out.romDirArgument, "Directory to write into")
 		->required()->type_name("DIR");
+	romExtract->add_flag("--code-only", out.extractCodeOnly,
+		"Write only the code binaries, without the filesystem, banner or tables");
+	romExtract->add_flag("--decompress-overlays", out.extractDecompressOverlays,
+		"Write overlay bytes decompressed, clearing the compression flag in the "
+		"emitted overlay table to match. `rom pack` restores the original form.");
 
 	CLI::App* romPack = rom->add_subcommand("pack",
 		"Fold a directory of code binaries back into a ROM");

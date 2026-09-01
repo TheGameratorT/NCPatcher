@@ -120,6 +120,7 @@ _ncpatcher()
 				return
 			fi
 			[[ $sub == files ]] && extra='--json'
+			[[ $sub == extract ]] && extra='--code-only --decompress-overlays'
 			# extract and pack each take a directory.
 			if [[ $sub == extract || $sub == pack ]] && [[ $cur != -* ]]; then
 				_filedir -d

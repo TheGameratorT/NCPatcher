@@ -109,6 +109,10 @@ struct CommandLine
 
 	// files plan -o
 	std::filesystem::path filesOutPath;
+
+	// rom extract
+	bool extractCodeOnly = false;
+	bool extractDecompressOverlays = false;
 };
 
 // Parses argv, then folds in the NCPATCHER_* environment for the settings that

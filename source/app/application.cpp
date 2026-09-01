@@ -243,8 +243,13 @@ int Application::runRomCommand()
 		romcmd::files(std::cout, target, layout, m_cli.dumpJson);
 		break;
 	case Command::RomExtract:
-		romcmd::extract(target, fs::absolute(m_cli.romDirArgument), layout);
+	{
+		romcmd::ExtractOptions options;
+		options.codeOnly = m_cli.extractCodeOnly;
+		options.decompressOverlays = m_cli.extractDecompressOverlays;
+		romcmd::extract(target, fs::absolute(m_cli.romDirArgument), layout, options);
 		break;
+	}
 	case Command::RomPack:
 		romcmd::pack(target, fs::absolute(m_cli.romDirArgument),
 					 m_cli.outPath.empty() ? fs::path() : fs::absolute(m_cli.outPath),

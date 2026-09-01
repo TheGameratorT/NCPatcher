@@ -103,10 +103,34 @@ rom:
 
 `ncpatcher rom extract <dir>` writes that directory out of a `.nds`, and
 `ncpatcher rom pack <dir>` folds it back in, which is the job most projects
-currently do with a script of their own. Neither one takes the NitroFS apart;
-`ndstool`, or `nds-extract` from
-[Fireflower](https://github.com/MammaMiaTeam/Fireflower/releases/latest), is
-the tool for that.
+currently do with a script of their own.
+
+An extraction is the whole ROM: the header, the two ARM binaries, the overlay
+tables and overlays, the name and allocation tables, the banner, and the NitroFS
+tree below `data/`. That set is chosen so the directory is one NCPatcher can be
+pointed straight back at — `rom info`, `rom files` and `rom: dir:` all read it —
+because an extraction that stopped at the code binaries was only ever half of a
+ROM, and every tool reading one had to know which half. `--code-only` asks for
+just the binaries.
+
+Alongside them goes an `extraction.json`, which answers the two questions the
+loose files cannot: which layout their names follow, and what form each overlay
+was stored in. Its schema is `schema/extraction.schema.json`.
+
+Overlays are written exactly as the ROM stores them, compression and all, and a
+plain extract/pack round trip gives back the ROM byte for byte. That default is
+not an oversight: a directory whose bytes disagree with its own overlay table is
+a trap for everything that repacks one.
+
+`--decompress-overlays` unpacks them **and** clears the compression flag in the
+emitted `arm9ovt.bin`, because the two only make sense together — decompressed
+bytes under a row still saying `compressed, compressedSize = N` is the one
+combination that turns a naive repack into a ROM that hangs. `extraction.json`
+records what the ROM had, so `rom pack` compresses the overlay again and
+restores its flags. That round trip is faithful rather than byte-identical: BLZ
+is not obliged to reproduce the stream the game's own tooling wrote, so the
+overlay comes back compressed, with the ROM's flags, unpacking to exactly the
+bytes it did before, at whatever size this compressor reaches.
 
 Patching a directory does not rewrite its `header.bin`: the header is an input
 the patcher has never owned, and every tool that repacks one of these
@@ -160,8 +184,9 @@ ncpatcher build [--variant NAME | --all-variants]
           modules explain NAME       say why a module or component is where it is
           rom info                   print what the ROM header says
           rom files [--json]         list the ROM's NitroFS files and their ids
-          rom extract DIR            write the ROM's code binaries into DIR
-          rom pack DIR               fold a directory of code binaries into the ROM
+          rom extract DIR [--code-only] [--decompress-overlays]
+                                     write the ROM into DIR
+          rom pack DIR               fold an extracted directory back into the ROM
           files plan [--json] [-o PATH]
                                      report what a build would place, without building
           version

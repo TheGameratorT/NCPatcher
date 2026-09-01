@@ -1,5 +1,5 @@
 .\" Manual page for ncpatcher.
-.TH NCPATCHER 1 "August 24, 2026" "ncpatcher" "User Commands"
+.TH NCPATCHER 1 "September 1, 2026" "ncpatcher" "User Commands"
 .SH NAME
 ncpatcher \- compile code and splice it into a Nintendo DS ROM
 .SH SYNOPSIS
@@ -54,6 +54,22 @@ Print every setting after inheritance, variables and globs have been resolved:
 what the build would actually use, not what the file says.
 .B \-\-explain
 adds where each setting came from.
+.IP
+.B \-\-json
+writes an
+.B ncpatcher.config/1
+document with every path already resolved against the project directory. Besides
+the targets and their flags it carries
+.B rom\-banner
+at the root, and
+.B banner
+and
+.B module\-variants
+per variant \(em what a consumer needs to reach the same answers this program
+does without reading
+.B ncpatcher.yaml
+itself. All three keys are always present, so nothing has to test for a key to
+learn a project or a variant overrides nothing.
 .TP
 .B config validate
 Load and resolve the configuration, reporting problems, without building.
@@ -112,22 +128,77 @@ names. They write to standard output and leave the log on standard error, so
 .B \-\-json
 can be piped into a parser directly.
 .TP
-.BI "rom extract" " DIR"
-Write the ROM's code binaries \(em the header, the two ARM binaries, the two
-overlay tables and the overlay files \(em into
+.BR "rom extract" " " \fIDIR\fP " [" \-\-code\-only "] [" \-\-decompress\-overlays ]
+Write the ROM into
 .IR DIR ,
-in the layout the patcher reads. Overlays are written exactly as the ROM stores
-them, compression and all. This is not a NitroFS extraction; use
-.BR ndstool (1)
-for that.
+in the layout the patcher reads: the header, the two ARM binaries, the overlay
+tables and overlays, the name and allocation tables, the banner, and the NitroFS
+tree below the layout's data directory. That set is chosen so the directory is
+one
+.B ncpatcher
+can be pointed straight back at, with
+.BR "rom info" ,
+.B "rom files"
+or
+.BR "rom: dir:" .
+.IP
+An
+.B extraction.json
+is written alongside, recording the layout used and, per overlay, the form it was
+stored in. It is what
+.B rom pack
+reads to put the original form back.
+.IP
+.B \-\-code\-only
+writes just the binaries, which is not a directory a tool can read back as a
+whole ROM.
+.IP
+Overlays are written exactly as the ROM stores them, compression and all, and a
+plain extract and pack gives the ROM back byte for byte.
+.B \-\-decompress\-overlays
+unpacks them and clears the compression flag in the emitted overlay table to
+match; the two only make sense together, since decompressed bytes under a row
+still claiming a compressed size is what turns a naive repack into a ROM that
+hangs.
 .TP
 .BI "rom pack" " DIR"
-Read those same files back out of
+Read
 .I DIR
-and write them into the ROM. Files the directory does not have are left as the
-ROM had them, so a directory holding only
+back and write it into the ROM. Files the directory does not have are left as
+the ROM had them, so a directory holding only
 .B arm9.bin
-updates only ARM9.
+updates only ARM9. An
+.B extraction.json
+in the directory is read for the form each overlay was stored in, so an overlay
+the extraction unpacked is compressed again and gets its flags back. That round
+trip is faithful rather than byte-identical.
+.TP
+.BR "files plan" " [" \-\-json "] [" \-o " " \fIPATH\fP ]
+Report what a build would place in the ROM's file table, without building.
+Nothing is written to the ROM or to an extracted directory, and no toolchain is
+needed.
+.IP
+With
+.BR \-\-json ,
+the output is an
+.B ncpatcher.files/1
+document with
+.B "planned: true"
+at the root, so a consumer can never mistake a prospective id for a settled one.
+Ids under
+.B z_new/
+in one are predictions that a build confirms; the provenance fields mean what
+they mean after a build.
+.IP
+The prediction comes from running the real insertion pass against a ROM accessor
+that holds every write in memory, so a plan and the build that confirms it are
+produced by the same code. A build reads its NitroFS sources, and a project may
+generate some of them in a
+.B pre\-build
+hook, which a plan does not run; such a destination is still planned, with its
+id and provenance, and its entry carries
+.B "source\-missing: true"
+because its size is the one thing that cannot be known.
 .TP
 .B version
 Print the version.
@@ -320,6 +391,23 @@ every member keeps its index. An archive nothing edited is written back byte
 for byte.
 .B id:
 cannot be combined with an archive destination.
+.PP
+Some games store their archives compressed \(em Mario Kart DS stores 286 of
+them and names them
+.B .carc
+\(em and those are edited the same way. An archive is recognised by its bytes
+rather than by its extension: the test is whether it decompresses to something
+beginning with
+.BR NARC ,
+so a game shipping compressed archives named
+.B .narc
+needs no special case, and a file that merely begins with the compression
+header byte is not mistaken for one. A container goes back in the wrapper it
+arrived in, even where compressing it makes it larger, because a game that reads
+an archive through its decompressor will not accept a raw one in its place. The
+later LZ11 form is read but not written, and editing such an archive is refused
+rather than silently rewritten as LZ10, which the game would decode with the
+wrong routine.
 .SH RESERVED FILE ID
 .B files\-reserve:
 names a
@@ -403,19 +491,26 @@ disabled, they subtract those files from the component's own module tree, so
 switching a feature off removes its assets with its code.
 .PP
 A tree spells an archive as a directory, since a directory cannot also be a
-file: a folder whose name ends in
-.B _narc
-means the archive beside it, and everything below it is a path inside that
-archive. So
+file: a folder named
+.I stem_ext
+means the archive
+.I stem.ext
+beside it, and everything below it is a path inside that archive. So
 .B ARCHIVE/menu_title_narc/menu/title/USA/vs.bmg
 replaces that member of
-.BR ARCHIVE/menu_title.narc .
-Only the outermost such directory is read that way; a ROM that genuinely holds
-a directory named
+.BR ARCHIVE/menu_title.narc ,
+and
+.B data/Main2D_carc/menu/icon.NCGR
+reaches inside a compressed one.
+.PP
+A segment is read that way only when the ROM actually holds an archive at the
+path it names, and is an ordinary directory name otherwise \(em which is why
+.B z_new/
+is not the archive
+.BR z.new ,
+and why a ROM that genuinely holds a directory named
 .B *_narc
-must be written in
-.B files:
-instead.
+simply works. Only the outermost matching directory is read as an archive.
 .SH FILE MANIFEST
 .B files\-dump
 names a path to write the ROM's file table to, as
@@ -449,6 +544,18 @@ and
 .B from\-variant
 that supplied it \(em which is what tells an editor whether an entry is
 vanilla, replaced by a module, or added by one.
+.PP
+A Nitro archive the build edited also carries a
+.B members
+array, one entry per member it replaced, each with the member's
+.B index
+\(em never an
+.BR id ,
+since a member index is not a NitroFS file id \(em and its own provenance. The
+archive's own entry can carry no more than its members agree on, which for five
+members from three modules is nothing, so without this the per-member truth
+would be lost. Members the build did not touch are not listed: a consumer with
+the ROM open can list them itself.
 .PP
 Ids are reported raw, exactly as the FAT stores them. A game that offsets file
 ids at run time applies that itself. Existing ids are never renumbered, so
@@ -522,6 +629,20 @@ The ROM could not be read or written.
 .TP
 .B 10
 A hook failed.
+.TP
+.B 11
+Cancelled. Send
+.B SIGINT
+to the process group to ask for this; compiler children are in that group and
+stop with it. The build stops at its next checkpoint \(em between phases, and
+between compilations \(em and still writes its
+.B \-\-result
+document, with
+.BR "status: \(dqcancelled\(dq" .
+Stopping is safe: the backup store holds the pristine binaries and the
+.B .nds
+backend writes nothing until the end, so the next run produces the ROM the
+interrupted one would have.
 .TP
 .B 130
 Interrupted.

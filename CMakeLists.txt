@@ -322,13 +322,24 @@ if (NCP_BUILD_TESTS)
 	# The ROM tests reach into the container, which reports failures the same
 	# way the rest of the program does, so they need the diagnostics and log
 	# machinery along with source/rom itself.
+	# rom_command.cpp comes along so that `rom extract` and `rom pack` are
+	# tested against a ROM rather than only against a real one by hand. It is
+	# what drags in the config reader (extraction.json is read through the same
+	# document class as everything else) and the manifest writer.
 	ncp_add_test(rom_test
 		tests/rom_test.cpp
+		source/app/rom_command.cpp
+		source/config/node.cpp
+		source/config/project_config.cpp
 		source/formats/blz.cpp
+		source/formats/lz.cpp
 		source/rom/dir_accessor.cpp
 		source/utils/endian.cpp
 		source/rom/fat.cpp
+		source/rom/file_manifest.cpp
 		source/rom/header.cpp
+		source/rom/narc.cpp
+		source/rom/nds_accessor.cpp
 		source/rom/nds_rom.cpp
 		source/rom/nitro_fs.cpp
 		source/rom/overlay_table.cpp
@@ -337,7 +348,13 @@ if (NCP_BUILD_TESTS)
 		source/system/diagnostics.cpp
 		source/system/except.cpp
 		source/system/log.cpp
-		source/system/log_sink.cpp)
+		source/system/log_sink.cpp
+		source/system/message.cpp
+		source/utils/glob.cpp
+		source/utils/json.cpp
+		source/utils/unicode.cpp
+		source/utils/util.cpp)
+	target_link_libraries(rom_test PRIVATE ${YAML_CPP_TARGET})
 
 	# The file-tree resolver pulls in config/project_config for FileConfig and
 	# the NitroFS path rule, and Glob for the component patterns.
