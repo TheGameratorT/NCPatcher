@@ -159,6 +159,11 @@ void dumpJson(std::ostream& out,
 	writer.key("rom-output").value(
 		config.romOutput.configured() ? paths.work(config.romOutput.value).string() : std::string());
 	writer.key("backup-dir").value(paths.work(config.backupDir.value).string());
+	// Always present, empty when the project replaces no banner. The banner is
+	// not a NitroFS file, so no `files:` entry would ever name it, and an editor
+	// that wants to edit one has nowhere else to learn where it comes from.
+	writer.key("rom-banner").value(
+		config.romBanner.configured() ? paths.work(config.romBanner.value).string() : std::string());
 	writer.field("toolchain", config.toolchain.value);
 	writer.field("threads", config.threadCount.value);
 
@@ -205,6 +210,17 @@ void dumpJson(std::ostream& out,
 		writer.key("files").beginObject();
 		for (const config::FileConfig& file : variant.files)
 			writer.field(file.path, file.source.string());
+		writer.endObject();
+		// Empty unless this variant overrides the project's banner.
+		writer.key("banner").value(
+			variant.banner.empty() ? std::string() : paths.work(variant.banner).string());
+		// Which layer of a module's tree this variant selects, for modules that
+		// name their layers differently from the project's variants. Without it
+		// a consumer resolving the same trees has no way to reach the same
+		// answer, and reading the YAML to find out is how it drifts.
+		writer.key("module-variants").beginObject();
+		for (const auto& [module, layer] : variant.moduleVariants)
+			writer.field(module, layer);
 		writer.endObject();
 		writer.endObject();
 	}
@@ -280,6 +296,11 @@ void dumpHuman(std::ostream& out,
 	}
 	out << "  backup dir:   " << paths.work(config.backupDir.value).string()
 	    << origin(config.backupDir.source, explain) << '\n';
+	if (config.romBanner.configured())
+	{
+		out << "  banner:       " << paths.work(config.romBanner.value).string()
+		    << origin(config.romBanner.source, explain) << '\n';
+	}
 	out << "  toolchain:    " << config.toolchain.value
 	    << origin(config.toolchain.source, explain) << '\n';
 	out << "  threads:      " << config.threadCount.value
@@ -308,6 +329,10 @@ void dumpHuman(std::ostream& out,
 				out << "      define: " << define << '\n';
 			for (const config::FileConfig& file : variant.files)
 				out << "      file: " << file.path << " <- " << file.source.string() << '\n';
+			if (!variant.banner.empty())
+				out << "      banner: " << paths.work(variant.banner).string() << '\n';
+			for (const auto& [module, layer] : variant.moduleVariants)
+				out << "      module variant: " << module << " -> " << layer << '\n';
 		}
 	}
 

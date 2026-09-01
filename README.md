@@ -218,6 +218,21 @@ diagnostic and artifact. Both work with or without `--message-format json`.
 In JSON message mode GCC diagnostics are emitted individually with their
 severity and source location; the human rendering remains on stderr.
 
+`config dump --json` writes an `ncpatcher.config/1` document: the settings as
+the build understands them, with every path already resolved against the
+project directory. Besides the targets and their flags it carries what a
+consumer needs to reach the same answers this program does without reading
+`ncpatcher.yaml` itself —
+
+| Field | Meaning |
+|---|---|
+| `rom-banner` | The file replacing the ROM banner, or empty. Not a NitroFS file, so no `files:` entry would ever name it |
+| `variants.<name>.banner` | That variant's banner override, or empty |
+| `variants.<name>.module-variants` | Which layer of a module's own tree this variant selects, for modules that name their layers differently from the project's variants |
+
+All three keys are always present, so nothing has to test for a key's existence
+to learn that a project or a variant overrides nothing.
+
 ### Exit codes
 
 | Code | Meaning |

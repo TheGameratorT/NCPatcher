@@ -16,6 +16,8 @@
 #include "../source/config/node.hpp"
 #include "../source/config/rebuild_store.hpp"
 #include "../source/config/target_resolver.hpp"
+#include "../source/app/config_dump.hpp"
+#include "../source/utils/json.hpp"
 
 #include <algorithm>
 #include <cstdlib>
@@ -663,6 +665,51 @@ static void testV2Reader(const fs::path& root)
 		"a !pattern excludes from what the other patterns matched");
 }
 
+// What `config dump --json` has to carry for a consumer to resolve the same
+// module trees the build does. Big Star Editor hand-parsed ncpatcher.yaml for
+// these three because the dump omitted them, which is precisely how a second
+// implementation of the resolution rules drifts out of step with this one.
+static void testV2DumpCarriesResolutionInputs(const fs::path& root)
+{
+	const ProjectConfig config = loadV2(root / "ncpatcher.yaml", root);
+
+	PathContext paths;
+	paths.workDir = root;
+	paths.romDir = root / "__tmp";
+	DumpOptions options;
+	options.json = true;
+
+	std::ostringstream out;
+	dumpConfig(out, config, paths, {}, options);
+	const std::string json = out.str();
+
+	const std::string banner = Json::escape((root / "nitrofs" / "banner.bin").string());
+	const std::string frBanner = Json::escape((root / "nitrofs" / "fr" / "banner.bin").string());
+
+	// Resolved against the work directory like every other ROM path, so a
+	// consumer never has to know what a project-relative path is relative to.
+	check(contains(json, "\"rom-banner\": \"" + banner + "\""),
+		"the project banner is dumped as a resolved path");
+	check(contains(json, "\"banner\": \"" + frBanner + "\""),
+		"a variant's banner override is dumped as well");
+	check(contains(json, "\"thirdparty\": \"french\""),
+		"module-variants names the layer a variant selects in a module's own tree");
+
+	// Unconditional keys: a consumer should not have to test for a key's
+	// existence to learn that a variant overrides nothing.
+	check(contains(json, "\"banner\": \"\""),
+		"a variant with no banner still gets the key, empty");
+	check(contains(json, "\"module-variants\": {}"),
+		"and a variant mapping no module layers gets an empty object");
+
+	// The human form answers the same question for whoever is reading it.
+	std::ostringstream human;
+	DumpOptions plain;
+	dumpConfig(human, config, paths, {}, plain);
+	check(contains(human.str(), "module variant: thirdparty -> french"),
+		"the human dump reports the mapping too");
+}
+
 static void testV2RejectsTypos(const fs::path& root)
 {
 	const std::string bad = std::string(V2_PROJECT).replace(
@@ -855,6 +902,7 @@ int main()
 	testV1Reader(root / "v1");
 	testV2Reader(root / "v1");   // reuses the source tree the v1 fixture built
 	testV2RejectsTypos(root / "v1");
+	testV2DumpCarriesResolutionInputs(root / "v1");
 	testMigrationPreservesTheBuild(root / "migrate");
 	testRebuildStore(root / "rebuild");
 

@@ -415,6 +415,7 @@ if (NCP_BUILD_TESTS)
 	# phases.
 	ncp_add_test(config_test
 		tests/config_test.cpp
+		source/app/config_dump.cpp
 		source/config/node.cpp
 		source/config/project_config.cpp
 		source/config/env_file.cpp
