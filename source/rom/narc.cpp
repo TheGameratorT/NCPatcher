@@ -4,6 +4,7 @@
 #include <sstream>
 
 #include "layout.hpp"
+#include "../formats/lz.hpp"
 #include "../utils/endian.hpp"
 #include "../system/except.hpp"
 #include "../system/log.hpp"
@@ -63,11 +64,51 @@ bool isNarc(std::span<const u8> data)
 	return data.size() >= HEADER_SIZE && magicAt(data, 0, "NARC");
 }
 
+std::optional<Wrapper> narcWrapper(std::span<const u8> data)
+{
+	if (isNarc(data))
+		return Wrapper::None;
+
+	const std::optional<lz::Variant> variant = lz::headerVariant(data);
+	if (!variant)
+		return std::nullopt;
+
+	// Only far enough to read the magic. Unpacking a 200 KiB archive to answer
+	// "is this an archive" would be paid for by every file the build looks at.
+	std::vector<u8> head;
+	try
+	{
+		head = lz::decompress(data, 4);
+	}
+	catch (const std::exception&)
+	{
+		// A first byte of 0x10 on something that is not a stream at all. Not an
+		// error: the question was only whether this is a compressed archive.
+		return std::nullopt;
+	}
+
+	if (!(head.size() >= 4 && std::equal(head.begin(), head.begin() + 4, "NARC")))
+		return std::nullopt;
+
+	return *variant == lz::Variant::Lz10 ? Wrapper::Lz10 : Wrapper::Lz11;
+}
+
 Narc Narc::parse(std::span<const u8> data)
 {
-	if (!isNarc(data))
+	const std::optional<Wrapper> wrapper = narcWrapper(data);
+	if (!wrapper)
 		throw ncp::exception("Not a Nitro archive: the file does not begin with "
-			ANSI_bWHITE "\"NARC\"" ANSI_RESET ".");
+			ANSI_bWHITE "\"NARC\"" ANSI_RESET ", and does not decompress to one either.");
+
+	// Everything below reads the container itself, so a wrapped one is unpacked
+	// first and put back the same way on the way out. Nothing between here and
+	// serialize() has to know the difference.
+	std::vector<u8> unwrapped;
+	if (*wrapper != Wrapper::None)
+	{
+		unwrapped = lz::decompress(data);
+		data = unwrapped;
+	}
 
 	if (le::readU16(data, 4) != BYTE_ORDER_MARK)
 		throw ncp::exception("Unsupported Nitro archive: it is not little-endian.");
@@ -161,6 +202,7 @@ Narc Narc::parse(std::span<const u8> data)
 		data.begin() + std::ptrdiff_t(btnf + CHUNK_HEADER_SIZE),
 		data.begin() + std::ptrdiff_t(btnf + btnfSize));
 	narc.m_tree = NitroFs::parse(narc.m_names);
+	narc.m_wrapper = *wrapper;
 
 	return narc;
 }
@@ -210,6 +252,26 @@ std::vector<u8> Narc::serialize() const
 	writeMagic(out, "GMIF");
 	appendU32(out, gmifSize);
 	out.insert(out.end(), contents.begin(), contents.end());
+
+	// Back into the wrapper it arrived in, whatever that costs. Choosing by
+	// size instead would hand a game that only reads compressed archives a raw
+	// one; see Wrapper.
+	if (m_wrapper == Wrapper::Lz10)
+		return lz::compress(out);
+
+	// LZ11 is read here and not written, and the gap is deliberate rather than
+	// unfinished. The two forms are not decoded by the same routine, so a game
+	// that loads an archive through its LZ11 decompressor would misparse an
+	// LZ10 stream put in its place -- and quietly, into whatever the misparse
+	// produces. Refusing says so; substituting would ship a corrupt archive.
+	if (m_wrapper == Wrapper::Lz11)
+	{
+		throw ncp::exception("Cannot write this Nitro archive back: it arrived LZ11-compressed, "
+			"and NCPatcher only writes the LZ10 form."
+			OREASONNL "Substituting LZ10 would leave the game decoding it with the wrong "
+			"routine. No game NCPatcher has been used on ships one; if yours does, this is "
+			"the place to say so.");
+	}
 
 	return out;
 }

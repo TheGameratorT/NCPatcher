@@ -569,6 +569,33 @@ file and a member of an archive is not one.
 The manifest records what happened inside: see *Members of an edited archive*
 below.
 
+#### Compressed archives
+
+Some games store their archives compressed. Mario Kart DS stores 286 of them
+and names them `.carc`, but the name is that game's convention rather than a
+format: what is inside the wrapper is an ordinary NARC, and the wrapper is plain
+Nitro LZ77.
+
+An archive is recognised by its bytes, never by its extension. The test is
+"does this decompress to something beginning with `NARC`", so a game shipping
+compressed archives named `.narc`, or plain ones named `.carc`, needs no special
+case — and Mario Kart's `dwc/utility.bin`, which begins with `0x10` and is not
+compressed at all, is not mistaken for one. Everything else is unchanged: the
+same `!` destinations, the same folder convention, the same replace-only rule.
+
+**A container goes back in the wrapper it arrived in**, even when compressing it
+makes it larger. That is not an oversight: a game that reads an archive through
+its decompressor will not accept a raw one in its place, so the wrapper is part
+of the file's identity rather than a size optimisation to re-decide. Mario
+Kart's own `GeneralMenu_es.carc` is 85 bytes stored for 72 raw, and the game
+loads it.
+
+The later `0x11` LZ form is read and not written. The two are not decoded by the
+same routine, so substituting `0x10` for it would leave the game unpacking the
+archive with the wrong one — quietly, into whatever the misparse produced. No
+game NCPatcher has been used on ships one; editing such an archive is refused
+with a message saying exactly this.
+
 ### Replacing the ROM banner
 
 The icon and title shown on the console's menu are not a NitroFS file: they are
@@ -700,9 +727,19 @@ modules/message/nitrofs/fr/ARCHIVE/menu_title_narc/menu/title/USA/vs.bmg
                           ARCHIVE/menu_title.narc    menu/title/USA/vs.bmg
 ```
 
-Only the outermost such directory is read that way. A ROM that genuinely holds
-a directory named `*_narc` has to be written in `files:` instead, where no
-convention applies.
+The extension is whatever the game calls its archives, not a literal `narc`:
+Mario Kart DS stores compressed ones and names them `.carc`, so
+`data/Main2D_carc/menu/icon.NCGR` reaches inside `data/Main2D.carc` there.
+
+A segment is read as an archive **when the ROM holds an archive at the path it
+names**, and as an ordinary directory name otherwise. That is why the rule needs
+no configuration and has no exceptions to remember: `z_new/` is not the archive
+`z.new` because no such archive exists, and a ROM that genuinely holds a
+directory called `*_narc` simply works, rather than having to be written out in
+`files:` as it used to.
+
+Only the outermost matching directory is read that way; an archive inside an
+archive is not something this opens.
 
 ## The file manifest
 

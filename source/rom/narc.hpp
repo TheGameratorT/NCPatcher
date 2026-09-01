@@ -30,6 +30,8 @@
 #include <utility>
 #include <vector>
 
+#include <optional>
+
 #include "nitro_fs.hpp"
 #include "../utils/types.hpp"
 
@@ -40,11 +42,40 @@ namespace ncp::rom {
 // reporting a malformed one.
 [[nodiscard]] bool isNarc(std::span<const u8> data);
 
+// What an archive was wrapped in when it was read.
+//
+// Some games store their archives compressed -- Mario Kart DS stores 286 of
+// them, named `.carc` -- and a game that reads an archive through its
+// decompressor will not accept a raw one in its place. So the wrapper is part of
+// the file's identity rather than a size optimisation to be re-decided on the
+// way out: an archive that arrived compressed goes back compressed, even where
+// that makes it larger.
+enum class Wrapper
+{
+	None,
+	Lz10,
+	Lz11
+};
+
+// The wrapper `data` carries, or nothing when it is not an archive at all.
+//
+// Decided by what is inside, never by the file's name. `.carc` is a Mario Kart
+// naming convention and not a format, so the question asked here is "does this
+// decompress to something beginning with NARC" -- which means a game that ships
+// compressed archives named `.narc`, or plain ones named `.carc`, needs no
+// special case, and `dwc/utility.bin`, which begins with 0x10 and is not
+// compressed at all, is not mistaken for one.
+[[nodiscard]] std::optional<Wrapper> narcWrapper(std::span<const u8> data);
+
 class Narc
 {
 public:
+	// Unwraps a compressed container before reading it, and records what it
+	// was wrapped in so serialize() can put it back the same way.
 	static Narc parse(std::span<const u8> data);
 	[[nodiscard]] std::vector<u8> serialize() const;
+
+	[[nodiscard]] Wrapper wrapper() const { return m_wrapper; }
 
 	[[nodiscard]] std::size_t fileCount() const { return m_files.size(); }
 
@@ -69,6 +100,8 @@ private:
 	NitroFs m_tree;
 
 	std::vector<std::vector<u8>> m_files;
+
+	Wrapper m_wrapper = Wrapper::None;
 };
 
 } // namespace ncp::rom

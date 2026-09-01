@@ -145,6 +145,7 @@ set(SOURCES
 	source/formats/archive.cpp
 	source/formats/blz.cpp
 	source/formats/elf.cpp
+	source/formats/lz.cpp
 	source/modules/module_config.cpp
 	source/modules/module_dump.cpp
 	source/modules/module_graph.cpp
@@ -300,6 +301,13 @@ if (NCP_BUILD_TESTS)
 	ncp_add_test(json_test tests/json_test.cpp source/utils/json.cpp)
 	ncp_add_test(blz_test tests/blz_test.cpp
 		source/formats/blz.cpp source/utils/endian.cpp)
+	ncp_add_test(lz_test tests/lz_test.cpp
+		source/formats/lz.cpp
+		source/system/ansi.cpp
+		source/system/diagnostics.cpp
+		source/system/except.cpp
+		source/system/log.cpp
+		source/system/log_sink.cpp)
 	ncp_add_test(ansi_test tests/ansi_test.cpp source/system/ansi.cpp)
 	ncp_add_test(cli_test tests/cli_test.cpp source/app/cli.cpp)
 	target_link_libraries(cli_test PRIVATE ${YAML_CPP_TARGET})
@@ -347,6 +355,7 @@ if (NCP_BUILD_TESTS)
 	ncp_add_test(narc_test
 		tests/narc_test.cpp
 		source/utils/endian.cpp
+		source/formats/lz.cpp
 		source/rom/narc.cpp
 		source/rom/nitro_fs.cpp
 		source/system/ansi.cpp

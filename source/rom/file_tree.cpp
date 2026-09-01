@@ -56,24 +56,32 @@ std::vector<fs::path> filesUnder(const fs::path& root)
 	return out;
 }
 
-// Rewrites the `_narc` directory convention into an archive destination.
+// Rewrites the archive-folder convention into an archive destination.
 //
 // A directory cannot also be a file, so a project that wants to keep the file
 // it is replacing inside an archive next to the rest of its assets has to spell
-// the archive as a folder. The established spelling is the archive's name with
-// its dot turned into an underscore, and everything below that folder is a path
-// inside it:
+// the archive as a folder: the archive's name with its dot turned into an
+// underscore, and everything below that folder a path inside it.
 //
 //     ARCHIVE/menu_title_narc/menu/title/USA/vs.bmg
 //       -> ARCHIVE/menu_title.narc!menu/title/USA/vs.bmg
 //
-// Only the first such segment is read that way: an archive inside an archive is
-// not something this opens. A ROM that genuinely contains a directory named
-// `*_narc` cannot be expressed by a tree, and has to be written in `files:`
-// instead, where no convention applies.
-std::string applyNarcConvention(const std::string& destination)
+// The extension is whatever the game calls its archives rather than a literal
+// `narc`, because a game gets to name them: Mario Kart DS stores compressed
+// ones and calls them `.carc`, so `data/Main2D_carc/` is a container there.
+// That is also why the ROM has to be asked: `Main2D_carc` would be an ordinary
+// directory in a game that happens to have one, and nothing about the spelling
+// tells the two apart. A segment is an archive folder when the ROM holds an
+// archive at the path it names, and a directory name otherwise -- which also
+// retires the old caveat that a ROM genuinely containing a `*_narc` directory
+// had to be written out in `files:` instead.
+//
+// Only the outermost matching segment is read that way: an archive inside an
+// archive is not something this opens.
+std::string applyArchiveConvention(const std::string& destination, const ArchiveProbe& isArchive)
 {
-	constexpr std::string_view SUFFIX = "_narc";
+	if (!isArchive)
+		return destination;
 
 	std::size_t start = 0;
 	while (start < destination.size())
@@ -83,10 +91,18 @@ std::string applyNarcConvention(const std::string& destination)
 			break;
 
 		const std::string_view segment(destination.data() + start, slash - start);
-		if (segment.size() > SUFFIX.size() && segment.ends_with(SUFFIX))
+		const std::size_t underscore = segment.rfind('_');
+
+		// Both halves have to be there: `_x` names no archive, and neither
+		// does `x_`.
+		if (underscore != std::string_view::npos && underscore > 0
+			&& underscore + 1 < segment.size())
 		{
-			const std::size_t stem = start + segment.size() - SUFFIX.size();
-			return destination.substr(0, stem) + ".narc!" + destination.substr(slash + 1);
+			std::string archive = destination.substr(0, start + underscore);
+			archive += '.';
+			archive.append(segment.substr(underscore + 1));
+			if (isArchive(archive))
+				return archive + "!" + destination.substr(slash + 1);
 		}
 
 		start = slash + 1;
@@ -116,7 +132,8 @@ const FileTree::Component* claimingComponent(const FileTree& tree, const std::st
 } // namespace
 
 std::vector<config::FileConfig> sweepFileTrees(
-	const std::vector<FileTree>& trees, std::string_view variant)
+	const std::vector<FileTree>& trees, std::string_view variant,
+	const ArchiveProbe& isArchive)
 {
 	for (const FileTree& tree : trees)
 	{
@@ -185,8 +202,8 @@ std::vector<config::FileConfig> sweepFileTrees(
 			for (const fs::path& source : filesUnder(root))
 			{
 				const std::string relative = relativePosix(source, root);
-				const std::string destination = applyNarcConvention(tree.into.empty()
-					? relative : tree.into + "/" + relative);
+				const std::string destination = applyArchiveConvention(
+					tree.into.empty() ? relative : tree.into + "/" + relative, isArchive);
 
 				if (const std::string problem = config::nitroDestinationProblem(destination); !problem.empty())
 				{

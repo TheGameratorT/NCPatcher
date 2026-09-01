@@ -8,6 +8,8 @@
 
 #include "../source/rom/narc.hpp"
 
+#include "../source/formats/lz.hpp"
+
 #include <functional>
 #include <iostream>
 #include <string>
@@ -248,6 +250,51 @@ int main()
 		check(narc.fileCount() == 1, "a nameless archive still reports its members");
 		check(narc.findFile("anything") == -1, "nothing resolves by name in it");
 		check(narc.serialize() == bytes, "and it round-trips");
+	}
+
+	{
+		// Compressed containers. Mario Kart DS stores 286 of these and calls
+		// them `.carc`, but the name is a convention of that game's and the
+		// format is decided by what comes out of the wrapper.
+		const std::vector<u8> wrapped = lz::compress(original);
+		check(!rom::isNarc(wrapped), "a compressed archive does not carry the magic");
+		check(rom::narcWrapper(original) == rom::Wrapper::None,
+			"a plain archive is recognized as unwrapped");
+		check(rom::narcWrapper(wrapped) == rom::Wrapper::Lz10,
+			"and a compressed one by what it decompresses to");
+
+		rom::Narc narc = rom::Narc::parse(wrapped);
+		check(narc.wrapper() == rom::Wrapper::Lz10, "the archive remembers how it arrived");
+		check(narc.fileCount() == 3, "and reads exactly like an uncompressed one");
+		check(narc.findFile("sub/b.bin") == 1, "including its names");
+
+		// Back into the wrapper it came in, whatever that costs in bytes: a
+		// game that reads an archive through its decompressor will not accept
+		// a raw one in its place.
+		const std::vector<u8> written = narc.serialize();
+		check(lz::headerVariant(written) == lz::Variant::Lz10,
+			"an archive that arrived compressed goes back compressed");
+		check(lz::decompress(written) == original,
+			"and what is inside it is the archive, unchanged");
+
+		narc.replaceFile(1, filled(40, 0x3C));
+		const std::vector<u8> edited = narc.serialize();
+		check(lz::headerVariant(edited) == lz::Variant::Lz10, "an edited one too");
+		check(rom::Narc::parse(edited).file(1).size() == 40,
+			"and the edit survives the wrapper");
+	}
+
+	{
+		// The file that makes sniffing the first byte wrong: dwc/utility.bin
+		// begins with 0x10 and is not compressed at all.
+		std::vector<u8> utility = { 0x10, 0x00, 0x00, 0x00 };
+		utility.resize(1024, 0x5A);
+		check(!rom::narcWrapper(utility),
+			"a file that merely begins with 0x10 is not taken for a compressed archive");
+
+		// Nor is a real stream that unpacks to something else.
+		check(!rom::narcWrapper(lz::compress(filled(512, 0x22))),
+			"nor is a compressed file whose contents are not an archive");
 	}
 
 	if (g_failures == 0)

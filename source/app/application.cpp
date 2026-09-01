@@ -905,7 +905,7 @@ void Application::runHooks(config::HookWhen when,
 	}
 }
 
-std::vector<config::FileConfig> Application::resolveNitroFiles() const
+std::vector<config::FileConfig> Application::resolveNitroFiles(rom::RomAccessor& rom) const
 {
 	std::vector<rom::FileTree> trees;
 
@@ -1001,9 +1001,25 @@ std::vector<config::FileConfig> Application::resolveNitroFiles() const
 		}
 	}
 
+	// Memoized, because the same candidate comes up once per swept file below
+	// it and answering means reading the container to see what it is. A build
+	// touches one ROM, so the answers cannot go stale within it.
+	std::map<std::string, bool> archives;
+	const rom::ArchiveProbe isArchive = [&](std::string_view path) {
+		const auto known = archives.find(std::string(path));
+		if (known != archives.end())
+			return known->second;
+
+		bool answer = false;
+		if (rom.findNitroFile(path) >= 0)
+			answer = rom::narcWrapper(rom.readNitroFile(path)).has_value();
+		archives.emplace(std::string(path), answer);
+		return answer;
+	};
+
 	std::vector<config::FileConfig> files = trees.empty()
 		? std::vector<config::FileConfig>()
-		: rom::sweepFileTrees(trees, m_variant);
+		: rom::sweepFileTrees(trees, m_variant, isArchive);
 
 	if (m_config.filesReserve.configured())
 	{
@@ -1041,7 +1057,7 @@ rom::InsertionRecord Application::insertFiles(rom::RomAccessor& rom, bool planni
 		: "Could not insert the NitroFS files.");
 
 	rom::InsertionRecord inserted;
-	inserted.files = resolveNitroFiles();
+	inserted.files = resolveNitroFiles(rom);
 	const std::vector<config::FileConfig>& files = inserted.files;
 	if (files.empty())
 		return inserted;
@@ -1185,8 +1201,33 @@ rom::InsertionRecord Application::insertFiles(rom::RomAccessor& rom, bool planni
 		}
 		else
 		{
-			throw ncp::exception("Cannot replace NitroFS file \"" + file.path
-				+ "\": that path does not exist in the ROM. New files must be under z_new/.");
+			std::ostringstream oss;
+			oss << "Cannot replace NitroFS file " << OSTR(file.path)
+			    << ": that path does not exist in the ROM." << OREASONNL
+			    << "New files must be under z_new/.";
+
+			// The archive-folder convention reads a segment as a container only
+			// when the ROM holds one there, so a path that still has an
+			// underscored segment in it is very often a misspelt archive rather
+			// than a missing file. Say so: the alternative is the user
+			// comparing two spellings by eye.
+			for (std::size_t start = 0, slash = 0;
+			     (slash = file.path.find('/', start)) != std::string::npos;
+			     start = slash + 1)
+			{
+				const std::string segment = file.path.substr(start, slash - start);
+				const std::size_t underscore = segment.rfind('_');
+				if (underscore == std::string::npos || underscore == 0
+					|| underscore + 1 >= segment.size())
+					continue;
+
+				oss << OREASONNL << OSTR(segment) << " reads as a directory because the ROM has "
+				    << "no archive at " << OSTR(file.path.substr(0, start + underscore) + "."
+					+ segment.substr(underscore + 1)) << ".";
+				break;
+			}
+
+			throw ncp::exception(oss.str());
 		}
 	}
 
@@ -1259,7 +1300,10 @@ rom::InsertionRecord Application::insertFiles(rom::RomAccessor& rom, bool planni
 			entry.summary = archiveProvenance(archivePath, edits);
 		}
 
-		if (!rom::isNarc(bytes))
+		// By content rather than by name: a container the ROM stores compressed
+		// (Mario Kart DS names those `.carc`) is still an archive, and Narc
+		// unwraps it and puts the wrapper back on the way out.
+		if (!rom::narcWrapper(bytes))
 		{
 			std::ostringstream oss;
 			oss << OSTRa(archivePath) << " is not a Nitro archive.";

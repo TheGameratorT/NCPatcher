@@ -104,7 +104,11 @@ private:
 	void insertBanner(ncp::rom::RomAccessor& rom) const;
 
 	// The project's `files:` folded onto whatever the file trees sweep up.
-	[[nodiscard]] std::vector<config::FileConfig> resolveNitroFiles() const;
+	//
+	// The ROM is needed to read the archive-folder convention: whether
+	// `data/Main2D_carc/` names a container or a directory is a question only
+	// the ROM can answer. See rom::ArchiveProbe.
+	[[nodiscard]] std::vector<config::FileConfig> resolveNitroFiles(ncp::rom::RomAccessor& rom) const;
 
 	// Initialization helpers
 	void initializePaths();

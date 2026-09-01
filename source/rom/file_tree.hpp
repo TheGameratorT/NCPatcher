@@ -37,8 +37,10 @@
 // what it replaced, and listing it first is how the project says so.
 
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "../config/project_config.hpp"
@@ -83,12 +85,26 @@ struct FileTree
 	std::vector<Component> components;
 };
 
+// Whether the ROM holds a Nitro archive at this path.
+//
+// The archive-folder convention needs it and cannot be decided without it. A
+// directory cannot also be a file, so a project replacing something inside an
+// archive spells the archive as a folder: `<stem>_<ext>/` for the archive
+// `<stem>.<ext>`. But `Main2D_carc` is a container in Mario Kart DS and would
+// be a perfectly ordinary directory in a game that happens to have one, and no
+// spelling tells the two apart. Asking the ROM does.
+//
+// A null probe answers no to everything, which is what a caller with no ROM in
+// hand wants: the sweep still runs and every segment is a directory name.
+using ArchiveProbe = std::function<bool(std::string_view romPath)>;
+
 // Sweeps `trees` for `variant` and returns what they contribute, tree by tree
 // and sorted by destination within each.
 //
 // Throws when a tree's directory is missing, when a swept file cannot be named
 // in a ROM, or when two trees claim one destination.
 [[nodiscard]] std::vector<config::FileConfig> sweepFileTrees(
-	const std::vector<FileTree>& trees, std::string_view variant);
+	const std::vector<FileTree>& trees, std::string_view variant,
+	const ArchiveProbe& isArchive = {});
 
 } // namespace ncp::rom

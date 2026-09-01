@@ -9,6 +9,7 @@
 
 #include "../source/rom/file_tree.hpp"
 
+#include <algorithm>
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -311,6 +312,16 @@ static void testIntoPrefixesTheDestination()
 		"into: prefixes every destination the tree produces");
 }
 
+// Stands in for the ROM. The convention cannot be read without one: whether a
+// segment names a container or a directory is a fact about the game, not about
+// the spelling.
+static rom::ArchiveProbe archivesNamed(std::vector<std::string> paths)
+{
+	return [paths = std::move(paths)](std::string_view candidate) {
+		return std::find(paths.begin(), paths.end(), candidate) != paths.end();
+	};
+}
+
 // A directory cannot also be a file, so an archive has to be spelled as a
 // folder for its members to live in the tree next to everything else. The
 // convention is load-bearing: it is how the only NARC edit either real project
@@ -328,7 +339,8 @@ static void testNarcDirectoryBecomesAnArchiveDestination()
 	tree.baseVariant = "en";
 	tree.origin = "module message";
 
-	const auto files = rom::sweepFileTrees({ tree }, "fr");
+	const auto files = rom::sweepFileTrees({ tree }, "fr",
+		archivesNamed({ "ARCHIVE/menu_title.narc", "ARCHIVE/plain.narc" }));
 	check(sourceOf(files, root, "ARCHIVE/menu_title.narc!menu/title/USA/vs.bmg")
 		== "fr/ARCHIVE/menu_title_narc/menu/title/USA/vs.bmg",
 		"a _narc directory names a member of the archive beside it");
@@ -350,11 +362,45 @@ static void testNarcConventionIsNotGreedy()
 	tree.dir = root;
 	tree.origin = "the project";
 
-	const auto files = rom::sweepFileTrees({ tree }, "");
+	// Both are archives as far as the ROM is concerned. The outer one still
+	// wins, because an archive inside an archive is not something this opens.
+	const auto files = rom::sweepFileTrees({ tree }, "",
+		archivesNamed({ "a.narc", "a.narc!inner/b.narc", "leaf.narc" }));
 	check(sourceOf(files, root, "a.narc!inner/b_narc/c.bin") == "a_narc/inner/b_narc/c.bin",
 		"only the outermost _narc directory is read as an archive");
 	check(sourceOf(files, root, "leaf_narc") == "leaf_narc",
 		"a file whose name ends in _narc is a file");
+}
+
+// The extension is whatever the game calls its archives, and a segment that
+// looks like one but names nothing in the ROM is just a directory. Both halves
+// matter: Mario Kart DS stores compressed archives as `.carc`, and plenty of
+// ordinary directory names contain an underscore.
+static void testTheArchiveFolderIsDecidedByTheRom()
+{
+	const fs::path root = fs::temp_directory_path() / "ncp_file_tree_test" / "carc";
+	fs::remove_all(root);
+	write(root / "data" / "Main2D_carc" / "menu" / "icon.NCGR", "x");
+	write(root / "z_new" / "coop" / "shot.nwav", "y");
+	write(root / "sound_data" / "wave.swar", "z");
+
+	rom::FileTree tree;
+	tree.dir = root;
+	tree.origin = "the project";
+
+	const auto files = rom::sweepFileTrees({ tree }, "",
+		archivesNamed({ "data/Main2D.carc" }));
+
+	check(sourceOf(files, root, "data/Main2D.carc!menu/icon.NCGR")
+		== "data/Main2D_carc/menu/icon.NCGR",
+		"a _carc directory names a member of the compressed archive beside it");
+
+	// The one that would break every existing project if the rule were textual:
+	// z_new is not the archive `z.new`, and sound_data is not `sound.data`.
+	check(sourceOf(files, root, "z_new/coop/shot.nwav") == "z_new/coop/shot.nwav",
+		"a directory whose name merely contains an underscore is a directory");
+	check(sourceOf(files, root, "sound_data/wave.swar") == "sound_data/wave.swar",
+		"and so is one the ROM has no archive for");
 }
 
 static void testAnUnlayeredTreeIgnoresTheVariant()
@@ -434,6 +480,7 @@ int main()
 	testIntoPrefixesTheDestination();
 	testNarcDirectoryBecomesAnArchiveDestination();
 	testNarcConventionIsNotGreedy();
+	testTheArchiveFolderIsDecidedByTheRom();
 	testAnUnlayeredTreeIgnoresTheVariant();
 	testAMissingTreeDirectoryIsAnError();
 	testAnUnnameablePathIsAnError();
