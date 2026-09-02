@@ -132,6 +132,7 @@ private:
 	void writeModuleDump();
 
 	void applyCommandLineOverrides();
+	void refuseUnbuildableModuleCode() const;
 	void applyVariant(const std::string& name, bool deriveOutput);
 	void resolveRomDir();
 

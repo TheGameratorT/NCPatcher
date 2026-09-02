@@ -102,6 +102,12 @@ void RebuildStore::save(const fs::path& file) const
 
 	oss << "\t}\n}\n";
 
+	// The backup store makes this directory when it stores a pristine binary,
+	// which a build that patches no code never does. The record still has to
+	// land, so whoever gets there first creates it.
+	std::error_code ec;
+	fs::create_directories(file.parent_path(), ec);
+
 	std::ofstream output(file, std::ios::binary);
 	if (!output.is_open())
 		throw ncp::file_error(file, ncp::file_error::write);

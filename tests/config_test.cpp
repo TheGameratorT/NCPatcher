@@ -710,6 +710,58 @@ static void testV2DumpCarriesResolutionInputs(const fs::path& root)
 		"the human dump reports the mapping too");
 }
 
+// Most of a DS game is assets, so a project that only replaces some of them is
+// an ordinary project and not a degenerate one. It compiles nothing, needs no
+// toolchain, and has no ARM binary to name.
+static void testV2AllowsAProjectWithNoCode(const fs::path& root)
+{
+	write(root / "assets-only.yaml", R"(version: 2
+
+rom:
+  file: game.nds
+  output: build/game.nds
+  backup: backup
+
+file-trees:
+  - dir: nitrofs
+)");
+
+	const ProjectConfig config = loadV2(root / "assets-only.yaml", root);
+	check(!config.arm7.enabled && !config.arm9.enabled, "no targets are enabled");
+	check(config.arm7.name == "arm7" && config.arm9.name == "arm9",
+		"both targets are still named, so anything iterating them still works");
+	check(config.fileTrees.size() == 1, "the tree that does the work is read");
+
+	// Each of these is the whole reason a build would run.
+	for (const char* work : { "files:\n  a/b.bin: assets/b.bin\n",
+	                          "modules:\n  dir: modules\n",
+	                          "files-reserve: z_new/reserved\n",
+	                          "hooks:\n  - name: Generate\n    run: echo hi\n    when: pre-build\n" })
+	{
+		write(root / "one-job.yaml", std::string(R"(version: 2
+
+rom:
+  file: game.nds
+  backup: backup
+
+)") + work);
+		const ProjectConfig one = loadV2(root / "one-job.yaml", root);
+		check(!one.arm7.enabled && !one.arm9.enabled, std::string("no code, but ") + work + "is work");
+	}
+
+	// Nothing to compile is a project. Nothing at all is a mistake, and saying
+	// so beats reporting success for having copied a ROM.
+	write(root / "empty.yaml", R"(version: 2
+
+rom:
+  file: game.nds
+  backup: backup
+)");
+	const std::string error = errorFrom([&] { (void)loadV2(root / "empty.yaml", root); });
+	check(contains(error, "nothing to build"), "a project that does nothing is refused");
+	check(contains(error, "file-trees"), "and is told what it could have said instead");
+}
+
 static void testV2RejectsTypos(const fs::path& root)
 {
 	const std::string bad = std::string(V2_PROJECT).replace(
@@ -901,6 +953,7 @@ int main()
 
 	testV1Reader(root / "v1");
 	testV2Reader(root / "v1");   // reuses the source tree the v1 fixture built
+	testV2AllowsAProjectWithNoCode(root / "v1");
 	testV2RejectsTypos(root / "v1");
 	testV2DumpCarriesResolutionInputs(root / "v1");
 	testMigrationPreservesTheBuild(root / "migrate");

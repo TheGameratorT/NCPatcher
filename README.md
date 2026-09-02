@@ -313,10 +313,10 @@ you would have got without the interruption.
 
 ## Configuration
 
-New projects use one `ncpatcher.yaml` with `version: 2`. At least one ARM target
-must be enabled. Existing version 1 `ncpatcher.json` projects remain supported;
-`ncpatcher migrate` prints their v2 equivalent and `ncpatcher migrate --write`
-saves it after verifying that the resolved build is unchanged.
+New projects use one `ncpatcher.yaml` with `version: 2`. Existing version 1
+`ncpatcher.json` projects remain supported; `ncpatcher migrate` prints their v2
+equivalent and `ncpatcher migrate --write` saves it after verifying that the
+resolved build is unchanged.
 
 Create a project in a new directory with the portable default or the built-in
 New Super Mario Bros. setup:
@@ -399,6 +399,38 @@ flags:
 The operations run in `set`, `remove`, `append` order. `flags.common` is passed
 to C, C++, and assembly; `c`, `cpp`, and `asm` add language-specific options;
 `ld` is target-wide linker input.
+
+### A project with no code
+
+`targets:` is optional. Most of a DS game is assets, and a project that only
+replaces some of them compiles nothing, so there is no ARM binary for it to
+name:
+
+```yaml
+version: 2
+
+rom:
+  file: rom.nds
+  output: build/rom.nds
+  backup: backup
+
+file-trees:
+  - dir: nitrofs
+```
+
+That is a complete project. It needs no toolchain — none is looked for when
+there is nothing to compile — and it leaves the ROM's code untouched, byte for
+byte. Everything else still works the same: `files:`, `file-trees:`, archive
+members, the banner, variants, hooks, `files plan` and the file manifest.
+
+Modules work too, and an assets-only project can enable a module that ships only
+a `nitrofs:` tree. What it cannot do is enable a module that also ships code:
+that code reaches the ROM by being folded into a target's regions, so with no
+target declared there is nowhere for it to land, and NCPatcher says so rather
+than building a ROM the patch is quietly missing from.
+
+A project with no targets *and* nothing to place is refused. A build that read a
+ROM and wrote it back unchanged would be reporting success for doing nothing.
 
 ### Regions
 

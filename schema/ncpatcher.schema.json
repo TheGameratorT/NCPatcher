@@ -6,8 +6,7 @@
   "type": "object",
   "required": [
     "version",
-    "rom",
-    "targets"
+    "rom"
   ],
   "additionalProperties": false,
   "properties": {
@@ -171,6 +170,7 @@
       "$ref": "#/$defs/commandList"
     },
     "targets": {
+      "description": "The ARM binaries this project compiles code into. Optional: a project that only replaces assets patches no code and declares no targets.",
       "type": "object",
       "additionalProperties": false,
       "properties": {

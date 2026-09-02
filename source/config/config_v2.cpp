@@ -848,6 +848,24 @@ void readTarget(TargetConfig& target, const cfg::Node& node, Expander expander,
 		regions.fail("A target needs at least one region.");
 }
 
+// Whether a build would place anything at all. Asked only of a project with no
+// code to compile, where it is the difference between "ships assets" and "does
+// nothing". Hooks count: a project whose whole job is to run a generator over
+// the ROM is doing something, even though nothing here can see what.
+bool projectDoesSomething(const ProjectConfig& config)
+{
+	const bool variantWork = std::any_of(config.variants.begin(), config.variants.end(),
+		[](const VariantConfig& variant) { return !variant.files.empty() || !variant.banner.empty(); });
+
+	return !config.files.empty()
+		|| !config.fileTrees.empty()
+		|| !config.hooks.empty()
+		|| config.modules.present
+		|| config.romBanner.configured()
+		|| config.filesReserve.configured()
+		|| variantWork;
+}
+
 } // namespace
 
 ProjectConfig loadV2(const fs::path& projectFile, const fs::path& projectRoot,
@@ -1082,26 +1100,45 @@ ProjectConfig loadV2(const fs::path& projectFile, const fs::path& projectRoot,
 
 	// Targets --------------------------------------------------------------
 
-	const cfg::Node targets = root.require("targets");
-	if (!targets.isMap())
-		targets.failType("a mapping of target names");
-	checkKeys(targets, "targets", { "arm7", "arm9" });
-
 	for (bool arm9 : { false, true })
 	{
 		TargetConfig& target = config.target(arm9);
 		target.name = arm9 ? "arm9" : "arm7";
 		target.arm9 = arm9;
-
-		const cfg::Node node = targets[target.name];
-		if (!node.defined() || node.isNull())
-			continue;
-
-		readTarget(target, node, expander, projectFile);
 	}
 
-	if (!config.arm7.enabled && !config.arm9.enabled)
-		throw ncp::exception("No targets to build were specified.");
+	// Optional. Most of a DS game is assets, and a project that only replaces
+	// some of them compiles nothing, so there is nothing for it to name here.
+	const cfg::Node targets = root["targets"];
+	if (targets.defined() && !targets.isNull())
+	{
+		if (!targets.isMap())
+			targets.failType("a mapping of target names");
+		checkKeys(targets, "targets", { "arm7", "arm9" });
+
+		for (bool arm9 : { false, true })
+		{
+			const cfg::Node node = targets[config.target(arm9).name];
+			if (!node.defined() || node.isNull())
+				continue;
+
+			readTarget(config.target(arm9), node, expander, projectFile);
+		}
+	}
+
+	// Nothing to compile is a project; nothing to do at all is a mistake. A
+	// build that read a ROM and wrote it back unchanged would report success
+	// for having done nothing, which is the one outcome worth refusing.
+	if (!config.arm7.enabled && !config.arm9.enabled && !projectDoesSomething(config))
+	{
+		std::ostringstream oss;
+		oss << "This project has nothing to build." OREASONNL
+		    << "Give it code to patch under " << OSTRa("targets")
+		    << ", or assets to place with " << OSTRa("files") << ", "
+		    << OSTRa("file-trees") << ", " << OSTRa("modules")
+		    << " or " << OSTRa("rom.banner") << ".";
+		throw ncp::exception(oss.str());
+	}
 
 	return config;
 }

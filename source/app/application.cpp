@@ -704,7 +704,12 @@ void Application::runBuild()
 void Application::runConfiguredBuild()
 {
 	openDefaultLogFile();
-	validateToolchain();
+
+	// Only when there is something to compile. An assets-only project has no
+	// use for a cross compiler, and demanding one is how "I just want to
+	// replace a texture" turns into installing a toolchain.
+	if (m_config.arm7.enabled || m_config.arm9.enabled)
+		validateToolchain();
 
 	resolveRomDir();
 
@@ -712,6 +717,7 @@ void Application::runConfiguredBuild()
 
 	loadModules();
 	writeModuleDump();
+	refuseUnbuildableModuleCode();
 
 	// Between phases, which is where stopping leaves nothing half-done. See
 	// system/cancel.hpp for why these are chosen rather than sprinkled.
@@ -774,6 +780,31 @@ void Application::runConfiguredBuild()
 			 "Not all post-build hooks succeeded.");
 
 	Log::info("All tasks finished.");
+}
+
+// A module's code reaches the ROM by being folded into a target's regions, so
+// with no target enabled there is nowhere for it to land. Dropping it silently
+// is the failure this exists to prevent: the build succeeds, the ROM boots, and
+// the patch is simply not in it.
+void Application::refuseUnbuildableModuleCode() const
+{
+	if (m_config.arm7.enabled || m_config.arm9.enabled)
+		return;
+
+	for (bool arm9 : { false, true })
+	{
+		if (m_modules.contribution(arm9).regionSources.empty())
+			continue;
+
+		ScopedContext ctx(Diag::ConfigLoad, "Could not resolve the build configuration.");
+		std::ostringstream oss;
+		oss << "The enabled modules have " << (arm9 ? "ARM9" : "ARM7")
+		    << " code, but this project declares no " << (arm9 ? "arm9" : "arm7")
+		    << " target to build it into." OREASONNL
+		    << "Declare one under " << OSTRa("targets")
+		    << ", or enable only the modules whose assets this project wants.";
+		throw ncp::exception(oss.str());
+	}
 }
 
 void Application::applyVariant(const std::string& name, bool deriveOutput)

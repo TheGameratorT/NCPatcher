@@ -343,7 +343,12 @@ void dumpHuman(std::ostream& out,
 
 		out << '\n' << ANSI_bWHITE << "Target " << cfg.name << ANSI_RESET;
 		if (!cfg.enabled)
-			out << " (disabled)";
+		{
+			// Nothing was read into it, so every row below would be blank. An
+			// assets-only project has two of these and no interest in either.
+			out << " (disabled)\n";
+			continue;
+		}
 		out << '\n';
 		out << "  file:         " << cfg.file.string() << '\n';
 		out << "  build dir:    " << cfg.buildDir.value.string()
