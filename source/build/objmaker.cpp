@@ -275,6 +275,12 @@ void ObjMaker::compileSources()
 {
 	BS::thread_pool pool(m_ctx->threadCount());
 
+	// Once, before anything is queued: every unit uses the same answer, and
+	// asking from inside the pool would have every thread ask at once.
+	m_diagnosticsFormat = ncp::msg::isJson()
+		? ncp::build::detectDiagnosticsFormat(m_ctx->toolchain() + "gcc", m_paths->buildDir)
+		: ncp::build::DiagnosticsFormat::Text;
+
 	BuildLogger logger;
 	logger.setUnits(m_compilationUnitMgr->getUserUnits());
 	logger.start(m_paths->targetWorkDir);
@@ -311,7 +317,8 @@ void ObjMaker::compileSources()
 		buildInfo.logFinished = false;
 		buildInfo.buildComplete = false;
 		buildInfo.buildFailed = false;
-		buildInfo.compilerDiagnosticsParsed = ncp::msg::isJson();
+		buildInfo.compilerDiagnosticsParsed =
+			m_diagnosticsFormat != ncp::build::DiagnosticsFormat::Text;
 
 		pool.push_task([unit, this, completed, pendingCount](){
 			core::BuildInfo& buildInfo = unit->getBuildInfo();
@@ -333,14 +340,14 @@ void ObjMaker::compileSources()
 			auto runCompiler = [&](const std::string& command) {
 				std::ostringstream commandOut;
 				const int retcode = Process::start(command.c_str(), m_paths->targetWorkDir, &commandOut);
-				if (!ncp::msg::isJson())
+				if (m_diagnosticsFormat == ncp::build::DiagnosticsFormat::Text)
 				{
 					out << commandOut.str();
 					return retcode;
 				}
 
 				const auto diagnostics = ncp::build::parseGccDiagnostics(
-					commandOut.str(), unit->getSourcePath().string());
+					commandOut.str(), unit->getSourcePath().string(), m_diagnosticsFormat);
 				if (!diagnostics.has_value())
 				{
 					buildInfo.compilerDiagnosticsParsed = false;
@@ -399,9 +406,16 @@ void ObjMaker::compileSources()
 				}
 				ccmd += m_defineFlags;
 				ccmd += m_includeFlags;
-				ccmd += ncp::msg::isJson()
-					? "-c -fdiagnostics-format=json -fdiagnostics-color=never -fdata-sections -ffunction-sections "
-					: "-c -fdiagnostics-color -fdata-sections -ffunction-sections ";
+				if (m_diagnosticsFormat != ncp::build::DiagnosticsFormat::Text)
+				{
+					ccmd += "-c";
+					ccmd += ncp::build::diagnosticsFormatFlag(m_diagnosticsFormat);
+					ccmd += " -fdiagnostics-color=never -fdata-sections -ffunction-sections ";
+				}
+				else
+				{
+					ccmd += "-c -fdiagnostics-color -fdata-sections -ffunction-sections ";
+				}
 				if (outputDeps)
 				{
 					ccmd += "-MMD -MF \"";

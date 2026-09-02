@@ -435,7 +435,9 @@ if (NCP_BUILD_TESTS)
 
 	ncp_add_test(gcc_diagnostics_test
 		tests/gcc_diagnostics_test.cpp
-		source/build/gcc_diagnostics.cpp)
+		source/build/gcc_diagnostics.cpp
+		source/system/process.cpp
+		source/utils/unicode.cpp)
 	target_link_libraries(gcc_diagnostics_test PRIVATE ${YAML_CPP_TARGET})
 
 	# The config test exercises the whole reader stack (both schemas, the

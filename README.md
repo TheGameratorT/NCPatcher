@@ -255,6 +255,17 @@ diagnostic and artifact. Both work with or without `--message-format json`.
 In JSON message mode GCC diagnostics are emitted individually with their
 severity and source location; the human rendering remains on stderr.
 
+To do that, NCPatcher asks the compiler for machine-readable diagnostics rather
+than scraping the text it prints for people. Which flag that is depends on the
+toolchain, so it is asked rather than assumed: `-fdiagnostics-format=sarif-stderr`
+where GCC accepts it (13 and later), `json` on older ones (9 through 15), and
+neither on anything else, where the compiler's own output is passed through
+unparsed and diagnostics arrive as one block of text rather than as located
+messages. The probe compiles an empty file once per build, because GCC validates
+the argument only when there is something to compile — GCC 16 accepts
+`-fdiagnostics-format=json` on a command line that does no work and then refuses
+the same flag when a file is named.
+
 `config dump --json` writes an `ncpatcher.config/1` document: the settings as
 the build understands them, with every path already resolved against the
 project directory. Besides the targets and their flags it carries what a
