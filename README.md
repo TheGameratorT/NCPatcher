@@ -127,10 +127,15 @@ emitted `arm9ovt.bin`, because the two only make sense together — decompressed
 bytes under a row still saying `compressed, compressedSize = N` is the one
 combination that turns a naive repack into a ROM that hangs. `extraction.json`
 records what the ROM had, so `rom pack` compresses the overlay again and
-restores its flags. That round trip is faithful rather than byte-identical: BLZ
-is not obliged to reproduce the stream the game's own tooling wrote, so the
-overlay comes back compressed, with the ROM's flags, unpacking to exactly the
-bytes it did before, at whatever size this compressor reaches.
+restores its flags.
+
+What that round trip guarantees is the contents: the overlay comes back
+compressed, with the ROM's flags, unpacking to exactly the bytes it did before.
+It also happens to come back byte for byte on every overlay of a retail NSMB
+ROM, because this encoder makes the same choices as the tooling that wrote them
+and pads the footer slack with `0xFF` the way every other BLZ tool does. That is
+worth having and worth testing, but it is not a promise: another game compressed
+by another tool may re-encode to a different stream of the same contents.
 
 Patching a directory does not rewrite its `header.bin`: the header is an input
 the patcher has never owned, and every tool that repacks one of these

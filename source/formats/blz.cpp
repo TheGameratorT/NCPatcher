@@ -330,6 +330,12 @@ namespace BLZ
 		std::copy(work.begin() + std::ptrdiff_t(split.out), work.end(),
 			out.begin() + std::ptrdiff_t(rawSize));
 
+		// 0xFF for the slack, which no decompressor reads and every other BLZ
+		// tool writes. Matching them is what makes recompressing an overlay
+		// that was never edited give back the bytes the ROM shipped, so an
+		// extract-and-pack round trip compares equal instead of merely running.
+		std::fill_n(out.begin() + std::ptrdiff_t(rawSize + streamSize), std::ptrdiff_t(padding), u8(0xFF));
+
 		// Top 8 bits: how far back from the end the encoded stream ends.
 		// Low 24 bits: how far back from the end it begins, which is where the
 		// raw head stops.

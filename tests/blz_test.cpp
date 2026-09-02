@@ -109,6 +109,53 @@ static void testRoundTripSizes()
 	}
 }
 
+// The slack between the stream and the footer is 0xFF, which is what every
+// other BLZ tool writes. Nothing reads it, so the only thing this buys is that
+// recompressing an untouched overlay gives back the bytes the ROM shipped --
+// which is what makes an extract-and-pack round trip comparable.
+static void testFooterPadding()
+{
+	// Sizes vary the encoded length, and one of the four alignments has to be
+	// the one that leaves slack.
+	bool sawPadding = false;
+	for (size_t size = 200; size < 260; size++)
+	{
+		std::vector<u8> data(size, 0);
+		for (size_t i = 0; i < size; i++)
+			data[i] = u8("abcabcabd"[i % 9]);
+
+		const std::vector<u8> packed = BLZ::compress(data);
+		if (packed.empty())
+			continue;
+
+		// The footer says how much of the tail is not stream: eight bytes of
+		// footer plus the slack.
+		const u32 offsetIn = u32(packed[packed.size() - 8]) | (u32(packed[packed.size() - 7]) << 8)
+			| (u32(packed[packed.size() - 6]) << 16) | (u32(packed[packed.size() - 5]) << 24);
+		const size_t padding = (offsetIn >> 24) - 8;
+		if (padding == 0)
+			continue;
+
+		sawPadding = true;
+		for (size_t i = 0; i < padding; i++)
+		{
+			if (packed[packed.size() - 8 - padding + i] != 0xFF)
+			{
+				check(false, "footer slack is 0xFF at size " + std::to_string(size));
+				return;
+			}
+		}
+
+		if (BLZ::uncompress(packed) != data)
+		{
+			check(false, "a padded image still round trips at size " + std::to_string(size));
+			return;
+		}
+	}
+
+	check(sawPadding, "some size leaves slack before the footer");
+}
+
 static void testIncompressible()
 {
 	std::mt19937 rng(1);
@@ -225,6 +272,7 @@ int main()
 {
 	testRoundTrip();
 	testRoundTripSizes();
+	testFooterPadding();
 	testIncompressible();
 	testLiterals();
 	testReference();
