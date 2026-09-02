@@ -655,14 +655,15 @@ files:
 ```
 
 Archives are edited in place and never added to. Game code reads a member by
-its index, so inserting one would renumber every member after it, the same
-reason NitroFS file IDs are never renumbered. The archive must already exist
+its file id -- the archive's own name table numbers its members exactly as the
+ROM's FNT numbers loose files -- so inserting one would renumber every member
+after it, the same reason NitroFS file IDs are never renumbered. The archive must already exist
 and must already hold the member named; a missing member is an error rather
 than a warning, because the way that ships is a ROM with the translation still
 in the original language.
 
 A replacement of a different size is fine. The allocation table and the data
-chunk are laid out again around it, and every member keeps its index. An
+chunk are laid out again around it, and every member keeps its id. An
 archive nothing edited is written back byte for byte.
 
 `id:` cannot be combined with an archive destination, since it renames a loose
@@ -931,15 +932,18 @@ So an archive this run edited also carries `members`:
   "source": "modules/message/nitrofs/fr/ARCHIVE/menu_title_narc/menu/title/USA/vs.bmg",
   "module": "message", "from-variant": "fr",
   "members": [
-    { "index": 43, "path": "menu/title/USA/vs.bmg", "size": 1344, "action": "modified",
+    { "id": 43, "path": "menu/title/USA/vs.bmg", "size": 1344, "action": "modified",
       "source": "modules/message/nitrofs/fr/ARCHIVE/menu_title_narc/menu/title/USA/vs.bmg",
       "module": "message", "from-variant": "fr" } ] }
 ```
 
-`index`, never `id`. A member index is not a NitroFS file id: the ROM's table
-does not name members at all, so nothing outside the container can address one
-by number, and a consumer that treated the two alike would be one confusion away
-from replacing the wrong file. A member's `action` is never `created` either,
+A member's `id` is a file id like any other -- in the archive's table rather
+than the ROM's. A `.narc` carries the same File Name Table structure a ROM
+does and numbers its members the same way, and game code loads one by that id
+exactly as it loads a loose file by its own. What differs is only which table
+the number belongs to, so an `id` inside `members` is read together with the
+container's path and is meaningless without it, just as the enclosing entry's
+`id` is meaningless inside the archive. A member's `action` is never `created`,
 for the reason above -- the codec is replace-only.
 
 Only the members the run edited are listed. Enumerating every member of every
@@ -947,8 +951,9 @@ archive would dwarf the rest of the document, and a consumer with the ROM open
 can list them itself; what it cannot work out on its own is where the bytes came
 from, so that is what this carries.
 
-Additive, so the document is still `ncpatcher.files/1`, and a consumer that
-reads only the container entry is unaffected.
+Still `ncpatcher.files/1`: `members` arrived in this schema and has never
+shipped a release spelling that field anything else, and a consumer that reads
+only the container entry is unaffected either way.
 
 ### Planning a build
 

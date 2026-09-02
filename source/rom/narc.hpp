@@ -12,10 +12,15 @@
 // serializes, and `GMIF` holds the bytes, which is why the filename half of
 // this file is reuse and only the chunk framing and the FAT are new.
 //
+// Because the name table is the ROM's own structure, the numbering is too: a
+// member has a file id, assigned by this archive's `BTNF` exactly as the ROM's
+// FNT assigns one to a loose file, and game code loads a member by that id.
+// Only the table it belongs to differs.
+//
 // Replace-only, deliberately. Adding or removing an inner file renumbers the
-// rest, and inner file numbers are exactly as load-bearing as the ROM's own:
-// game code reads a NARC member by index. Replacing keeps every index where it
-// is, which is the same invariant that governs NitroFS insertion.
+// rest, and those ids are exactly as load-bearing as the ROM's own. Replacing
+// keeps every id where it is, which is the same invariant that governs NitroFS
+// insertion.
 //
 // The name table is kept as the bytes it was read as and never reserialized.
 // Nothing here renames anything, so re-emitting a structure that did not change
@@ -79,17 +84,17 @@ public:
 
 	[[nodiscard]] std::size_t fileCount() const { return m_files.size(); }
 
-	// Looks up a '/'-separated path inside the archive. Returns the member
-	// index, or -1. A nameless archive (BTNF with nothing but a root) never
-	// resolves anything, which is correct: its members have numbers and no
-	// names.
+	// Looks up a '/'-separated path inside the archive. Returns the member's
+	// file id in this archive's table, or -1. A nameless archive (BTNF with
+	// nothing but a root) never resolves anything, which is correct: its
+	// members have ids and no names.
 	[[nodiscard]] int findFile(std::string_view path) const;
 
 	[[nodiscard]] std::span<const u8> file(std::size_t index) const;
 	void replaceFile(std::size_t index, std::vector<u8> data);
 
-	// Every named member, as (index, '/'-separated path), sorted by index.
-	// Used to list what an archive actually holds when a lookup failed.
+	// Every named member, as (file id, '/'-separated path), sorted by id. Used
+	// to list what an archive actually holds when a lookup failed.
 	[[nodiscard]] std::vector<std::pair<u32, std::string>> allFiles() const;
 
 private:

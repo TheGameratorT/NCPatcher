@@ -65,13 +65,14 @@ std::vector<ManifestEntry> buildManifest(
 	const std::unordered_set<std::string> missing(
 		record.missingSources.begin(), record.missingSources.end());
 
-	// Members, grouped by the container they belong to and ordered within it,
-	// so that two runs of the same project produce the same document.
+	// Members, grouped by the container they belong to and ordered within it by
+	// the id the container gives them, so that two runs of the same project
+	// produce the same document.
 	std::unordered_map<std::string, std::vector<ManifestMember>> members;
 	for (const ArchiveEdit& edit : record.archiveEdits)
 	{
 		ManifestMember member;
-		member.index = edit.index;
+		member.id = edit.id;
 		member.path = edit.member;
 		member.size = edit.size;
 		member.action = FileAction::Modified;
@@ -86,7 +87,7 @@ std::vector<ManifestEntry> buildManifest(
 	{
 		std::sort(list.begin(), list.end(),
 			[](const ManifestMember& left, const ManifestMember& right) {
-				return left.index < right.index;
+				return left.id < right.id;
 			});
 	}
 
@@ -182,7 +183,7 @@ void writeManifest(std::ostream& out,
 			for (const ManifestMember& member : entry.members)
 			{
 				writer.beginObject();
-				writer.field("index", member.index);
+				writer.field("id", member.id);
 				writer.field("path", member.path);
 				writer.field("size", member.size);
 				writer.field("action", actionName(member.action));

@@ -39,18 +39,25 @@ enum class FileAction
 
 // One member of a Nitro archive that this run replaced.
 //
-// `index`, never `id`. A member index is not a NitroFS file id and the two must
-// be impossible to confuse: the ROM's table does not name members at all, so
-// nothing outside the container itself can address one by number, and an
-// editor that treated the two alike would be one typo away from replacing the
-// wrong file entirely.
+// `id` is a file id, in the container's own table rather than the ROM's. A
+// NARC carries the same File Name Table structure a ROM does, and it numbers
+// its members the same way -- which is why `narc.cpp` reuses `nitro_fs.cpp` to
+// read it. Two tables, two numbering spaces, one concept: an id here addresses
+// a member of this archive, an id on a ManifestEntry addresses a file of the
+// ROM, and neither is meaningful in the other's table.
+//
+// So the number is qualified by what holds it, never renamed to hide what it
+// is. Game code loads a member by this id exactly as it loads a loose file by
+// its own, which means the same argument that makes the ROM's table worth
+// dumping -- code needs the constant, and the constant moves when the table
+// does -- applies here.
 //
 // `action` is only ever `Modified`. The archive codec is replace-only, because
-// a game reads a member by index and inserting one renumbers every member after
-// it -- so there is no such thing as a created member.
+// inserting a member renumbers every member after it -- so there is no such
+// thing as a created member.
 struct ManifestMember
 {
-	u32 index = 0;
+	u32 id = 0;
 
 	// '/'-separated path inside the archive, as the container's own name table
 	// spells it.
@@ -101,7 +108,8 @@ struct ArchiveEdit
 	// belongs to is keyed by.
 	std::string archive;
 
-	u32 index = 0;
+	// The member's file id inside that container.
+	u32 id = 0;
 	std::string member;
 	u32 size = 0;
 

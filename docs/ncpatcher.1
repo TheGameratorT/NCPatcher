@@ -384,10 +384,10 @@ writing the archive's ROM path, a
 then the path within the archive:
 .BR "ARCHIVE/menu_title.narc!menu/title/USA/vs.bmg" .
 Archives are edited in place and never added to, because game code reads a
-member by its index. The archive must exist and must already hold the member;
-a missing member is an error rather than a warning. A replacement of a
-different size relays the allocation table and data chunk out around it, and
-every member keeps its index. An archive nothing edited is written back byte
+member by its file id, assigned by the archive's own name table. The archive
+must exist and must already hold the member; a missing member is an error
+rather than a warning. A replacement of a different size relays the allocation
+table and data chunk out around it, and every member keeps its id. An archive nothing edited is written back byte
 for byte.
 .B id:
 cannot be combined with an archive destination.
@@ -548,10 +548,9 @@ vanilla, replaced by a module, or added by one.
 A Nitro archive the build edited also carries a
 .B members
 array, one entry per member it replaced, each with the member's
-.B index
-\(em never an
-.BR id ,
-since a member index is not a NitroFS file id \(em and its own provenance. The
+.B id
+\(em a file id in the archive's own table rather than the ROM's, which is how
+game code loads it \(em and its own provenance. The
 archive's own entry can carry no more than its members agree on, which for five
 members from three modules is nothing, so without this the per-member truth
 would be lost. Members the build did not touch are not listed: a consumer with

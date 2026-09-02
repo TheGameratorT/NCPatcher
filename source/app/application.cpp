@@ -1388,8 +1388,8 @@ rom::InsertionRecord Application::insertFiles(rom::RomAccessor& rom, bool planni
 
 		for (const PreparedFile& edit : edits)
 		{
-			const int index = narc.findFile(edit.inner);
-			if (index < 0)
+			const int id = narc.findFile(edit.inner);
+			if (id < 0)
 			{
 				// An error rather than a warning. A missing member means the
 				// replacement silently did not happen, and the way that ships
@@ -1400,14 +1400,14 @@ rom::InsertionRecord Application::insertFiles(rom::RomAccessor& rom, bool planni
 				    << (narc.allFiles().empty() ? ", none of them named." : ".");
 				throw ncp::exception(oss.str());
 			}
-			narc.replaceFile(std::size_t(index), edit.data);
+			narc.replaceFile(std::size_t(id), edit.data);
 
 			// The manifest needs this and cannot recover it later: once the
 			// container is written back, the ROM's table shows one modified
 			// file and nothing at all about which of its members moved.
 			rom::ArchiveEdit record;
 			record.archive = archivePath;
-			record.index = u32(index);
+			record.id = u32(id);
 			record.member = edit.inner;
 			record.size = u32(edit.data.size());
 			record.source = edit.config->source;

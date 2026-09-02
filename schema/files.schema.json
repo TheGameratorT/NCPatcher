@@ -76,20 +76,20 @@
         },
         "members": {
           "type": "array",
-          "description": "Present only for a Nitro archive this run edited, and then only for the members it edited. A container's own entry can carry no more provenance than its members agree on, which for five members from three modules is none, so the per-member truth would otherwise be lost. Members the run did not touch are deliberately absent: enumerating every member of every archive would dwarf the rest of the document, and a consumer holding the ROM can list them itself. Sorted by index.",
+          "description": "Present only for a Nitro archive this run edited, and then only for the members it edited. A container's own entry can carry no more provenance than its members agree on, which for five members from three modules is none, so the per-member truth would otherwise be lost. Members the run did not touch are deliberately absent: enumerating every member of every archive would dwarf the rest of the document, and a consumer holding the ROM can list them itself. Sorted by id.",
           "items": { "$ref": "#/$defs/member" }
         }
       }
     },
     "member": {
       "type": "object",
-      "required": ["index", "path", "size", "action"],
+      "required": ["id", "path", "size", "action"],
       "additionalProperties": false,
       "properties": {
-        "index": {
+        "id": {
           "type": "integer",
           "minimum": 0,
-          "description": "The member's position in its container, which is how the game addresses it. Never an `id`: a member index is not a NitroFS file id, the ROM's table does not name members at all, and treating the two alike would replace the wrong file."
+          "description": "The member's file id, assigned by the container's own name table exactly as the ROM's FNT assigns one to a loose file, and how game code loads it. A file id, in a different table: this numbering space belongs to the archive, the `id` on the enclosing file entry belongs to the ROM, and neither is meaningful in the other's table. Read it together with the container's path, never on its own."
         },
         "path": {
           "type": "string",
@@ -102,7 +102,7 @@
         },
         "action": {
           "enum": ["unchanged", "modified"],
-          "description": "Always `modified` in practice, since only edited members are listed. Never `created`: the archive codec is replace-only, because a game reads a member by index and inserting one renumbers every member after it."
+          "description": "Always `modified` in practice, since only edited members are listed. Never `created`: the archive codec is replace-only, because inserting a member renumbers every member after it."
         },
         "source": {
           "type": "string",

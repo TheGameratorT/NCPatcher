@@ -279,11 +279,12 @@ int main()
 		check(container != nullptr && container->members.size() == 2,
 			"both edited members are recorded");
 
-		// Sorted by index, so two runs of the same project produce the same
-		// document whatever order the edits were resolved in.
+		// Sorted by the id the container gives them, so two runs of the same
+		// project produce the same document whatever order the edits were
+		// resolved in.
 		check(container != nullptr && container->members.size() == 2
-			&& container->members[0].index == 14 && container->members[1].index == 43,
-			"members are ordered by index");
+			&& container->members[0].id == 14 && container->members[1].id == 43,
+			"members are ordered by id");
 		check(container != nullptr && !container->members.empty()
 			&& container->members[0].path == "menu/title/USA/opening.bmg"
 			&& container->members[0].module == "message"
@@ -296,9 +297,11 @@ int main()
 		rom::writeManifest(out, result, "fr");
 		const std::string text = out.str();
 		check(contains(text, "\"members\""), "members reach the document");
-		check(contains(text, "\"index\": 43"), "a member is addressed by index");
-		check(!contains(text, "\"id\": 43"),
-			"and never by id, which a member does not have");
+		// A file id in the archive's table, spelled the way the ROM's own ids
+		// are: the container's path is what says which table it belongs to.
+		check(contains(text, "\"id\": 43"), "a member carries its file id");
+		check(!contains(text, "\"index\""),
+			"and nothing calls it an index, which would deny it is an id");
 
 		// Every other file in the ROM: no members key at all, rather than an
 		// empty array on two thousand entries.
