@@ -133,9 +133,14 @@ What that round trip guarantees is the contents: the overlay comes back
 compressed, with the ROM's flags, unpacking to exactly the bytes it did before.
 It also happens to come back byte for byte on every overlay of a retail NSMB
 ROM, because this encoder makes the same choices as the tooling that wrote them
-and pads the footer slack with `0xFF` the way every other BLZ tool does. That is
-worth having and worth testing, but it is not a promise: another game compressed
-by another tool may re-encode to a different stream of the same contents.
+and pads the footer slack with `0xFF` the way every other BLZ tool does.
+
+That is worth having, and worth testing, but it is not a promise. Mario Kart DS
+is the counter-example: its overlay 0 comes back identical, and overlays 1 and 3
+come back as different streams of the same length holding the same contents,
+because whatever compressed them split the raw head somewhere else. Byte
+identity is a property of the encoder that happened to write the ROM; the
+contents are the part this guarantees.
 
 Patching a directory does not rewrite its `header.bin`: the header is an input
 the patcher has never owned, and every tool that repacks one of these
