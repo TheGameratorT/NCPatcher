@@ -15,6 +15,12 @@ struct PackItem
 	u32 size;
 	u32 alignment;
 	int destination;
+
+	// A last-resort item is only placed into space no normal item wanted.
+	// Overwrite bytes are worth more to code and data than to bss: code
+	// placed there saves both ROM and RAM, while bss only saves RAM, so bss
+	// must never be the reason a code or data item fails to fit.
+	bool lastResort = false;
 };
 
 // One overwrite region. Items are only placed into regions sharing their
@@ -62,6 +68,10 @@ struct PackResult
 //
 // Selection is first-fit-decreasing by size: items are tried largest first,
 // against that destination's regions in order of most free space first.
+//
+// Within a destination, every normal item is placed (or spilled) before any
+// last-resort item is even attempted, so a last-resort item can only occupy
+// space no normal item wanted.
 //
 // The packing cursor is an absolute address starting at `region.startAddress`,
 // not an offset, because alignment applies to the absolute address: a region

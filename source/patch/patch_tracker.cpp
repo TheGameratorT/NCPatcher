@@ -324,31 +324,36 @@ void PatchTracker::validatePatchForRegion(const ParsedPatchInfo& parsedInfo, std
     }
 }
 
-bool PatchTracker::isValidSectionForOverwrites(std::string_view sectionName, const Elf32_Shdr& section) const
+bool PatchTracker::isValidSectionForOverwrites(std::string_view sectionName, const Elf32_Shdr& section, int destination) const
 {
     bool ncpSectionSupportsOverrideRegion =
-        sectionName.starts_with(".ncp_jump") || 
-        sectionName.starts_with(".ncp_call") || 
+        sectionName.starts_with(".ncp_jump") ||
+        sectionName.starts_with(".ncp_call") ||
         sectionName.starts_with(".ncp_hook") ||
-        sectionName.starts_with(".ncp_tjump") || 
-        sectionName.starts_with(".ncp_tcall") || 
+        sectionName.starts_with(".ncp_tjump") ||
+        sectionName.starts_with(".ncp_tcall") ||
         sectionName.starts_with(".ncp_thook");
-    
+
+    // .bss from an overlay is excluded: an overlay can be unloaded and
+    // reloaded, and a reload restores the ROM image, which for an
+    // overwrite-region bss variable means restoring whatever it held at
+    // patch time rather than zero. arm bss has no such reload, so a variable
+    // placed there is zeroed exactly once, at boot, which is correct; it is
+    // still deprioritized behind code and data by the packer (see
+    // overwrite_packing.hpp) since overwrite bytes save both ROM and RAM for
+    // code but only RAM for bss.
+    bool isOverlayBss = destination != -1 && sectionName.starts_with(".bss");
+
     if ((sectionName.starts_with(".ncp_") && !ncpSectionSupportsOverrideRegion) ||
         sectionName.starts_with(".rel") ||
         sectionName.starts_with(".debug") ||
         sectionName == ".shstrtab" ||
         sectionName == ".strtab" ||
         sectionName == ".symtab" ||
-        sectionName.starts_with(".bss") ||
+        isOverlayBss ||
         section.sh_size == 0 ||
         (section.sh_flags & SHF_MERGE) != 0)
     {
-        // .bss is excluded because it costs no ROM bytes in the normal newcode
-        // path, so spending scarce overwrite-region space to store zeros is a
-        // net loss, and because an overwrite region is never re-zeroed at
-        // runtime the way real bss is.
-        //
         // SHF_MERGE sections (mergeable string/constant data) are excluded
         // because their emitted size depends on what else is present in the
         // link. A size measured with every candidate present would not hold
@@ -360,6 +365,7 @@ bool PatchTracker::isValidSectionForOverwrites(std::string_view sectionName, con
            sectionName.starts_with(".rodata") ||
            sectionName.starts_with(".init_array") ||
            sectionName.starts_with(".data") ||
+           sectionName.starts_with(".bss") ||
            ncpSectionSupportsOverrideRegion;
 }
 
@@ -468,15 +474,18 @@ void PatchTracker::collectOverwriteCandidateSections(const Elf32& elf, const Elf
                                                         const Elf32_Shdr* sh_tbl, const char* str_tbl,
                                                         core::CompilationUnit* unit)
 {
+    int destination = unit->getTargetRegion()->destination;
+
     Elf32::forEachSection(eh, sh_tbl, str_tbl,
     [&](std::size_t sectionIdx, const Elf32_Shdr& section, std::string_view sectionName){
-        if (isValidSectionForOverwrites(sectionName, section))
+        if (isValidSectionForOverwrites(sectionName, section, destination))
         {
             auto sectionInfo = std::make_unique<SectionInfo>();
             sectionInfo->unit = unit;
             sectionInfo->name = std::string(sectionName);
             sectionInfo->size = section.sh_size;
             sectionInfo->alignment = section.sh_addralign > 0 ? section.sh_addralign : 4;
+            sectionInfo->isBss = sectionName.starts_with(".bss");
             m_overwriteCandidateSections.push_back(std::move(sectionInfo));
         }
         return false;

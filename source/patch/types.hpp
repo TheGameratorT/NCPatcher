@@ -57,6 +57,7 @@ struct SectionInfo {
     u32 alignment;
     u32 address;
     const u8* data;
+    bool isBss;
 };
 
 struct NewcodeInfo {

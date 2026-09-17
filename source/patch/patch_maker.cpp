@@ -576,18 +576,24 @@ void PatchMaker::applyOverwriteRegions(const PatchOperationContext& context)
 
 		const Elf32_Shdr& sectionHeader = static_cast<const Elf32_Shdr*>(context.sectionHeaderTable)[overwrite->sectionIdx];
 
-		// A SHT_NOBITS section (bss) has no bytes in the ELF file; getSection
-		// would return a pointer into unrelated file data instead. Overwrite
-		// candidates exclude bss already, so this should be unreachable, but
-		// the check is cheap insurance against writing garbage to the ROM.
-		if (sectionHeader.sh_type == SHT_NOBITS)
-			continue;
-
 		ICodeBin* bin = getBinaryForDestination(overwrite->destination);
-		const char* sectionData = context.elf->getSection<char>(sectionHeader);
 
-		bin->writeBytes(overwrite->startAddress, sectionData, overwrite->sectionSize);
-		
+		if (sectionHeader.sh_type == SHT_NOBITS)
+		{
+			// A region that ends up holding only bss comes out as SHT_NOBITS,
+			// with no bytes in the ELF file at all. Its ROM bytes are
+			// supposed to be zero (that is what makes arm bss safe to place
+			// here in the first place), so write zeros directly instead of
+			// reading from the ELF.
+			std::vector<u8> zeros(overwrite->sectionSize, 0);
+			bin->writeBytes(overwrite->startAddress, zeros.data(), overwrite->sectionSize);
+		}
+		else
+		{
+			const char* sectionData = context.elf->getSection<char>(sectionHeader);
+			bin->writeBytes(overwrite->startAddress, sectionData, overwrite->sectionSize);
+		}
+
 		if (m_ctx->isVerbose(ncp::VerboseTag::Patch))
 		{
 			Log::out << OINFO << "Applied overwrite region " << OSTR(overwrite->name) 

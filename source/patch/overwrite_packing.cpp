@@ -43,33 +43,16 @@ PackResult packOverwriteRegions(
 		itemsByDest[items[i].destination].push_back(i);
 	}
 
-	for (auto& [dest, itemIndices] : itemsByDest)
-	{
-		auto regionIt = regionsByDest.find(dest);
-		if (regionIt == regionsByDest.end())
-			continue; // No overwrite region for this destination; spills below.
-
-		std::vector<std::size_t>& destRegions = regionIt->second;
-
-		// Descending alignment, then descending size, then ascending original
-		// index for stable output.
-		std::sort(itemIndices.begin(), itemIndices.end(), [&items](std::size_t a, std::size_t b) {
-			if (items[a].alignment != items[b].alignment)
-				return items[a].alignment > items[b].alignment;
-			if (items[a].size != items[b].size)
-				return items[a].size > items[b].size;
-			return a < b;
-		});
-
+	// Places one destination's items (already sorted into their intended try
+	// order) against that destination's regions, in order of most free space
+	// first, recomputed per item since placement shrinks it. A stable sort
+	// keeps ties in region order, so a region that fills up is not revisited
+	// ahead of an equally-free one that simply comes later in the config.
+	auto placeItems = [&](const std::vector<std::size_t>& destRegions, const std::vector<std::size_t>& itemIndices) {
 		for (std::size_t itemIdx : itemIndices)
 		{
 			const PackItem& item = items[itemIdx];
 
-			// Try regions of this destination in order of most free space
-			// first, recomputed on every item since placement shrinks it.
-			// A stable sort keeps ties in region order, so a region that
-			// fills up is not revisited ahead of an equally-free one that
-			// simply comes later in the config.
 			std::vector<std::size_t> tryOrder = destRegions;
 			std::stable_sort(tryOrder.begin(), tryOrder.end(), [&](std::size_t a, std::size_t b) {
 				u32 freeA = regions[a].endAddress - cursor[a];
@@ -98,6 +81,37 @@ PackResult packOverwriteRegions(
 				result.spilledBytes += item.size;
 			}
 		}
+	};
+
+	for (auto& [dest, itemIndices] : itemsByDest)
+	{
+		auto regionIt = regionsByDest.find(dest);
+		if (regionIt == regionsByDest.end())
+			continue; // No overwrite region for this destination; spills below.
+
+		std::vector<std::size_t>& destRegions = regionIt->second;
+
+		// Descending alignment, then descending size, then ascending original
+		// index for stable output.
+		auto byAlignmentThenSize = [&items](std::size_t a, std::size_t b) {
+			if (items[a].alignment != items[b].alignment)
+				return items[a].alignment > items[b].alignment;
+			if (items[a].size != items[b].size)
+				return items[a].size > items[b].size;
+			return a < b;
+		};
+		std::sort(itemIndices.begin(), itemIndices.end(), byAlignmentThenSize);
+
+		// Split into normal and last-resort items, keeping each half's
+		// relative order from the sort above. Every normal item is placed
+		// (or spilled) before any last-resort item is attempted, so a
+		// last-resort item can only land in space no normal item wanted.
+		std::vector<std::size_t> normalItems, lastResortItems;
+		for (std::size_t itemIdx : itemIndices)
+			(items[itemIdx].lastResort ? lastResortItems : normalItems).push_back(itemIdx);
+
+		placeItems(destRegions, normalItems);
+		placeItems(destRegions, lastResortItems);
 	}
 
 	// Items whose destination has no overwrite region at all also spill.

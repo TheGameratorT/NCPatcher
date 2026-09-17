@@ -125,6 +125,82 @@ int main()
 		check(r.usedSize[0] == ncp::rom::alignUp(0x1008 + 8 - 0x1004, 4), "used size should include the leading pad");
 	}
 
+	// A last-resort item is placed after a normal item even when it would
+	// have sorted first: higher alignment and greater size do not let a
+	// last-resort item cut ahead of a normal one.
+	{
+		std::vector<PackRegion> regions = { { 0x1000, 0x1100, 0 } };
+		std::vector<PackItem> items = {
+			{ 4, 4, 0, /*lastResort=*/true },
+			{ 8, 8, 0, /*lastResort=*/false },
+		};
+		PackResult r = packOverwriteRegions(regions, items);
+		check(r.spilled.empty(), "both items should fit");
+		check(r.placements.size() == 2, "both items should be placed");
+		check(r.placements[0].itemIndex == 1, "the normal item should be placed first despite lower alignment/size");
+		check(r.placements[0].address == 0x1000, "the normal item should start at the region start");
+		check(r.placements[1].itemIndex == 0, "the last-resort item should be placed second");
+	}
+
+	// When a region only has room for one of two items, the normal item
+	// wins the space and the last-resort item spills, even though it was
+	// enqueued first.
+	{
+		std::vector<PackRegion> regions = { { 0x1000, 0x1004, 0 } };
+		std::vector<PackItem> items = {
+			{ 4, 4, 0, /*lastResort=*/true },
+			{ 4, 4, 0, /*lastResort=*/false },
+		};
+		PackResult r = packOverwriteRegions(regions, items);
+		check(r.placements.size() == 1 && r.placements[0].itemIndex == 1, "the normal item should take the space");
+		check(r.spilled.size() == 1 && r.spilled[0] == 0, "the last-resort item should spill instead");
+		check(r.spilledBytes == 4, "spilled bytes should equal the spilled item's size");
+	}
+
+	// A normal item still goes to the region with the most free space even
+	// with a last-resort item present, so pass order does not pre-empt the
+	// free-space try order.
+	{
+		std::vector<PackRegion> regions = {
+			{ 0x1000, 0x1004, 0 }, // 4 bytes free
+			{ 0x2000, 0x2100, 0 }, // 256 bytes free
+		};
+		std::vector<PackItem> items = {
+			{ 4, 4, 0, /*lastResort=*/true },
+			{ 4, 4, 0, /*lastResort=*/false },
+		};
+		PackResult r = packOverwriteRegions(regions, items);
+		check(r.spilled.empty(), "both items should fit somewhere");
+		std::size_t normalRegion = (r.placements[0].itemIndex == 1) ? r.placements[0].regionIndex : r.placements[1].regionIndex;
+		check(normalRegion == 1, "the normal item should still go to the region with more free space");
+	}
+
+	// Within the last-resort pass, ordering still follows descending
+	// alignment then descending size.
+	{
+		std::vector<PackRegion> regions = { { 0x2000, 0x3000, 0 } };
+		std::vector<PackItem> items = {
+			{ 10, 4, 0, /*lastResort=*/true },
+			{ 20, 4, 0, /*lastResort=*/true },
+			{ 30, 8, 0, /*lastResort=*/true },
+		};
+		PackResult r = packOverwriteRegions(regions, items);
+		check(r.placements.size() == 3, "all three last-resort items should be placed");
+		check(r.placements[0].itemIndex == 2, "the 8-aligned item should be placed first");
+		check(r.placements[1].itemIndex == 1, "of equal alignment, the larger item should be placed next");
+		check(r.placements[2].itemIndex == 0, "the smallest item should be placed last");
+	}
+
+	// A region holding only last-resort items still reports the correct
+	// used size.
+	{
+		std::vector<PackRegion> regions = { { 0x1000, 0x1100, 0 } };
+		std::vector<PackItem> items = { { 12, 4, 0, /*lastResort=*/true } };
+		PackResult r = packOverwriteRegions(regions, items);
+		check(r.placements.size() == 1, "the last-resort item should be placed");
+		check(r.usedSize[0] == 12, "used size should equal the placed item's size");
+	}
+
 	if (passed)
 		std::cout << "overwrite_packing_test: all checks passed\n";
 	return passed ? 0 : 1;

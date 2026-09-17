@@ -87,7 +87,7 @@ private:
 
     // Validation helpers
     void validatePatchForRegion(const ParsedPatchInfo& parsedInfo, std::string_view symbolName, core::CompilationUnit* unit) const;
-    bool isValidSectionForOverwrites(std::string_view sectionName, const Elf32_Shdr& section) const;
+    bool isValidSectionForOverwrites(std::string_view sectionName, const Elf32_Shdr& section, int destination) const;
 
     // Symbol and section processing
     void processObjectFile(core::CompilationUnit* unit);

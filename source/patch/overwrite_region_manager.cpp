@@ -75,16 +75,24 @@ void OverwriteRegionManager::assignMeasuredSections(
     for (std::size_t i = 0; i < candidateSections.size(); i++)
     {
         u32 size = i < measuredSizes.size() ? measuredSizes[i] : 0;
-        items.push_back({ size, candidateSections[i]->alignment, candidateSections[i]->unit->getTargetRegion()->destination });
+        items.push_back({
+            size,
+            candidateSections[i]->alignment,
+            candidateSections[i]->unit->getTargetRegion()->destination,
+            candidateSections[i]->isBss
+        });
     }
 
     PackResult result = packOverwriteRegions(regions, items);
 
     std::vector<std::size_t> sectionCount(m_overwriteRegions.size(), 0);
+    std::vector<u32> bssBytes(m_overwriteRegions.size(), 0);
     for (const PackPlacement& p : result.placements)
     {
         m_overwriteRegions[p.regionIndex]->assignedSections.push_back(candidateSections[p.itemIndex].get());
         sectionCount[p.regionIndex]++;
+        if (items[p.itemIndex].lastResort)
+            bssBytes[p.regionIndex] += items[p.itemIndex].size;
     }
     for (std::size_t r = 0; r < m_overwriteRegions.size(); r++)
         m_overwriteRegions[r]->usedSize = result.usedSize[r];
@@ -99,7 +107,10 @@ void OverwriteRegionManager::assignMeasuredSections(
         u32 capacity = overwrite->endAddress - overwrite->startAddress;
         Log::out << OINFO << "Overwrite region " << OSTR(overwrite->name) << ": "
             << result.usedSize[r] << "/" << capacity << " bytes used ("
-            << sectionCount[r] << " section(s))" << std::endl;
+            << sectionCount[r] << " section(s)";
+        if (bssBytes[r] != 0)
+            Log::out << ", " << bssBytes[r] << " of them bss";
+        Log::out << ")" << std::endl;
     }
 
     if (!result.spilled.empty())
