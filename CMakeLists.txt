@@ -129,6 +129,7 @@ set(SOURCES
 	source/build/buildlogger.cpp
 	source/build/gcc_diagnostics.cpp
 	source/build/objmaker.cpp
+	source/build/progress_block.cpp
 	source/config/buildtarget.cpp
 	source/config/config_loader.cpp
 	source/config/config_v1.cpp
@@ -181,6 +182,7 @@ set(SOURCES
 	source/system/diagnostics.cpp
 	source/system/except.cpp
 	source/system/exit_code.cpp
+	source/system/live_block.cpp
 	source/system/log.cpp
 	source/system/log_sink.cpp
 	source/system/message.cpp
@@ -310,6 +312,8 @@ if (NCP_BUILD_TESTS)
 		source/system/log.cpp
 		source/system/log_sink.cpp)
 	ncp_add_test(ansi_test tests/ansi_test.cpp source/system/ansi.cpp)
+	ncp_add_test(progress_block_test tests/progress_block_test.cpp
+		source/build/progress_block.cpp source/system/ansi.cpp)
 	ncp_add_test(cli_test tests/cli_test.cpp source/app/cli.cpp)
 	target_link_libraries(cli_test PRIVATE ${YAML_CPP_TARGET})
 	ncp_add_test(process_test tests/process_test.cpp

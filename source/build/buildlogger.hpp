@@ -1,12 +1,10 @@
 #pragma once
 
+#include <chrono>
 #include <cstddef>
-#include <vector>
-#include <memory>
-#include <mutex>
-#include <filesystem>
 
 #include "../core/compilation_unit.hpp"
+#include "../system/live_block.hpp"
 
 class BuildLogger
 {
@@ -15,15 +13,15 @@ public:
 
 	constexpr void setUnits(const core::CompilationUnitPtrCollection& units) { m_units = &units; }
 
-	void start(const std::filesystem::path& targetRoot);
+	void start();
 	void update();
 	void finish();
-	[[nodiscard]] constexpr bool getFailed() const { return m_failureFound; }
+	[[nodiscard]] bool getFailed() const;
 
 private:
-	int m_cursorOffsetY;
-	int m_currentFrame;
-	bool m_failureFound;
-	std::size_t m_filesToBuild;
-	const core::CompilationUnitPtrCollection* m_units;
+	Log::LiveBlock m_block;
+	std::chrono::steady_clock::time_point m_startTime;
+	bool m_live = false;
+	std::size_t m_filesToBuild = 0;
+	const core::CompilationUnitPtrCollection* m_units = nullptr;
 };

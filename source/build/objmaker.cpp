@@ -283,7 +283,7 @@ void ObjMaker::compileSources()
 
 	BuildLogger logger;
 	logger.setUnits(m_compilationUnitMgr->getUserUnits());
-	logger.start(m_paths->targetWorkDir);
+	logger.start();
 
 	// Counted up front rather than as they are pushed, because a progress event
 	// is only worth anything to the caller if it knows the denominator.
@@ -293,7 +293,6 @@ void ObjMaker::compileSources()
 
 	auto completed = std::make_shared<std::atomic<std::size_t>>(0);
 
-	std::size_t jobID = 0;
 	for (auto* unit : m_compilationUnitMgr->getUserUnits())
 	{
 		if (!unit->needsRebuild())
@@ -312,9 +311,7 @@ void ObjMaker::compileSources()
 
 		core::BuildInfo& buildInfo = unit->getBuildInfo();
 
-		buildInfo.jobId = jobID++;
 		buildInfo.buildStarted = false;
-		buildInfo.logFinished = false;
 		buildInfo.buildComplete = false;
 		buildInfo.buildFailed = false;
 		buildInfo.compilerDiagnosticsParsed =
@@ -334,7 +331,8 @@ void ObjMaker::compileSources()
 				return;
 			}
 
-			buildInfo.buildStarted = true;
+			buildInfo.startTime = std::chrono::steady_clock::now();
+			buildInfo.buildStarted.store(true, std::memory_order_release);
 
 			std::ostringstream out;
 			auto runCompiler = [&](const std::string& command) {
@@ -471,15 +469,10 @@ void ObjMaker::compileSources()
 		});
 	}
 
-	auto timeStart = std::chrono::high_resolution_clock::now();
 	while (pool.get_tasks_total() != 0)
 	{
-		auto timeNow = std::chrono::high_resolution_clock::now();
-		if (timeNow >= timeStart + 250ms)
-		{
-			logger.update();
-			timeStart = timeNow;
-		}
+		std::this_thread::sleep_for(100ms);
+		logger.update();
 	}
 
 	pool.wait_for_tasks();

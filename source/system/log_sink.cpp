@@ -102,6 +102,40 @@ void applyCode(int value)
 	}
 }
 
+// Moves the cursor up `count` rows, clamped at the top of the buffer. An
+// omitted parameter reads as 0 from Ansi::parse; ECMA-48 defines that as 1.
+void cursorUp(int count)
+{
+	if (count <= 0)
+		count = 1;
+
+	CONSOLE_SCREEN_BUFFER_INFO cbsi;
+	if (!GetConsoleScreenBufferInfo(s_conOut, &cbsi))
+		return;
+
+	COORD coord = cbsi.dwCursorPosition;
+	coord.Y = SHORT(std::max(0, int(coord.Y) - count));
+	SetConsoleCursorPosition(s_conOut, coord);
+}
+
+// Erases from the cursor to the end of the screen buffer, then restores the
+// cursor to where it was. The console has no escape for this, so it is filled
+// cell by cell.
+void eraseToEnd()
+{
+	CONSOLE_SCREEN_BUFFER_INFO cbsi;
+	if (!GetConsoleScreenBufferInfo(s_conOut, &cbsi))
+		return;
+
+	const COORD start = cbsi.dwCursorPosition;
+	const DWORD cellsToEnd = DWORD(cbsi.dwSize.X) * DWORD(cbsi.dwSize.Y - start.Y) - DWORD(start.X);
+
+	DWORD written;
+	FillConsoleOutputCharacterA(s_conOut, ' ', cellsToEnd, start, &written);
+	FillConsoleOutputAttribute(s_conOut, s_txtAttr, cellsToEnd, start, &written);
+	SetConsoleCursorPosition(s_conOut, start);
+}
+
 } // namespace
 
 TerminalSink::TerminalSink(bool useStderr) :
@@ -125,10 +159,21 @@ void TerminalSink::write(std::string_view text)
 		[&out](std::string_view run) { out << run << std::flush; },
 		[](char finalByte, const std::vector<int>& params)
 		{
-			if (finalByte != 'm')
-				return;
-			for (int p : params)
-				applyCode(p);
+			switch (finalByte)
+			{
+			case 'm':
+				for (int p : params)
+					applyCode(p);
+				break;
+			case 'A':
+				cursorUp(params.empty() ? 1 : params[0]);
+				break;
+			case 'J':
+				eraseToEnd();
+				break;
+			default:
+				break;
+			}
 		});
 }
 

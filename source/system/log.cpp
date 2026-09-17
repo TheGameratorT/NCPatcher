@@ -1,9 +1,11 @@
 #include "log.hpp"
 
+#include <cstdlib>
 #include <iostream>
 #include <filesystem>
 #include <memory>
 #include <sstream>
+#include <string_view>
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -11,10 +13,7 @@
 #endif
 #include <windows.h>
 #else
-#include <stdio.h>
 #include <sys/ioctl.h>
-#include <sys/select.h>
-#include <termios.h>
 #include <unistd.h>
 #endif
 
@@ -36,9 +35,7 @@ const char* log_OREASON = "   -->  ";
 namespace Log {
 
 static LogMode logMode = LogMode::Both;
-#ifndef _WIN32
 static bool xyCapabilityAvailable = true;
-#endif
 
 // Set once the console sink has been chosen explicitly. A plain sink means
 // there is nothing to move a cursor on even where the terminal would allow it,
@@ -153,67 +150,14 @@ void init()
 	std::ios_base::sync_with_stdio(false);
 
 #ifndef _WIN32
-	// The capability test below asks the terminal where its cursor is and waits
-	// for the reply. Against anything that is not a terminal there is no reply
-	// and, worse, the query itself is written to stdout, which for
-	// `config path` or --message-format json is output somebody is parsing.
-	if (!isatty(STDOUT_FILENO) || !isatty(STDIN_FILENO))
-	{
-		xyCapabilityAvailable = false;
-		installConsoleSink();
-		return;
-	}
-
-	// Test XY capability by attempting to query cursor position with timeout
-	struct termios term, restore;
-	tcgetattr(0, &term);
-	tcgetattr(0, &restore);
-	term.c_lflag &= ~(ICANON|ECHO);
-	tcsetattr(0, TCSANOW, &term);
-
-	int ret = write(1, "\033[6n", 4);
-	if (ret == -1)
-	{
-		xyCapabilityAvailable = false;
-		tcsetattr(0, TCSANOW, &restore);
-		installConsoleSink();
-		return;
-	}
-
-	// Add timeout to prevent indefinite blocking during capability check
-	fd_set read_fds;
-	struct timeval timeout;
-	FD_ZERO(&read_fds);
-	FD_SET(0, &read_fds);
-	timeout.tv_sec = 1;  // 1 second timeout
-	timeout.tv_usec = 0;
-
-	int select_ret = select(1, &read_fds, NULL, NULL, &timeout);
-	if (select_ret <= 0)
-	{
-		xyCapabilityAvailable = false;
-		tcsetattr(0, TCSANOW, &restore);
-		installConsoleSink();
-		return;
-	}
-
-	// Read and discard the response to complete the capability check
-	char buf[30];
-	char ch = 0;
-	int i = 0;
-	while (ch != 'R' && i < 29)
-	{
-		ret = read(0, &ch, 1);
-		if (!ret)
-		{
-			xyCapabilityAvailable = false;
-			break;
-		}
-		buf[i] = ch;
-		i++;
-	}
-
-	tcsetattr(0, TCSANOW, &restore);
+	// A dumb terminal (or none at all, i.e. a pipe) cannot render the escapes
+	// the progress display relies on, so it falls back to the plain, settled
+	// record instead. This used to be decided by actually querying the cursor
+	// position, which cost a stdin read and, against anything unresponsive, a
+	// one second stall on every startup; the progress display no longer needs
+	// to know where the cursor is, only whether it can be moved at all.
+	const char* term = std::getenv("TERM");
+	xyCapabilityAvailable = isatty(STDOUT_FILENO) && !(term && std::string_view(term) == "dumb");
 #endif
 
 	installConsoleSink();
@@ -329,65 +273,7 @@ void configureConsole(ColorMode color, bool toStderr)
 
 #ifdef _WIN32
 
-Coords getXY()
-{
-	Coords coords{0, 0};
-	HANDLE hStdOut = GetStdHandle(STD_OUTPUT_HANDLE);
-	if (hStdOut != INVALID_HANDLE_VALUE)
-	{
-		CONSOLE_SCREEN_BUFFER_INFO cbsi;
-		if (GetConsoleScreenBufferInfo(hStdOut, &cbsi))
-		{
-			COORD& coord = cbsi.dwCursorPosition;
-			coords = { coord.X, coord.Y };
-		}
-	}
-	return coords;
-}
-
-void gotoXY(int x, int y)
-{
-	HANDLE hStdOut = GetStdHandle(STD_OUTPUT_HANDLE);
-	if (hStdOut != INVALID_HANDLE_VALUE)
-	{
-		COORD coord{SHORT(x), SHORT(y)};
-		SetConsoleCursorPosition(hStdOut, coord);
-	}
-}
-
-void writeChar(int x, int y, char chr)
-{
-	HANDLE hStdOut = GetStdHandle(STD_OUTPUT_HANDLE);
-	if (hStdOut != INVALID_HANDLE_VALUE)
-	{
-		DWORD dw;
-		COORD coord{SHORT(x), SHORT(y)};
-		
-		WriteConsoleOutputCharacterA(hStdOut, &chr, 1, coord, &dw);
-	}
-}
-
-void writeChar(int x, int y, char chr, int color, bool bold)
-{
-	HANDLE hStdOut = GetStdHandle(STD_OUTPUT_HANDLE);
-	if (hStdOut != INVALID_HANDLE_VALUE)
-	{
-		DWORD dw;
-		COORD coord{SHORT(x), SHORT(y)};
-
-		WORD attr;
-		if (ReadConsoleOutputAttribute(hStdOut, &attr, 1, coord, &dw))
-		{
-			attr &= ~0xF;
-			attr |= ansiColorToConsole(color) + (int(bold) * 8);
-			WriteConsoleOutputAttribute(hStdOut, &attr, 1, coord, &dw);
-		}
-
-		WriteConsoleOutputCharacterA(hStdOut, &chr, 1, coord, &dw);
-	}
-}
-
-std::size_t getRemainingLines()
+Coords terminalSize()
 {
 	HANDLE hStdOut = GetStdHandle(STD_OUTPUT_HANDLE);
 	if (hStdOut != INVALID_HANDLE_VALUE)
@@ -395,12 +281,11 @@ std::size_t getRemainingLines()
 		CONSOLE_SCREEN_BUFFER_INFO cbsi;
 		if (GetConsoleScreenBufferInfo(hStdOut, &cbsi))
 		{
-			COORD& bufSize = cbsi.dwSize;
-			COORD& cursorPos = cbsi.dwCursorPosition;
-			return bufSize.Y - cursorPos.Y - 1;
+			const SMALL_RECT& win = cbsi.srWindow;
+			return { int(win.Right - win.Left) + 1, int(win.Bottom - win.Top) + 1 };
 		}
 	}
-	return 0;
+	return { 80, 24 };
 }
 
 void showCursor(bool flag)
@@ -419,122 +304,23 @@ void showCursor(bool flag)
 
 #else
 
-Coords getXY()
+Coords terminalSize()
 {
-	char buf[30];
-	int ret, i, pow;
-	char ch;
-	Coords coords{0,0};
-
-	if (!xyCapabilityAvailable)
-	{
-		return coords;
-	}
-
-	struct termios term, restore;
-
-	tcgetattr(0, &term);
-	tcgetattr(0, &restore);
-	term.c_lflag &= ~(ICANON|ECHO);
-	tcsetattr(0, TCSANOW, &term);
-
-	ret = write(1, "\033[6n", 4);
-	if (ret == -1)
-	{
-		tcsetattr(0, TCSANOW, &restore);
-		fprintf(stderr, "Log::getXY() error: query failed!\n");
-		return coords;
-	}
-
-	for(i = 0, ch = 0; ch != 'R' && i < 29; i++)
-	{
-		ret = read(0, &ch, 1);
-		if (!ret)
-		{
-			tcsetattr(0, TCSANOW, &restore);
-			fprintf(stderr, "Log::getXY() error: response read failed!\n");
-			return coords;
-		}
-		buf[i] = ch;
-	}
-
-	if (i < 2)
-	{
-		tcsetattr(0, TCSANOW, &restore);
-		fprintf(stderr, "Log::getXY() error: i < 2\n");
-		return coords;
-	}
-
-	for(i -= 2, pow = 1; buf[i] != ';'; i--, pow *= 10)
-		coords.x += (buf[i] - '0') * pow;
-
-	for(i--, pow = 1; buf[i] != '['; i--, pow *= 10)
-		coords.y += (buf[i] - '0') * pow;
-
-	coords.x -= 1;
-	coords.y -= 1;
-
-	tcsetattr(0, TCSANOW, &restore);
-	return coords;
-}
-
-void gotoXY(int x, int y)
-{
-	if (!xyCapabilityAvailable)
-		return;
-		
-	if (x < 0 || y < 0)
-	{
-		struct winsize ws;
-		ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws);
-		x = 0;
-		y = ws.ws_row-1;
-	}
-	std::cout << "\x1b[" << (y + 1) << ';' << (x + 1) << 'H' << std::flush;
-}
-
-void writeChar(int x, int y, char chr)
-{
-	if (!xyCapabilityAvailable)
-		return;
-		
-	Coords coords = getXY();
-	gotoXY(x, y);
-	std::cout << chr << std::flush;
-	gotoXY(coords.x, coords.y);
-}
-
-void writeChar(int x, int y, char chr, int color, bool bold)
-{
-	if (!xyCapabilityAvailable)
-		return;
-		
-	Coords coords = getXY();
-	gotoXY(x, y);
-	std::cout << "\x1b[" << std::to_string(color);
-	if (bold)
-		std::cout << ";1";
-	std::cout << 'm' << chr << ANSI_RESET << std::flush;
-	gotoXY(coords.x, coords.y);
-}
-
-std::size_t getRemainingLines()
-{
-	if (!xyCapabilityAvailable)
-		return 0;
-		
 	struct winsize ws;
-	ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws);
-	Coords cursorPos = getXY();
-	return ws.ws_row - cursorPos.y - 1;
+	if (xyCapabilityAvailable && ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 && ws.ws_col > 0 && ws.ws_row > 0)
+		return { ws.ws_col, ws.ws_row };
+	return { 80, 24 };
 }
 
 void showCursor(bool flag)
 {
 	if (!xyCapabilityAvailable)
 		return;
-		
-	std::cout << (flag ? "\x1b[?25h" : "\x1b[?25l") << std::flush;
+
+	const LogMode previousMode = getMode();
+	setMode(LogMode::Console);
+	out << (flag ? "\x1b[?25h" : "\x1b[?25l") << std::flush;
+	setMode(previousMode);
 }
 
 #endif

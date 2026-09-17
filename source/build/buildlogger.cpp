@@ -1,87 +1,98 @@
 #include "buildlogger.hpp"
 
-#include <iostream>
+#include <algorithm>
+#include <cstdio>
 
 #include "../system/log.hpp"
-
-static char s_progAnimFrames[] = { '-', '\\', '|', '/', '-', '\\', '|', '/' };
+#include "progress_block.hpp"
 
 BuildLogger::BuildLogger() = default;
 
-void BuildLogger::start(const std::filesystem::path& targetRoot)
+void BuildLogger::start()
 {
 	Log::out << OBUILD << "Starting..." << std::endl;
 
-	Log::setMode(LogMode::Console);
-#ifndef _WIN32
-	Log::showCursor(false);
-#endif
+	m_startTime = std::chrono::steady_clock::now();
+	m_live = Log::terminalSupportsCursor();
+	if (m_live)
+		Log::showCursor(false);
 
-	m_currentFrame = 0;
-	m_failureFound = false;
 	m_filesToBuild = 0;
-
 	for (const auto& unit : *m_units)
 	{
 		if (unit->needsRebuild())
 			m_filesToBuild++;
 	}
-
-	std::size_t bufRemainingLines = Log::getRemainingLines();
-	std::size_t bufLineShift = (bufRemainingLines < m_filesToBuild) ? (m_filesToBuild - bufRemainingLines) : 0;
-
-	m_cursorOffsetY = Log::getXY().y - bufLineShift;
-
-	for (const auto& unit : *m_units)
-	{
-		if (!unit->needsRebuild())
-			continue;
-		std::string filePath = unit->getSourcePath().string();
-		Log::out << OBUILD << OSQRTBRKTS(ANSI_bWHITE, , "-") << ' ' << ANSI_bYELLOW << filePath << ANSI_RESET;
-		Log::out << std::endl;
-	}
 }
 
 void BuildLogger::update()
 {
-	for (const auto& unit : *m_units)
+	if (!m_live)
+		return;
+
+	const auto now = std::chrono::steady_clock::now();
+
+	ncp::build::ProgressState state;
+	state.total = m_filesToBuild;
+
+	for (const auto* unit : *m_units)
 	{
-		const auto& buildInfo = unit->getBuildInfo();
-		
-		if (!buildInfo.buildStarted || (buildInfo.buildComplete && buildInfo.logFinished))
+		if (!unit->needsRebuild())
 			continue;
-			
-		const int writeX = 9;
-		const int writeY = m_cursorOffsetY + int(buildInfo.jobId);
-		
-		if (buildInfo.buildComplete && !buildInfo.logFinished)
+
+		const auto& buildInfo = unit->getBuildInfo();
+
+		if (buildInfo.buildComplete.load(std::memory_order_acquire))
 		{
-			if (buildInfo.buildFailed)
-			{
-				Log::writeChar(writeX, writeY, 'E', Log::Red, true);
-				m_failureFound = true;
-			}
-			else
-			{
-				Log::writeChar(writeX, writeY, 'S', Log::Green, true);
-			}
-			// Note: We need to modify this through the unit, not const reference
-			const_cast<core::BuildInfo&>(buildInfo).logFinished = true;
+			state.completed++;
+			continue;
 		}
-		else
-		{
-			Log::writeChar(writeX, writeY, s_progAnimFrames[m_currentFrame]);
-		}
+
+		if (!buildInfo.buildStarted.load(std::memory_order_acquire))
+			continue;
+
+		const std::string_view verb = (buildInfo.fileType == 2) ? "Assembling" : "Compiling";
+		const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - buildInfo.startTime);
+		state.running.push_back({verb, unit->getSourcePath().string(), elapsed});
 	}
-	m_currentFrame++;
-	if (m_currentFrame > 7)
-		m_currentFrame = 0;
+
+	std::sort(state.running.begin(), state.running.end(),
+		[](const auto& a, const auto& b) { return a.elapsed > b.elapsed; });
+
+	const Coords size = Log::terminalSize();
+	const std::size_t maxActionLines = std::min<std::size_t>(8, std::size_t(std::max(1, size.y - 3)));
+
+	m_block.render(ncp::build::renderProgressBlock(state, size.x, maxActionLines));
+}
+
+bool BuildLogger::getFailed() const
+{
+	for (const auto* unit : *m_units)
+	{
+		if (!unit->needsRebuild())
+			continue;
+		if (unit->getBuildInfo().buildFailed.load(std::memory_order_acquire))
+			return true;
+	}
+	return false;
 }
 
 void BuildLogger::finish()
 {
-	update();
-	Log::gotoXY(0, m_cursorOffsetY + int(m_filesToBuild));
+	if (m_live)
+	{
+		m_block.clear();
+		Log::showCursor(true);
+	}
+
+	const auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - m_startTime).count();
+
+	char elapsedStr[32];
+	std::snprintf(elapsedStr, sizeof(elapsedStr), "%.1f", elapsed);
+	Log::out << OBUILD << "Compiled " << m_filesToBuild << " file"
+		<< (m_filesToBuild == 1 ? "" : "s") << " in " << elapsedStr << "s" << std::endl;
+
+	const bool failed = getFailed();
 
 	Log::setMode(LogMode::File);
 
@@ -91,7 +102,7 @@ void BuildLogger::finish()
 			continue;
 		const auto& buildInfo = unit->getBuildInfo();
 		std::string filePath = unit->getSourcePath().string();
-		Log::out << "[Build] [" << (buildInfo.buildFailed ? 'E' : 'S') << "] " << filePath;
+		Log::out << "[Build] [" << (buildInfo.buildFailed.load(std::memory_order_acquire) ? 'E' : 'S') << "] " << filePath;
 		Log::out << std::endl;
 	}
 
@@ -110,7 +121,7 @@ void BuildLogger::finish()
 		Log::out << std::endl;
 	};
 
-	if (m_failureFound)
+	if (failed)
 	{
 		Log::out << "\nERRORS AND WARNINGS:\n";
 		printUnitsOutput();
@@ -133,8 +144,4 @@ void BuildLogger::finish()
 			printUnitsOutput();
 		}
 	}
-
-#ifndef _WIN32
-	Log::showCursor(true);
-#endif
 }

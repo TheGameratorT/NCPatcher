@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <string>
 #include <filesystem>
 #include <cstddef>
@@ -25,23 +26,29 @@ enum class CompilationUnitType : std::size_t
 };
 
 /**
- * Build-specific information for compilation units
+ * Build-specific information for compilation units.
+ *
+ * buildStarted/buildComplete/buildFailed are written by a pool thread and
+ * polled by the main thread ten times a second while the display is live, so
+ * they are atomic rather than plain bool. startTime is written by the worker
+ * before its release-store to buildStarted; the reader's acquire-load of
+ * buildStarted is what makes startTime (while running) and buildOutput
+ * (once buildComplete is observed true) safe to read from the main thread.
  */
 struct BuildInfo
 {
 	std::filesystem::path dependencyPath;
 	std::filesystem::path assemblyPath;
 	std::filesystem::file_time_type objectWriteTime;
-    
+
 	// Source file type information
 	std::size_t fileType = 0; // 0=C, 1=CPP, 2=ASM
-    
+
 	// Build execution state
-	std::size_t jobId = 0;
-	bool buildStarted = false;
-	bool logFinished = false;
-	bool buildComplete = false;
-	bool buildFailed = false;
+	std::chrono::steady_clock::time_point startTime;
+	std::atomic<bool> buildStarted = false;
+	std::atomic<bool> buildComplete = false;
+	std::atomic<bool> buildFailed = false;
 	bool compilerDiagnosticsParsed = false;
 	std::string buildOutput;
 };

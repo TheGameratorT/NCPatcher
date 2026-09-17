@@ -4,7 +4,6 @@
 #include <functional>
 #include <iostream>
 #include <string>
-#include <vector>
 #include <filesystem>
 
 #include "../utils/types.hpp"
@@ -88,18 +87,6 @@ enum class LogMode
 
 namespace Log {
 
-enum ColorCode
-{
-	Black = 30,
-	Red = 31,
-	Green = 32,
-	Yellow = 33,
-	Blue = 34,
-	Magenta = 35,
-	Cyan = 36,
-	White = 37,
-};
-
 class OutputStream : public std::ostream
 {
 public:
@@ -170,23 +157,9 @@ void setMode(LogMode mode);
 // record is printed instead.
 [[nodiscard]] bool terminalSupportsCursor();
 
-// Gets the cursor position on the console.
-Coords getXY();
-
-// Sets the cursor position on the console.
-// Warning: This does not apply to the log file, only the console!
-void gotoXY(int x, int y);
-
-// Writes a character at the specified position.
-// Warning: This does not apply to the log file, only the console!
-void writeChar(int x, int y, char chr);
-
-// Writes a character at the specified position with a new color.
-// Warning: This does not apply to the log file, only the console!
-void writeChar(int x, int y, char chr, int color, bool bold);
-
-// Returns how many lines are left until the end of the console buffer is reached.
-std::size_t getRemainingLines();
+// The size of the console in columns and rows. Falls back to {80, 24} when it
+// cannot be queried, so a caller never has to special-case failure.
+Coords terminalSize();
 
 void showCursor(bool flag);
 
