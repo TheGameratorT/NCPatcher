@@ -42,6 +42,8 @@ typedef uint32_t Elf32_Word;
 #define SHF_WRITE     0x1
 #define SHF_ALLOC     0x2
 #define SHF_EXECINSTR 0x4
+#define SHF_MERGE     0x10
+#define SHF_STRINGS   0x20
 #define SHF_MASKPROC  0xf0000000
 
 #define STB_LOCAL  0

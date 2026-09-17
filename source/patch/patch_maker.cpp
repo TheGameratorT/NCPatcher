@@ -16,6 +16,7 @@
 #include "../system/diagnostics.hpp"
 #include "../system/log.hpp"
 #include "../system/except.hpp"
+#include "../system/cache.hpp"
 #include "../utils/util.hpp"
 #include "../utils/endian.hpp"
 #include "../ndsbin/icodebin.hpp"
@@ -83,7 +84,7 @@ void PatchMaker::initializeComponents()
 	m_dependencyResolver->initialize(*m_ctx, *m_compilationUnitMgr);
 	m_patchTracker->initialize(*m_target, *m_ctx, *m_compilationUnitMgr, *m_dependencyResolver);
 	m_libraryManager->initialize(*m_target, *m_ctx, *m_compilationUnitMgr);
-	m_overwriteRegionManager->initialize(*m_ctx, *m_target, *m_dependencyResolver);
+	m_overwriteRegionManager->initialize(*m_ctx, *m_target);
 	m_linker->initialize(*m_target, *m_ctx, *m_compilationUnitMgr, m_newcodeAddrForDest);
 }
 
@@ -174,26 +175,32 @@ void PatchMaker::generateElfFile()
 		m_overwriteRegionManager->checkForConflictsWithPatches(m_patchTracker->getPatchInfo());
 	}
 
-	// Create entry points from patches and external symbols
-	std::vector<std::unique_ptr<DependencyResolver::UnitEntryPoints>> entryPoints = createEntryPointsFromPatches();
-
-	// Propagate usage through the dependency graph
-	m_dependencyResolver->propagateUsage(entryPoints);
-
-	// Get candidate sections for overwrites and filter them by usage
+	// Get candidate sections for overwrites
 	auto& candidateSections = m_patchTracker->getOverwriteCandidateSections();
 
 	if (m_target->hasOverwrites())
 	{
-		// Filter candidate sections to only include those that would survive linking
-		m_dependencyResolver->excludeUnusedSections(candidateSections);
-		
-		// Assign only the actually used sections to overwrite regions
-		m_overwriteRegionManager->assignSectionsToOverwrites(candidateSections);
+		// Measure the real, post-link size of every candidate with a
+		// throwaway link, instead of predicting what the final link will
+		// do. GC survival, section merging and per-section alignment are
+		// all the real linker's decisions, not something worth
+		// re-implementing.
+		m_linker->createMeasurementScript(
+			m_patchTracker->getPatchInfo(),
+			m_patchTracker->getRtreplPatches(),
+			m_patchTracker->getExternSymbols(),
+			m_overwriteRegionManager->getOverwriteRegions(),
+			candidateSections
+		);
+		m_linker->linkMeasurementElf();
+		std::vector<u32> measuredSizes = m_linker->readMeasuredSizes(candidateSections.size());
+
+		// Assign sections to overwrite regions using their measured sizes
+		m_overwriteRegionManager->assignMeasuredSections(candidateSections, measuredSizes);
 	}
 
     Log::out << OLINK << "Generating the linker script..." << std::endl;
-	
+
 	// Generate the final ELF with properly filtered sections
 	m_linker->createLinkerScript(
 		m_patchTracker->getPatchInfo(),
@@ -202,58 +209,6 @@ void PatchMaker::generateElfFile()
 		m_overwriteRegionManager->getOverwriteRegions()
 	);
 	m_linker->linkElfFile();
-}
-
-std::vector<std::unique_ptr<DependencyResolver::UnitEntryPoints>> PatchMaker::createEntryPointsFromPatches()
-{
-	std::vector<std::unique_ptr<DependencyResolver::UnitEntryPoints>> entryPoints;
-	
-	// Group patches by unit to create entry points
-	std::unordered_map<core::CompilationUnit*, std::unique_ptr<DependencyResolver::UnitEntryPoints>> unitEntryMap;
-	
-	// Process patches to find entry points (functions/sections that are directly patched)
-	for (const auto& patch : m_patchTracker->getPatchInfo())
-	{
-		auto& entryPoint = unitEntryMap[patch->unit];
-		if (!entryPoint)
-		{
-			entryPoint = std::make_unique<DependencyResolver::UnitEntryPoints>();
-			entryPoint->unit = patch->unit;
-		}
-
-		if (patch->origin == PatchOrigin::Section)
-		{
-			// Add the section that's being patched as an entry point
-			entryPoint->sections.push_back(patch->symbol);
-		}
-		else
-		{
-			// Add the symbol that's being patched as an entry point
-			entryPoint->symbols.push_back(patch->symbol);
-		}
-	}
-	
-	// Convert map to vector
-	for (auto& [unit, entryPoint] : unitEntryMap)
-	{
-		if (entryPoint)
-		{
-			entryPoints.push_back(std::move(entryPoint));
-		}
-	}
-	
-	if (m_ctx->isVerbose(ncp::VerboseTag::Section))
-	{
-		Log::out << OINFO << "Created " << entryPoints.size() << " entry points from patches and sections." << std::endl;
-		for (const auto& ep : entryPoints)
-		{
-			Log::out << "  Unit: " << ep->unit->getObjectPath().filename().string() 
-					 << " - Symbols: " << ep->symbols.size() 
-					 << ", Sections: " << ep->sections.size() << std::endl;
-		}
-	}
-	
-	return entryPoints;
 }
 
 void PatchMaker::processPatches()

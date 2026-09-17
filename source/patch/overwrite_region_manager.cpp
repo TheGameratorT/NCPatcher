@@ -1,23 +1,23 @@
 #include "overwrite_region_manager.hpp"
 
-#include <algorithm>
 #include <iomanip>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "../system/log.hpp"
 #include "../system/except.hpp"
 #include "../utils/util.hpp"
+#include "overwrite_packing.hpp"
 
 namespace ncp::patch {
 
 OverwriteRegionManager::OverwriteRegionManager() = default;
 OverwriteRegionManager::~OverwriteRegionManager() = default;
 
-void OverwriteRegionManager::initialize(const ncp::Context& ctx, const BuildTarget& target, const DependencyResolver& dependencyResolver)
+void OverwriteRegionManager::initialize(const ncp::Context& ctx, const BuildTarget& target)
 {
     m_ctx = &ctx;
     m_target = &target;
-	m_dependencyResolver = &dependencyResolver;
 }
 
 void OverwriteRegionManager::setupOverwriteRegions()
@@ -56,19 +56,56 @@ void OverwriteRegionManager::setupOverwriteRegions()
     }
 }
 
-void OverwriteRegionManager::assignSectionsToOverwrites(std::vector<std::unique_ptr<SectionInfo>>& candidateSections)
+void OverwriteRegionManager::assignMeasuredSections(
+    const std::vector<std::unique_ptr<SectionInfo>>& candidateSections,
+    const std::vector<u32>& measuredSizes)
 {
     Log::info("Assigning sections to overwrite regions...");
 
     if (m_overwriteRegions.empty())
         return;
 
-    // Group sections by destination
-    std::unordered_map<int, std::vector<SectionInfo*>> sectionsByDest;
-    for (auto& section : candidateSections)
+    std::vector<PackRegion> regions;
+    regions.reserve(m_overwriteRegions.size());
+    for (auto& overwrite : m_overwriteRegions)
+        regions.push_back({ overwrite->startAddress, overwrite->endAddress, overwrite->destination });
+
+    std::vector<PackItem> items;
+    items.reserve(candidateSections.size());
+    for (std::size_t i = 0; i < candidateSections.size(); i++)
     {
-        int dest = section->unit->getTargetRegion()->destination;
-        sectionsByDest[dest].emplace_back(section.get());
+        u32 size = i < measuredSizes.size() ? measuredSizes[i] : 0;
+        items.push_back({ size, candidateSections[i]->alignment, candidateSections[i]->unit->getTargetRegion()->destination });
+    }
+
+    PackResult result = packOverwriteRegions(regions, items);
+
+    std::vector<std::size_t> sectionCount(m_overwriteRegions.size(), 0);
+    for (const PackPlacement& p : result.placements)
+    {
+        m_overwriteRegions[p.regionIndex]->assignedSections.push_back(candidateSections[p.itemIndex].get());
+        sectionCount[p.regionIndex]++;
+    }
+    for (std::size_t r = 0; r < m_overwriteRegions.size(); r++)
+        m_overwriteRegions[r]->usedSize = result.usedSize[r];
+
+    // Utilization is informational, not a warning: a region that does not
+    // fill up, or an item that spills to newcode, is a normal outcome, not a
+    // modeling failure. Only a mismatch against what the linker actually
+    // emits (checked in finalizeOverwritesWithElfData) is a real error.
+    for (std::size_t r = 0; r < m_overwriteRegions.size(); r++)
+    {
+        auto& overwrite = m_overwriteRegions[r];
+        u32 capacity = overwrite->endAddress - overwrite->startAddress;
+        Log::out << OINFO << "Overwrite region " << OSTR(overwrite->name) << ": "
+            << result.usedSize[r] << "/" << capacity << " bytes used ("
+            << sectionCount[r] << " section(s))" << std::endl;
+    }
+
+    if (!result.spilled.empty())
+    {
+        Log::out << OINFO << result.spilled.size() << " section(s) totaling " << result.spilledBytes
+            << " bytes did not fit an overwrite region and will go to newcode instead." << std::endl;
     }
 
     // Structure to store assignment information for table printing
@@ -82,91 +119,39 @@ void OverwriteRegionManager::assignSectionsToOverwrites(std::vector<std::unique_
     };
     std::vector<SectionAssignment> assignments;
 
-    // Process each destination
-    for (auto& [dest, sections] : sectionsByDest)
+    if (m_ctx->isVerbose(ncp::VerboseTag::Section))
     {
-        // Get overwrite regions for this destination
-        std::vector<OverwriteRegionInfo*> destOverwrites;
-        for (auto& overwrite : m_overwriteRegions)
+        std::unordered_map<std::size_t, std::size_t> regionForItem;
+        for (const PackPlacement& p : result.placements)
+            regionForItem[p.itemIndex] = p.regionIndex;
+        std::unordered_set<std::size_t> spilledSet(result.spilled.begin(), result.spilled.end());
+
+        for (std::size_t i = 0; i < candidateSections.size(); i++)
         {
-            if (overwrite->destination == dest)
-                destOverwrites.emplace_back(overwrite.get());
-        }
-
-        if (destOverwrites.empty())
-            continue;
-
-        // Sort sections by size (largest first for best fit)
-        std::sort(sections.begin(), sections.end(), [](const SectionInfo* a, const SectionInfo* b){
-            return a->size > b->size;
-        });
-
-        // Sort overwrite regions by available space (largest first)
-        std::sort(destOverwrites.begin(), destOverwrites.end(), [](const OverwriteRegionInfo* a, const OverwriteRegionInfo* b){
-            u32 sizeA = a->endAddress - a->startAddress - a->usedSize;
-            u32 sizeB = b->endAddress - b->startAddress - b->usedSize;
-            return sizeA > sizeB;
-        });
-
-        // Assign sections to overwrite regions using best fit algorithm
-        for (auto* section : sections)
-        {
-            bool assigned = false;
-            
-            for (auto* overwrite : destOverwrites)
+            auto it = regionForItem.find(i);
+            if (it != regionForItem.end())
             {
-                // Use the same forced alignment as in the linker script
-                u32 forcedAlignment = 4;
-                
-                u32 currentPos = overwrite->startAddress + overwrite->usedSize;
-                u32 alignedPos = (currentPos + forcedAlignment - 1) & ~(forcedAlignment - 1);
-                u32 endPos = alignedPos + section->size;
-                
-                if (endPos <= overwrite->endAddress)
-                {
-                    // Assign this section to the overwrite region
-                    overwrite->assignedSections.emplace_back(section);
-                    overwrite->usedSize = endPos - overwrite->startAddress;
-                    assigned = true;
-
-                    // Store assignment info for table printing
-                    if (m_ctx->isVerbose(ncp::VerboseTag::Section))
-                    {
-                        assignments.push_back({
-                            .sectionName = section->name,
-                            .sectionSize = section->size,
-                            .startAddress = overwrite->startAddress,
-                            .endAddress = overwrite->endAddress,
-                            .unit = section->unit,
-                            .assigned = true
-                        });
-                    }
-                    break;
-                }
+                auto& overwrite = m_overwriteRegions[it->second];
+                assignments.push_back({
+                    .sectionName = candidateSections[i]->name,
+                    .sectionSize = items[i].size,
+                    .startAddress = overwrite->startAddress,
+                    .endAddress = overwrite->endAddress,
+                    .unit = candidateSections[i]->unit,
+                    .assigned = true
+                });
             }
-
-            if (!assigned && m_ctx->isVerbose(ncp::VerboseTag::Section))
+            else if (spilledSet.count(i))
             {
                 assignments.push_back({
-                    .sectionName = section->name,
-                    .sectionSize = section->size,
+                    .sectionName = candidateSections[i]->name,
+                    .sectionSize = items[i].size,
                     .startAddress = 0,
                     .endAddress = 0,
-                    .unit = section->unit,
+                    .unit = candidateSections[i]->unit,
                     .assigned = false
                 });
             }
-        }
-    }
-
-    // Apply final alignment to all overwrite regions (as the linker script does with ". = ALIGN(4);")
-    for (auto& overwrite : m_overwriteRegions)
-    {
-        if (!overwrite->assignedSections.empty())
-        {
-            u32 forcedAlignment = 4;
-            u32 alignedSize = (overwrite->usedSize + forcedAlignment - 1) & ~(forcedAlignment - 1);
-            overwrite->usedSize = alignedSize;
         }
     }
 
@@ -258,40 +243,19 @@ void OverwriteRegionManager::finalizeOverwritesWithElfData(const Elf32& elf)
                 overwrite->sectionIdx = sectionIdx;
                 overwrite->sectionSize = section.sh_size;
 
-                // KNOWN ISSUE: this fires on builds that are perfectly fine.
-                //
-                // `usedSize` is not a measurement, it is this manager's
-                // *prediction* of the layout, built above by walking the
-                // sections in its own largest-first order and padding each to a
-                // hardcoded 4. `sh_size` is what the linker actually emitted.
-                // So a mismatch says the prediction was wrong, and reports it as
-                // though the linker were.
-                //
-                // Observed in nsmb-coop-module: a constant 20-byte shortfall,
-                // unchanged while the region's contents grew from 25252 to
-                // 25284 bytes, so it does not track the code in it. The emitted
-                // section aligns to 8 rather than the 4 assumed here, and the
-                // linker used *more* room than predicted, which rules out the
-                // simplest explanation, that padding input sections of
-                // alignment 1 and 2 up to 4 over-counts. The real cause has not
-                // been established.
-                //
-                // Fixing it properly means one of two things: model the layout
-                // exactly (every input section's own sh_addralign, in the
-                // order the linker script actually emits them) or stop
-                // predicting and let the linker answer. The second is the more
-                // honest of the two, since the prediction has no other consumer
-                // once the sections are assigned.
-                //
-                // What matters is checked right below, against `sh_size`: the
-                // region has to actually fit. That test uses the real number and
-                // throws rather than warning.
+                // The layout is measured with a real link, and the final
+                // script places each section at that same measured alignment
+                // in that same order, so the two must match exactly. A
+                // mismatch here means the two links disagreed, which is a
+                // real modeling bug, not a false alarm.
                 if (overwrite->sectionSize != overwrite->usedSize)
                 {
-                    Log::out << OWARN << "Overwrite region " << OSTR(overwrite->name)
+                    std::ostringstream oss;
+                    oss << OERROR << "Overwrite region " << OSTR(overwrite->name)
                         << " at 0x" << std::hex << std::uppercase << overwrite->startAddress
                         << " has section size " << std::dec << section.sh_size
                         << " bytes, but expected " << overwrite->usedSize << " bytes." << std::endl;
+                    throw ncp::exception(oss.str());
                 }
 
                 u32 maxSize = overwrite->endAddress - overwrite->startAddress;

@@ -8,7 +8,6 @@
 #include "../formats/elf.hpp"
 #include "../config/buildtarget.hpp"
 #include "../app/context.hpp"
-#include "dependency_resolver.hpp"
 #include "types.hpp"
 
 namespace ncp::patch {
@@ -19,10 +18,17 @@ public:
     OverwriteRegionManager();
     ~OverwriteRegionManager();
 
-    void initialize(const ncp::Context& ctx, const BuildTarget& target, const DependencyResolver& dependencyResolver);
+    void initialize(const ncp::Context& ctx, const BuildTarget& target);
     
     void setupOverwriteRegions();
-    void assignSectionsToOverwrites(std::vector<std::unique_ptr<SectionInfo>>& candidateSections);
+
+    // Assigns candidate sections to overwrite regions using their real,
+    // post-link sizes (measured by a throwaway linker pass), not a guess at
+    // what the linker will do.
+    void assignMeasuredSections(
+        const std::vector<std::unique_ptr<SectionInfo>>& candidateSections,
+        const std::vector<u32>& measuredSizes
+    );
 
 	void checkForConflictsWithPatches(const std::vector<std::unique_ptr<PatchInfo>>& patches);
 	void finalizeOverwritesWithElfData(const Elf32& elf);
@@ -33,7 +39,6 @@ public:
 private:
     const ncp::Context* m_ctx;
     const BuildTarget* m_target;
-	const DependencyResolver* m_dependencyResolver;
     std::vector<std::unique_ptr<OverwriteRegionInfo>> m_overwriteRegions;
 };
 

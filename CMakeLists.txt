@@ -160,6 +160,7 @@ set(SOURCES
 	source/patch/filesystem_manager.cpp
 	source/patch/library_manager.cpp
 	source/patch/linker.cpp
+	source/patch/overwrite_packing.cpp
 	source/patch/overwrite_region_manager.cpp
 	source/patch/patch_maker.cpp
 	source/patch/patch_tracker.cpp
@@ -322,6 +323,8 @@ if (NCP_BUILD_TESTS)
 		target_link_libraries(process_test PRIVATE Threads::Threads)
 	endif()
 	ncp_add_test(project_init_test tests/project_init_test.cpp source/app/project_init.cpp)
+	ncp_add_test(overwrite_packing_test tests/overwrite_packing_test.cpp
+		source/patch/overwrite_packing.cpp)
 
 	# The ROM tests reach into the container, which reports failures the same
 	# way the rest of the program does, so they need the diagnostics and log

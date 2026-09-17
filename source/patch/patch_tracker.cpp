@@ -335,21 +335,31 @@ bool PatchTracker::isValidSectionForOverwrites(std::string_view sectionName, con
         sectionName.starts_with(".ncp_thook");
     
     if ((sectionName.starts_with(".ncp_") && !ncpSectionSupportsOverrideRegion) ||
-        sectionName.starts_with(".rel") || 
+        sectionName.starts_with(".rel") ||
         sectionName.starts_with(".debug") ||
-        sectionName == ".shstrtab" || 
-        sectionName == ".strtab" || 
+        sectionName == ".shstrtab" ||
+        sectionName == ".strtab" ||
         sectionName == ".symtab" ||
-        section.sh_size == 0)
+        sectionName.starts_with(".bss") ||
+        section.sh_size == 0 ||
+        (section.sh_flags & SHF_MERGE) != 0)
     {
+        // .bss is excluded because it costs no ROM bytes in the normal newcode
+        // path, so spending scarce overwrite-region space to store zeros is a
+        // net loss, and because an overwrite region is never re-zeroed at
+        // runtime the way real bss is.
+        //
+        // SHF_MERGE sections (mergeable string/constant data) are excluded
+        // because their emitted size depends on what else is present in the
+        // link. A size measured with every candidate present would not hold
+        // once some candidates are evicted from a region.
         return false;
     }
 
-    return sectionName.starts_with(".text") || 
+    return sectionName.starts_with(".text") ||
            sectionName.starts_with(".rodata") ||
            sectionName.starts_with(".init_array") ||
            sectionName.starts_with(".data") ||
-           sectionName.starts_with(".bss") ||
            ncpSectionSupportsOverrideRegion;
 }
 

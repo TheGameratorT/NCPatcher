@@ -59,22 +59,53 @@ public:
 
     void linkElfFile();
 
+    // Writes a throwaway linker script that brackets every overwrite candidate
+    // section with __ncpm_<idx>_s / __ncpm_<idx>_e symbols, so linking it once
+    // tells us the real post-GC, post-merge size of each candidate.
+    void createMeasurementScript(
+        const std::vector<std::unique_ptr<PatchInfo>>& patchInfo,
+        const std::vector<std::unique_ptr<PatchInfo>>& rtreplPatches,
+        const std::vector<std::string>& externSymbols,
+        const std::vector<std::unique_ptr<OverwriteRegionInfo>>& overwriteRegions,
+        const std::vector<std::unique_ptr<SectionInfo>>& candidateSections
+    );
+
+    void linkMeasurementElf();
+
+    // Returns one entry per candidate (parallel to the vector passed to
+    // createMeasurementScript), each the candidate's measured size, or 0 if it
+    // did not survive linking.
+    std::vector<u32> readMeasuredSizes(std::size_t candidateCount);
+
     void loadElfFile();
     void unloadElfFile();
 
     const Elf32* getElf() const { return m_elf.get(); }
 
 private:
+    enum class ScriptMode { Final, Measurement };
+
     const BuildTarget* m_target;
     const ncp::Context* m_ctx;
     const ncp::PathContext* m_paths;
     core::CompilationUnitManager* m_compilationUnitMgr;
     const std::unordered_map<int, u32>* m_newcodeAddrForDest;
-    
+
     std::filesystem::path m_ldscriptPath;
     std::filesystem::path m_elfPath;
+    std::filesystem::path m_measureLdscriptPath;
+    std::filesystem::path m_measureElfPath;
 
     std::unique_ptr<Elf32> m_elf;
+
+    void writeLinkerScript(
+        ScriptMode mode,
+        const std::vector<std::unique_ptr<PatchInfo>>& patchInfo,
+        const std::vector<std::unique_ptr<PatchInfo>>& rtreplPatches,
+        const std::vector<std::string>& externSymbols,
+        const std::vector<std::unique_ptr<OverwriteRegionInfo>>& overwriteRegions,
+        const std::vector<std::unique_ptr<SectionInfo>>* candidateSections
+    );
 
     static std::string ldFlagsToGccFlags(std::string flags);
     //void parseLinkerOutput(const std::string& output);

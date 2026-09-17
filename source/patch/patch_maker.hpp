@@ -100,7 +100,6 @@ private:
 	// Core coordination methods
 	void fetchNewcodeAddr();
 	void applyPatchesToRom(const PatchOperationContext& context);
-	std::vector<std::unique_ptr<DependencyResolver::UnitEntryPoints>> createEntryPointsFromPatches();
 
 	// Patch application methods - organized by type
 	void applyJumpPatch(const std::unique_ptr<PatchInfo>& patch, const PatchOperationContext& context);
