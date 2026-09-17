@@ -20,6 +20,7 @@
 #include "../utils/util.hpp"
 #include "../utils/endian.hpp"
 #include "../ndsbin/icodebin.hpp"
+#include "../rom/layout.hpp"
 
 namespace ncp::patch {
 
@@ -573,8 +574,17 @@ void PatchMaker::applyOverwriteRegions(const PatchOperationContext& context)
 		if (overwrite->assignedSections.empty())
 			continue;
 
+		const Elf32_Shdr& sectionHeader = static_cast<const Elf32_Shdr*>(context.sectionHeaderTable)[overwrite->sectionIdx];
+
+		// A SHT_NOBITS section (bss) has no bytes in the ELF file; getSection
+		// would return a pointer into unrelated file data instead. Overwrite
+		// candidates exclude bss already, so this should be unreachable, but
+		// the check is cheap insurance against writing garbage to the ROM.
+		if (sectionHeader.sh_type == SHT_NOBITS)
+			continue;
+
 		ICodeBin* bin = getBinaryForDestination(overwrite->destination);
-		const char* sectionData = context.elf->getSection<char>(static_cast<const Elf32_Shdr*>(context.sectionHeaderTable)[overwrite->sectionIdx]);
+		const char* sectionData = context.elf->getSection<char>(sectionHeader);
 
 		bin->writeBytes(overwrite->startAddress, sectionData, overwrite->sectionSize);
 		
@@ -629,8 +639,10 @@ void PatchMaker::applyNewcodeToMainArm(int dest, const std::unique_ptr<NewcodeIn
 		data.resize(data.size() + newcodeInfo->binSize + 12);
 
 		// Write the new relocated code address
-		u32 heapReloc = newcodeAddr + newcodeInfo->binSize + 
-			(newcodeInfo->bssAlign - newcodeInfo->binSize % newcodeInfo->bssAlign) + newcodeInfo->bssSize;
+		u32 bssStart = newcodeAddr + newcodeInfo->binSize;
+		if (newcodeInfo->bssAlign != 0)
+			bssStart = ncp::rom::alignUp(bssStart, u32(newcodeInfo->bssAlign));
+		u32 heapReloc = bssStart + newcodeInfo->bssSize;
 		bin->write<u32>(m_arenalo, heapReloc);
 
 		u32 ramAddress = bin->getRamAddress();
