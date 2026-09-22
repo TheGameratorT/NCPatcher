@@ -4,6 +4,7 @@
 #include <functional>
 #include <iostream>
 #include <string>
+#include <string_view>
 #include <filesystem>
 
 #include "../utils/types.hpp"
@@ -55,8 +56,6 @@
 extern const char* log_OERROR;
 extern const char* log_OWARN;
 extern const char* log_OINFO;
-extern const char* log_OBUILD;
-extern const char* log_OLINK;
 extern const char* log_OREASON;
 
 namespace Log {
@@ -72,8 +71,6 @@ namespace Log {
 #define OERROR ::Log::errorPrefix()
 #define OWARN ::Log::warnPrefix()
 #define OINFO log_OINFO
-#define OBUILD log_OBUILD
-#define OLINK log_OLINK
 #define OREASON log_OREASON
 
 #endif
@@ -133,8 +130,44 @@ void info(const std::string& str);
 void warn(const std::string& str);
 void error(const std::string& str);
 
+// A cargo-style milestone: `verb` right-aligned in a fixed column, bold green,
+// then the message. This is the only thing a default build prints besides
+// warnings, errors and the live block.
+void step(std::string_view verb, const std::string& message);
+
+// The verb column and message column step() uses, exported as
+// NCPATCHER_LOG_COLUMN/NCPATCHER_LOG_INDENT so a hook can match them without
+// hardcoding a number that might drift from this file.
+[[nodiscard]] int stepColumnWidth();
+[[nodiscard]] int stepMessageColumn();
+
+// Brackets the milestones for one build target (arm7/arm9): a blank line (
+// unless nothing has been printed yet, or the previous line already was one),
+// then the target name indented under the milestone column. endGroup() does
+// not print anything itself; it only notes that the next top-level step()
+// needs a separating blank line first, so a build that stops mid-group never
+// leaves a trailing blank line behind it.
+void group(std::string_view name);
+void endGroup();
+
+// Routes everything written during its lifetime to the log file (and to a
+// piped console, which has no live block to replace it) instead of the
+// terminal. Restores whatever mode was active when it was constructed.
+class FileOnly
+{
+public:
+	FileOnly();
+	~FileOnly();
+private:
+	LogMode m_prev;
+};
+
 // How many times the warning and error prefixes have been emitted this run.
 [[nodiscard]] std::size_t warningCount();
+// Of those, how many were emitted while console output was on: a warning
+// written under Log::FileOnly reaches the log but never the terminal, so this
+// is what the "Finished" milestone can actually claim to have shown.
+[[nodiscard]] std::size_t consoleWarningCount();
 [[nodiscard]] std::size_t errorCount();
 void resetCounts();
 
@@ -156,6 +189,12 @@ void setMode(LogMode mode);
 // dumb terminal, in which case the progress display is skipped and the settled
 // record is printed instead.
 [[nodiscard]] bool terminalSupportsCursor();
+
+// Whether the console sink installed by configureConsole() is emitting ANSI
+// escapes, once ColorMode::Auto has been resolved one way or the other. A
+// child process handed our pipe cannot answer this by checking its own
+// isatty(), so it is exported to hooks as NCPATCHER_COLOR.
+[[nodiscard]] bool consoleIsStyled();
 
 // The size of the console in columns and rows. Falls back to {80, 24} when it
 // cannot be queried, so a caller never has to special-case failure.

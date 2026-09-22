@@ -23,14 +23,26 @@
 
 // What log_OWARN looks like once its styling has been stripped. Kept next to
 // the definition below so the two cannot drift apart.
-#define WARN_PLAIN_PREFIX "[Warn] "
+#define WARN_PLAIN_PREFIX "warning: "
 
-const char* log_OERROR = OSQRTBRKTS(ANSI_bWHITE, ANSI_bRED, "Error") " ";
-const char* log_OWARN = OSQRTBRKTS(ANSI_bWHITE, ANSI_bYELLOW, "Warn") " ";
-const char* log_OINFO = OSQRTBRKTS(ANSI_bWHITE, ANSI_bBLUE, "Info") " ";
-const char* log_OBUILD = OSQRTBRKTS(ANSI_bWHITE, ANSI_bGREEN, "Build") " ";
-const char* log_OLINK = OSQRTBRKTS(ANSI_bWHITE, ANSI_bGREEN, "Link") " ";
+const char* log_OERROR = ANSI_bRED "error: " ANSI_RESET;
+const char* log_OWARN = ANSI_bYELLOW "warning: " ANSI_RESET;
 const char* log_OREASON = "   -->  ";
+
+// The width of the right-aligned verb column in Log::step(), matching what
+// the live block's own header uses so a milestone lines up with it.
+static constexpr int STEP_COLUMN_WIDTH = 12;
+// Where step()'s message starts: the verb column plus the two spaces after
+// it. log_OINFO indents to the same column, so a detail line printed under a
+// milestone (verbose tables, sub-lines) lines up under the message rather
+// than under the verb.
+static constexpr int STEP_MESSAGE_COLUMN = STEP_COLUMN_WIDTH + 2;
+
+// A plain indent, built from STEP_MESSAGE_COLUMN so the two cannot drift
+// apart. Reads as subordinate to the milestone above it rather than as its
+// own severity, which is what the old bracketed "[Info]" implied.
+static const std::string s_infoIndent(STEP_MESSAGE_COLUMN, ' ');
+const char* log_OINFO = s_infoIndent.c_str();
 
 namespace Log {
 
@@ -47,11 +59,18 @@ static bool cursorDisabled = false;
 static bool fileOpen = false;
 
 static std::size_t warningsEmitted = 0;
+static std::size_t consoleWarningsEmitted = 0;
 static std::size_t errorsEmitted = 0;
 
 const char* warnPrefix()
 {
 	warningsEmitted++;
+	// A warning printed while in FileOnly mode (or otherwise not going to the
+	// console) reaches the log but not the terminal, so the "Finished" tally
+	// has to be able to tell the two counts apart rather than promise a
+	// number the console never showed.
+	if (logMode != LogMode::File)
+		consoleWarningsEmitted++;
 	return log_OWARN;
 }
 
@@ -62,12 +81,48 @@ const char* errorPrefix()
 }
 
 std::size_t warningCount() { return warningsEmitted; }
+std::size_t consoleWarningCount() { return consoleWarningsEmitted; }
 std::size_t errorCount() { return errorsEmitted; }
 
 void resetCounts()
 {
 	warningsEmitted = 0;
+	consoleWarningsEmitted = 0;
 	errorsEmitted = 0;
+}
+
+// Line-shape tracking for group()/endGroup(): whether anything has been
+// printed yet, whether the last line written ended up empty, and whether a
+// group was closed without a top-level step() having followed it. All three
+// are about layout, not content, so they are tracked once here rather than at
+// every call site that might need a separating blank line.
+static bool s_anyOutput = false;
+static bool s_atLineStart = true;
+static bool s_lastLineEmpty = false;
+static bool s_inGroup = false;
+static bool s_afterGroup = false;
+
+// Scans a flushed chunk for where lines start and end, so group() can tell
+// whether it needs to add a blank line or whether one is already there.
+// ANSI escapes never contain '\n', so they cannot be mistaken for line
+// content here.
+static void trackLineShape(const std::string& text)
+{
+	if (text.empty())
+		return;
+	s_anyOutput = true;
+	for (char c : text)
+	{
+		if (c == '\n')
+		{
+			s_lastLineEmpty = s_atLineStart;
+			s_atLineStart = true;
+		}
+		else
+		{
+			s_atLineStart = false;
+		}
+	}
 }
 
 static std::function<void(std::string_view)> warningObserver;
@@ -115,6 +170,7 @@ public:
 	{
 		const std::string text = str();
 		observe(text);
+		trackLineShape(text);
 		dispatch(text);
 		str("");
 		return 0;
@@ -207,7 +263,7 @@ void log(const std::string& str)
 
 void info(const std::string& str)
 {
-	out << OINFO << str << std::endl;
+	out << str << std::endl;
 }
 
 void warn(const std::string& str)
@@ -218,6 +274,55 @@ void warn(const std::string& str)
 void error(const std::string& str)
 {
 	out << OERROR << str << std::endl;
+}
+
+void step(std::string_view verb, const std::string& message)
+{
+	// A step() reached while not inside a group, right after one closed, is
+	// the point a target's milestones hand back to the top-level ones (e.g.
+	// "Writing" after the last target's "Patching"). That transition gets its
+	// own blank line, same as between two groups; anything else does not.
+	if (!s_inGroup && s_afterGroup)
+	{
+		if (!s_lastLineEmpty)
+			out << '\n';
+		s_afterGroup = false;
+	}
+
+	const int pad = STEP_COLUMN_WIDTH - int(verb.size());
+	out << ANSI_bGREEN;
+	for (int i = 0; i < pad; i++)
+		out << ' ';
+	out << verb << ANSI_RESET << "  " << message << std::endl;
+}
+
+int stepColumnWidth() { return STEP_COLUMN_WIDTH; }
+int stepMessageColumn() { return STEP_MESSAGE_COLUMN; }
+
+void group(std::string_view name)
+{
+	s_afterGroup = false;
+	if (s_anyOutput && !s_lastLineEmpty)
+		out << '\n';
+	out << "  " << ANSI_bCYAN << name << ANSI_RESET << std::endl;
+	s_inGroup = true;
+}
+
+void endGroup()
+{
+	s_inGroup = false;
+	s_afterGroup = true;
+}
+
+FileOnly::FileOnly() :
+	m_prev(getMode())
+{
+	setMode(LogMode::File);
+}
+
+FileOnly::~FileOnly()
+{
+	setMode(m_prev);
 }
 
 void setMode(LogMode mode)
@@ -269,6 +374,11 @@ void configureConsole(ColorMode color, bool toStderr)
 		addSink(std::make_unique<PlainSink>(toStderr));
 		cursorDisabled = true;
 	}
+}
+
+bool consoleIsStyled()
+{
+	return hasSink(SinkKind::Terminal);
 }
 
 #ifdef _WIN32

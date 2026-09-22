@@ -10,6 +10,8 @@
 #include <chrono>
 #include <filesystem>
 
+#include "types.hpp"
+
 namespace Util {
 
 constexpr size_t indexOf(const char* val, const char* vals[], size_t size) noexcept
@@ -58,5 +60,10 @@ void printDataAsHex(const void* data, std::size_t size, std::size_t rowlen);
 // Anything outside `base` comes back untouched: a long "../.." chain is neither
 // shorter nor clearer than the absolute path it would replace.
 std::filesystem::path relativeIfSubpath(const std::filesystem::path& path, const std::filesystem::path& base);
+
+// A byte count as a person reads it: "812 B", "12.4 KiB", "16.4 MiB". One
+// decimal place below 1024 units of the chosen unit, none at or above it, so a
+// size never grows a digit than what a glance needs.
+std::string humanSize(u64 bytes);
 
 }

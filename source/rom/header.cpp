@@ -64,6 +64,7 @@ void Header::load(const fs::path& path)
 {
 	ncp::ScopedContext ctx(ncp::Diag::RomHeaderLoad, "Could not load the ROM header.");
 
+	Log::FileOnly fileOnly;
 	Log::info("Loading header file...");
 
 	if (!fs::exists(path))

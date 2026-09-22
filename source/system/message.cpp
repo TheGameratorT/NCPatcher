@@ -96,12 +96,6 @@ void writeArtifact(Json::Writer& writer, const Artifact& entry)
 		writer.field("name", entry.name);
 }
 
-long long elapsedMs()
-{
-	const auto now = std::chrono::steady_clock::now();
-	return std::chrono::duration_cast<std::chrono::milliseconds>(now - s_start).count();
-}
-
 std::size_t diagnosticCount(Level level)
 {
 	std::size_t count = 0;
@@ -162,6 +156,12 @@ void writeResultFile(std::string_view status, int exitCode, long long duration)
 }
 
 } // namespace
+
+long long elapsedMs()
+{
+	const auto now = std::chrono::steady_clock::now();
+	return std::chrono::duration_cast<std::chrono::milliseconds>(now - s_start).count();
+}
 
 void configure(Format newFormat, fs::path resultFile)
 {

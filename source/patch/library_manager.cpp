@@ -32,8 +32,6 @@ void LibraryManager::initialize(
 
 void LibraryManager::analyzeLibraryDependencies()
 {
-    Log::info("Analyzing library dependencies...");
-
     // Get toolchain-specific library search paths
     getToolchainLibraryPaths();
 
@@ -68,8 +66,6 @@ void LibraryManager::analyzeLibraryDependencies()
 
 void LibraryManager::generateLibraryUnits()
 {
-    Log::info("Generating library compilation units...");
-
     // Create units from each library
     for (const auto& libraryPath : m_libraryPaths)
     {
@@ -379,8 +375,11 @@ void LibraryManager::createUnitsFromArchive(const std::filesystem::path& archive
             }
         }
 
-        Log::out << OINFO << "Processed " << std::dec << validCount << " object files from " 
-                 << archivePath.filename().string() << std::endl;
+        if (m_ctx->isVerbose(ncp::VerboseTag::Library))
+        {
+            Log::out << OINFO << "Processed " << std::dec << validCount << " object files from "
+                     << archivePath.filename().string() << std::endl;
+        }
     }
     catch (const std::exception& e)
     {

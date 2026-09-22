@@ -15,6 +15,7 @@
 #include "../system/log.hpp"
 #include "../system/message.hpp"
 #include "../utils/json.hpp"
+#include "../utils/util.hpp"
 
 namespace fs = std::filesystem;
 
@@ -26,18 +27,6 @@ std::string hex(u32 value, int width = 8)
 {
 	std::ostringstream oss;
 	oss << "0x" << std::uppercase << std::hex << std::setfill('0') << std::setw(width) << value;
-	return oss.str();
-}
-
-std::string humanSize(u64 bytes)
-{
-	std::ostringstream oss;
-	if (bytes >= 1024 * 1024)
-		oss << (bytes / (1024 * 1024)) << " MiB";
-	else if (bytes >= 1024)
-		oss << (bytes / 1024) << " KiB";
-	else
-		oss << bytes << " B";
 	return oss.str();
 }
 
@@ -226,8 +215,8 @@ void info(std::ostream& out, const fs::path& path, const rom::DirLayout& layout)
 	         << "] maker " << header.makerCode() << " rev " << int(header.romVersion()) << '\n';
 	out << "  unit code:    " << hex(header.unitCode(), 2)
 	         << (header.isDsi() ? "  (DSi)" : "  (DS)") << '\n';
-	out << "  capacity:     " << humanSize(header.deviceCapacityBytes())
-	         << "  (used " << humanSize(header.totalUsedRomSize()) << ")" << '\n';
+	out << "  capacity:     " << Util::humanSize(header.deviceCapacityBytes())
+	         << "  (used " << Util::humanSize(header.totalUsedRomSize()) << ")" << '\n';
 
 	for (bool arm9 : { true, false })
 	{
@@ -260,7 +249,7 @@ void info(std::ostream& out, const fs::path& path, const rom::DirLayout& layout)
 	         << (stored == computed ? "  (ok)" : "  (WRONG, expected " + hex(computed, 4) + ")") << '\n';
 
 	if (!isDirectory)
-		out << "  file size:    " << humanSize(nds.bytes().size()) << '\n';
+		out << "  file size:    " << Util::humanSize(nds.bytes().size()) << '\n';
 
 	out << std::flush;
 }

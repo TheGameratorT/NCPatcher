@@ -238,7 +238,52 @@ made. Only a build writes one; `config dump` and friends have no build
 directory to write into and are not worth creating one for. `--log` puts it
 somewhere else, `--no-log` turns it off.
 
-### Machine-readable output
+### Output
+
+A default build prints one line per phase milestone plus any warnings or
+errors, not a trace of what it did internally. Each target's milestones are
+grouped under its own name, so it is always clear whether arm7 or arm9 is
+being worked on:
+
+```
+    Building  arm7, arm9  (variant hd)
+   Inserting  214 files, 3 archives repacked
+
+  arm7
+   Compiling  8 files in 1.2s
+     Linking  newcode 0x023C8000, 1420 B code + 64 B bss
+    Patching  3 hooks, 2 overwrite regions (3.1/4.0 KiB used)
+
+  arm9
+   Compiling  143 files in 12.4s
+     Linking  newcode 0x02100000, 4.2 KiB code + 1.1 KiB bss
+    Patching  37 hooks, 2 overwrite regions (7.9/8.0 KiB used), 3 overlays
+
+     Writing  out.nds  16.4 MiB (+1.2 MiB)
+    Finished  18.7s
+```
+
+Every line this collapses (which library paths were searched, the ELF patch
+tables, one line per inserted file, and so on) still exists; it goes to the
+log file, in full, whether or not `-v` was given. `-v` / `--verbose-tag`
+brings the same detail to the console as well.
+
+#### Tools run under NCPatcher
+
+A pre-build, post-files or post-build hook inherits an environment that tells
+it what the console it is writing into looks like, so it can print lines that
+read as NCPatcher's own instead of falling back to its own tags:
+
+| Variable | Meaning |
+| --- | --- |
+| `NCPATCHER` | The running NCPatcher's version. |
+| `NCPATCHER_LOG_STYLE` | `ncp`: drop bracketed severity tags; use `warning: ` / `error: ` prefixes. |
+| `NCPATCHER_LOG_COLUMN` | Width of the right-aligned verb column a milestone line uses. |
+| `NCPATCHER_LOG_INDENT` | Column a detail line under a milestone should indent to. |
+| `NCPATCHER_COLOR` | `always` or `never`: whether the pipe the hook is writing into renders ANSI escapes. |
+
+A hook's own `env:` entries always win over these, so a project can override
+any of them.
 
 `--message-format json` writes one JSON object per line on stdout and moves the
 human log to stderr, so a caller never has to match on English:

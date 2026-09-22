@@ -82,6 +82,11 @@ void progress(std::string_view phase, std::size_t current, std::size_t total, st
 
 void artifact(Artifact entry);
 
+// Milliseconds since configure() started the clock. Exposed so the human
+// "Finished" milestone can report the same duration as the json result event
+// rather than timing the run a second time.
+[[nodiscard]] long long elapsedMs();
+
 // Emits the closing result event and writes --result, if one was asked for.
 // Safe to call when neither is enabled, and safe to call twice: only the first
 // call reports.

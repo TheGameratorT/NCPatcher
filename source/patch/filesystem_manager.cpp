@@ -93,6 +93,7 @@ void FileSystemManager::saveArmBin()
 
 void FileSystemManager::loadOverlayTableBin()
 {
+	Log::FileOnly fileOnly;
 	Log::info("Loading overlay table...");
 
 	const bool arm9 = isArm9();

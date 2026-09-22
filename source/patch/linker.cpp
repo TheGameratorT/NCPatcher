@@ -586,70 +586,8 @@ std::string Linker::ldFlagsToGccFlags(std::string flags)
     return flags;
 }
 
-/*
-void Linker::parseLinkerOutput(const std::string& output)
-{
-    std::vector<std::string> discardedSections;
-    std::istringstream iss(output);
-    std::string line;
-    
-    // Parse linker output for discarded sections
-    // The --print-gc-sections flag causes the linker to print lines like:
-    // "removing unused section '.text.unused_function' in file 'object.o'"
-    while (std::getline(iss, line))
-    {
-        // Look for lines that indicate removed sections
-        if (line.find("removing unused section") != std::string::npos)
-        {
-            // Extract section name between single quotes
-            size_t firstQuote = line.find('\'');
-            size_t secondQuote = line.find('\'', firstQuote + 1);
-            if (firstQuote != std::string::npos && secondQuote != std::string::npos)
-            {
-                std::string sectionName = line.substr(firstQuote + 1, secondQuote - firstQuote - 1);
-                
-                // Extract object file name
-                size_t inFilePos = line.find("in file");
-                if (inFilePos != std::string::npos)
-                {
-                    size_t fileQuote1 = line.find('\'', inFilePos);
-                    size_t fileQuote2 = line.find('\'', fileQuote1 + 1);
-                    if (fileQuote1 != std::string::npos && fileQuote2 != std::string::npos)
-                    {
-                        std::string fileName = line.substr(fileQuote1 + 1, fileQuote2 - fileQuote1 - 1);
-                        // Just get the filename without path
-                        size_t lastSlash = fileName.find_last_of("/\\");
-                        if (lastSlash != std::string::npos)
-                            fileName = fileName.substr(lastSlash + 1);
-                        
-                        std::string entry = sectionName + " (from " + fileName + ")";
-                        discardedSections.push_back(entry);
-                    }
-                }
-            }
-        }
-    }
-    
-    // Display results
-    if (!discardedSections.empty())
-    {
-        Log::out << "Linker discarded " << discardedSections.size() << " unused sections:" << std::endl;
-        for (const std::string& section : discardedSections)
-        {
-            Log::out << "  " << section << std::endl;
-        }
-    }
-    else
-    {
-        Log::out << OINFO << "No sections were discarded by the linker." << std::endl;
-    }
-}
-*/
-
 void Linker::linkElfFile()
 {
-    Log::out << OLINK << "Linking the ARM binary..." << std::endl;
-
     std::string ccmd;
     ccmd.reserve(128);
     ccmd += m_ctx->toolchain();
@@ -661,15 +599,15 @@ void Linker::linkElfFile()
         ccmd += ',';
     ccmd += targetFlags;
 
+    if (m_ctx->isVerbose(ncp::VerboseTag::Linking))
+    {
+        Log::out << OINFO << "Linker script: " << ncp::pathToUtf8(m_ldscriptPath) << std::endl;
+        Log::out << OINFO << ccmd << std::endl;
+    }
+
     std::ostringstream oss;
     int retcode = Process::start(ccmd.c_str(), m_paths->workDir, &oss);
-    
-	// if (m_ctx->isVerbose())
-	// {
-	// 	// Parse the linker output to extract discarded sections
-	// 	parseLinkerOutput(oss.str());
-	// }
-    
+
     if (retcode != 0)
     {
         Log::out << oss.str() << std::endl;

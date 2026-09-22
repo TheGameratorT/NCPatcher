@@ -22,8 +22,6 @@ void OverwriteRegionManager::initialize(const ncp::Context& ctx, const BuildTarg
 
 void OverwriteRegionManager::setupOverwriteRegions()
 {
-    Log::info("Setting up overwrite regions...");
-
     for (const auto& region : m_target->regions)
     {
         for (const auto& overwrite : region.overwrites)
@@ -60,8 +58,6 @@ void OverwriteRegionManager::assignMeasuredSections(
     const std::vector<std::unique_ptr<SectionInfo>>& candidateSections,
     const std::vector<u32>& measuredSizes)
 {
-    Log::info("Assigning sections to overwrite regions...");
-
     if (m_overwriteRegions.empty())
         return;
 
@@ -97,26 +93,39 @@ void OverwriteRegionManager::assignMeasuredSections(
     for (std::size_t r = 0; r < m_overwriteRegions.size(); r++)
         m_overwriteRegions[r]->usedSize = result.usedSize[r];
 
+    m_stats = OverwriteStats{};
+    for (std::size_t r = 0; r < m_overwriteRegions.size(); r++)
+    {
+        m_stats.usedBytes += result.usedSize[r];
+        m_stats.capacityBytes += m_overwriteRegions[r]->endAddress - m_overwriteRegions[r]->startAddress;
+    }
+    m_stats.spilledBytes = result.spilledBytes;
+    m_stats.spilledSections = result.spilled.size();
+
     // Utilization is informational, not a warning: a region that does not
     // fill up, or an item that spills to newcode, is a normal outcome, not a
     // modeling failure. Only a mismatch against what the linker actually
-    // emits (checked in finalizeOverwritesWithElfData) is a real error.
-    for (std::size_t r = 0; r < m_overwriteRegions.size(); r++)
+    // emits (checked in finalizeOverwritesWithElfData) is a real error. The
+    // console gets a count from PatchMaker's "Patching" milestone instead.
     {
-        auto& overwrite = m_overwriteRegions[r];
-        u32 capacity = overwrite->endAddress - overwrite->startAddress;
-        Log::out << OINFO << "Overwrite region " << OSTR(overwrite->name) << ": "
-            << result.usedSize[r] << "/" << capacity << " bytes used ("
-            << sectionCount[r] << " section(s)";
-        if (bssBytes[r] != 0)
-            Log::out << ", " << bssBytes[r] << " of them bss";
-        Log::out << ")" << std::endl;
-    }
+        Log::FileOnly fileOnly;
+        for (std::size_t r = 0; r < m_overwriteRegions.size(); r++)
+        {
+            auto& overwrite = m_overwriteRegions[r];
+            u32 capacity = overwrite->endAddress - overwrite->startAddress;
+            Log::out << OINFO << "Overwrite region " << OSTR(overwrite->name) << ": "
+                << result.usedSize[r] << "/" << capacity << " bytes used ("
+                << sectionCount[r] << " section(s)";
+            if (bssBytes[r] != 0)
+                Log::out << ", " << bssBytes[r] << " of them bss";
+            Log::out << ")" << std::endl;
+        }
 
-    if (!result.spilled.empty())
-    {
-        Log::out << OINFO << result.spilled.size() << " section(s) totaling " << result.spilledBytes
-            << " bytes did not fit an overwrite region and will go to newcode instead." << std::endl;
+        if (!result.spilled.empty())
+        {
+            Log::out << OINFO << result.spilled.size() << " section(s) totaling " << result.spilledBytes
+                << " bytes did not fit an overwrite region and will go to newcode instead." << std::endl;
+        }
     }
 
     // Structure to store assignment information for table printing

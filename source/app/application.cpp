@@ -659,10 +659,25 @@ int Application::reportFailure(const std::exception& e)
 	return exitValue(exitCodeFor(code));
 }
 
+// What Log::step("Building", ...) says a run is about to do: which processors
+// it targets, and which variant if one was chosen.
+static std::string describeBuild(const config::ProjectConfig& config, const std::string& variant)
+{
+	std::string targets;
+	if (config.arm7.enabled)
+		targets += ANSI_bWHITE "arm7" ANSI_RESET;
+	if (config.arm9.enabled)
+		targets += (targets.empty() ? "" : ", ") + std::string(ANSI_bWHITE "arm9" ANSI_RESET);
+	if (targets.empty())
+		targets = "no code";
+
+	if (!variant.empty())
+		targets += "  (variant " ANSI_bWHITE + variant + ANSI_RESET ")";
+	return targets;
+}
+
 void Application::runBuild()
 {
-	Log::out << ANSI_bWHITE " ----- Nitro Code Patcher -----" ANSI_RESET << std::endl;
-
 	loadConfigurations();
 
 	if (m_cli.allVariants)
@@ -679,7 +694,7 @@ void Application::runBuild()
 			m_config = base;
 			m_modules = {};
 			applyVariant(variant.name, true);
-			Log::out << ANSI_bWHITE " ----- Variant: " << variant.name << " -----" ANSI_RESET << std::endl;
+			Log::step("Building", describeBuild(m_config, variant.name));
 			runConfiguredBuild();
 		}
 		return;
@@ -698,6 +713,7 @@ void Application::runBuild()
 		applyVariant(m_cli.variant, false);
 	}
 
+	Log::step("Building", describeBuild(m_config, m_cli.variant));
 	runConfiguredBuild();
 }
 
@@ -724,7 +740,6 @@ void Application::runConfiguredBuild()
 	cancel::checkpoint();
 
 	runHooks(config::HookWhen::PreBuild,
-			 "Running pre-build hooks...",
 			 Diag::PreBuildCommand,
 			 "Not all pre-build hooks succeeded.");
 
@@ -742,7 +757,6 @@ void Application::runConfiguredBuild()
 	writeFileDump(*rom, inserted);
 
 	runHooks(config::HookWhen::PostFiles,
-			 "Running post-files hooks...",
 			 Diag::PostFilesCommand,
 			 "Not all post-files hooks succeeded.");
 
@@ -775,11 +789,24 @@ void Application::runConfiguredBuild()
 	saveRebuildConfig();
 
 	runHooks(config::HookWhen::PostBuild,
-			 "Running post-build hooks...",
 			 Diag::PostBuildCommand,
 			 "Not all post-build hooks succeeded.");
 
-	Log::info("All tasks finished.");
+	std::ostringstream finished;
+	finished << std::fixed << std::setprecision(1) << (double(msg::elapsedMs()) / 1000.0) << "s";
+	if (const std::size_t warnings = Log::warningCount(); warnings != 0)
+	{
+		finished << ", " << warnings << " warning" << (warnings == 1 ? "" : "s");
+		// The two counts can differ: some warnings are only ever written to
+		// the log (see Log::FileOnly). When they do, say where the rest went
+		// rather than leaving the console claiming a count it never showed.
+		if (const std::size_t shown = Log::consoleWarningCount(); shown != warnings && Log::logFileOpen())
+		{
+			const fs::path logPath = m_cli.logPathSet ? m_cli.logPath : (logDirectory() / "ncpatcher.log");
+			finished << " (see " << logPath.string() << ")";
+		}
+	}
+	Log::step("Finished", finished.str());
 }
 
 // A module's code reaches the ROM by being folded into a target's regions, so
@@ -859,9 +886,7 @@ void Application::applyVariant(const std::string& name, bool deriveOutput)
 
 void Application::processTarget(rom::RomAccessor& rom, bool isArm9)
 {
-	Log::info(isArm9 ?
-		"Resolving ARM9 target configuration..." :
-		"Resolving ARM7 target configuration...");
+	Log::group(isArm9 ? "arm9" : "arm7");
 
 	Context targetCtx = m_ctx;
 	BuildTarget buildTarget = resolveTarget(isArm9, targetCtx).target;
@@ -889,6 +914,8 @@ void Application::processTarget(rom::RomAccessor& rom, bool isArm9)
 	patchMaker.makeTarget(buildTarget, targetCtx, rom, compilationUnitsMgr);
 
 	m_rebuild.setTargetHash(isArm9, configHash);
+
+	Log::endGroup();
 }
 
 // Finishes the expansion the configuration reader deliberately left alone.
@@ -921,7 +948,6 @@ std::string Application::resolveDeferred(std::string text) const
 }
 
 void Application::runHooks(config::HookWhen when,
-						   const char* message,
 						   Diag code,
 						   const char* errorContext)
 {
@@ -931,7 +957,6 @@ void Application::runHooks(config::HookWhen when,
 		return;
 	}
 
-	Log::info(message);
 	ScopedContext ctx(code, errorContext);
 
 	for (const config::HookConfig& hook : m_config.hooks) {
@@ -940,13 +965,21 @@ void Application::runHooks(config::HookWhen when,
 
 		const std::string run = resolveDeferred(hook.run);
 
-		std::ostringstream oss;
-		oss << ANSI_bWHITE "[" << hook.name << "] " ANSI_bYELLOW << run << ANSI_RESET;
-		Log::info(oss.str());
+		// Just the name on the console: a hook's command line can be long
+		// (a generator invocation with half a dozen flags, easily), and the
+		// milestone list is meant to stay scannable. The full command still
+		// goes to the log file, where it is one line among many rather than
+		// the one thing crowding out everything else.
+		Log::step("Running", ANSI_bWHITE + hook.name + ANSI_RESET);
+		{
+			Log::FileOnly fileOnly;
+			Log::out << OINFO << run << std::endl;
+		}
 
-		// A hook's own output is for the person watching, so in json mode it
-		// must not land in the middle of the event stream.
-		std::ostream& hookOutput = msg::isJson() ? std::cerr : std::cout;
+		// Through Log::out rather than std::cout/std::cerr directly, so a
+		// hook's output reaches ncpatcher.log, gets ANSI-stripped for
+		// --color never and for a pipe, and (in json mode) stays off stdout,
+		// which is reserved for the event stream.
 		const fs::path cwd = hook.cwd.empty()
 			? m_ctx.paths.workDir
 			: m_ctx.paths.work(utf8ToPath(resolveDeferred(pathToUtf8(hook.cwd))));
@@ -957,10 +990,20 @@ void Application::runHooks(config::HookWhen when,
 		// with the configuration it was handed. The hook's own `env:` comes
 		// after, and therefore wins.
 		std::vector<std::pair<std::string, std::string>> env = m_envFile.entries();
+
+		// What a tool needs to print lines that look like NCPatcher's own,
+		// rather than falling back to its own bracketed tags. Listed first so
+		// a project can still override any of these with its own `env:`.
+		env.emplace_back("NCPATCHER", versionString());
+		env.emplace_back("NCPATCHER_LOG_STYLE", "ncp");
+		env.emplace_back("NCPATCHER_LOG_COLUMN", std::to_string(Log::stepColumnWidth()));
+		env.emplace_back("NCPATCHER_LOG_INDENT", std::to_string(Log::stepMessageColumn()));
+		env.emplace_back("NCPATCHER_COLOR", Log::consoleIsStyled() ? "always" : "never");
+
 		for (const auto& [name, value] : hook.env)
 			env.emplace_back(name, resolveDeferred(value));
 
-		int retcode = Process::start(run.c_str(), cwd, env, &hookOutput);
+		int retcode = Process::start(run.c_str(), cwd, env, &Log::out);
 		if (retcode != 0) {
 			throw ncp::exception("Hook \"" + hook.name + "\" returned: " + std::to_string(retcode));
 		}
@@ -1123,9 +1166,6 @@ rom::InsertionRecord Application::insertFiles(rom::RomAccessor& rom, bool planni
 	const std::vector<config::FileConfig>& files = inserted.files;
 	if (files.empty())
 		return inserted;
-
-	if (!planning)
-		Log::info("Inserting NitroFS files...");
 
 	struct PreparedFile
 	{
@@ -1465,11 +1505,23 @@ rom::InsertionRecord Application::insertFiles(rom::RomAccessor& rom, bool planni
 			inserted.createdIds.push_back(rom.addNitroFile(reserved, std::span<const u8>()));
 	}
 
-	auto report = [planning](const PreparedFile& file, u32 fileId, const char* action) {
+	// Per-item detail goes to the log file only; the console gets a single
+	// "Inserting" milestone with the totals once every file has been placed.
+	std::size_t addedCount = 0;
+	std::size_t replacedCount = 0;
+
+	auto report = [planning, &addedCount, &replacedCount](const PreparedFile& file, u32 fileId, const char* action) {
 		if (planning)
 			return;
-		Log::info(std::string(std::string_view(action) == "created" ? "Added " : "Replaced ")
-			+ file.config->path + " [" + std::to_string(fileId) + "]");
+		if (std::string_view(action) == "created")
+			addedCount++;
+		else
+			replacedCount++;
+		{
+			Log::FileOnly fileOnly;
+			Log::info(std::string(std::string_view(action) == "created" ? "Added " : "Replaced ")
+				+ file.config->path + " [" + std::to_string(fileId) + "]");
+		}
 		msg::Artifact artifact;
 		artifact.kind = "file";
 		artifact.action = action;
@@ -1495,6 +1547,7 @@ rom::InsertionRecord Application::insertFiles(rom::RomAccessor& rom, bool planni
 		report(file, fileId, "modified");
 	}
 
+	std::size_t archivesRepackedCount = 0;
 	for (const RepackedArchive& archive : repacked)
 	{
 		// The members first, then the file the ROM actually holds: that is the
@@ -1504,7 +1557,10 @@ rom::InsertionRecord Application::insertFiles(rom::RomAccessor& rom, bool planni
 		{
 			if (planning)
 				continue;
-			Log::info("Replaced " + edit.config->path);
+			{
+				Log::FileOnly fileOnly;
+				Log::info("Replaced " + edit.config->path);
+			}
 			msg::Artifact member;
 			member.kind = "archive-file";
 			member.action = "modified";
@@ -1517,7 +1573,11 @@ rom::InsertionRecord Application::insertFiles(rom::RomAccessor& rom, bool planni
 		if (planning)
 			continue;
 
-		Log::info("Repacked " + archive.path + " [" + std::to_string(fileId) + "]");
+		archivesRepackedCount++;
+		{
+			Log::FileOnly fileOnly;
+			Log::info("Repacked " + archive.path + " [" + std::to_string(fileId) + "]");
+		}
 		msg::Artifact artifact;
 		artifact.kind = "file";
 		artifact.action = "modified";
@@ -1532,6 +1592,16 @@ rom::InsertionRecord Application::insertFiles(rom::RomAccessor& rom, bool planni
 		const u32 fileId = rom.addNitroFile(file.config->path, file.data);
 		inserted.createdIds.push_back(fileId);
 		report(file, fileId, "created");
+	}
+
+	if (!planning && (addedCount != 0 || replacedCount != 0))
+	{
+		const std::size_t fileCount = addedCount + replacedCount;
+		std::ostringstream oss;
+		oss << fileCount << " file" << (fileCount == 1 ? "" : "s");
+		if (archivesRepackedCount != 0)
+			oss << ", " << archivesRepackedCount << " archive" << (archivesRepackedCount == 1 ? "" : "s") << " repacked";
+		Log::step("Inserting", oss.str());
 	}
 
 	// Last, because every PreparedFile above points into `inserted.files` and
@@ -1604,7 +1674,10 @@ void Application::insertBanner(rom::RomAccessor& rom) const
 
 	rom.writeBanner(data);
 
-	Log::info("Replaced the ROM banner.");
+	{
+		Log::FileOnly fileOnly;
+		Log::info("Replaced the ROM banner.");
+	}
 	msg::Artifact artifact;
 	artifact.kind = "banner";
 	artifact.action = "modified";
@@ -1636,6 +1709,7 @@ void Application::writeFileDump(const rom::RomAccessor& rom, const rom::Insertio
 	const std::vector<rom::ManifestEntry> entries =
 		rom::buildManifest(rom, inserted, m_ctx.paths.workDir);
 	rom::writeManifest(file, entries, m_variant);
+	Log::FileOnly fileOnly;
 	Log::info("Wrote the file manifest.");
 }
 
@@ -1694,8 +1768,6 @@ void Application::loadConfigurations()
 {
 	ScopedContext ctx(Diag::ConfigLoad, "Could not load the build configuration.");
 
-	Log::info("Loading build configuration...");
-
 	config::VarOverrides overrides;
 	for (const std::string& assignment : m_cli.vars) {
 		const std::size_t separator = assignment.find('=');
@@ -1714,6 +1786,7 @@ void Application::loadConfigurations()
 		m_envFile.load(m_ctx.paths.workDir / fs::path(config::EnvFile::DEFAULT_NAME));
 		if (m_envFile.loaded() && !m_envFile.empty())
 		{
+			Log::FileOnly fileOnly;
 			std::ostringstream oss;
 			oss << "Read " << m_envFile.entries().size() << " variable(s) from "
 			    << OSTRa(m_envFile.file().filename().string()) << ":";
@@ -1768,6 +1841,7 @@ void Application::writeModuleDump()
 	}
 
 	modules::writeDump(file, m_modules);
+	Log::FileOnly fileOnly;
 	Log::info("Wrote the module dump.");
 }
 
@@ -1856,7 +1930,8 @@ std::unique_ptr<rom::RomAccessor> Application::openRom()
 		auto accessor = std::make_unique<rom::NdsRomAccessor>(
 			m_romFile,
 			m_config.romOutput.configured() ? m_ctx.paths.work(m_config.romOutput.value) : fs::path(),
-			m_config.romArm9Slack.configured() ? m_config.romArm9Slack.value : DEFAULT_ARM9_SLACK);
+			m_config.romArm9Slack.configured() ? m_config.romArm9Slack.value : DEFAULT_ARM9_SLACK,
+			m_ctx.paths.workDir);
 		accessor->loadRom();
 		return accessor;
 	}

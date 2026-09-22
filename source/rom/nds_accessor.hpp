@@ -18,8 +18,13 @@ namespace ncp::rom {
 class NdsRomAccessor final : public RomAccessor
 {
 public:
-	// `output` empty means patch `file` in place.
-	NdsRomAccessor(std::filesystem::path file, std::filesystem::path output, u32 arm9Slack);
+	// `output` empty means patch `file` in place. `displayRoot`, when given,
+	// is the project directory: the "Writing" milestone shows the ROM path
+	// relative to it, the same way a source file's path is already relative
+	// to the target's own root by the time a compile milestone names it,
+	// rather than the absolute path work() resolves everything to.
+	NdsRomAccessor(std::filesystem::path file, std::filesystem::path output, u32 arm9Slack,
+		std::filesystem::path displayRoot = {});
 
 	void loadRom();
 
@@ -66,6 +71,7 @@ private:
 	std::filesystem::path m_file;
 	std::filesystem::path m_output;
 	u32 m_arm9Slack;
+	std::filesystem::path m_displayRoot;
 	NdsRom m_rom;
 
 	// The table as the build is editing it, per processor. Held here rather

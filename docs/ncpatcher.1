@@ -243,6 +243,39 @@ Enable every category of verbose output.
 Enable one category: build, section, elf, patch, library, linking, symbols,
 nolib, all.
 .TP
+.B (output)
+A default build prints one line per phase milestone (building, running a
+hook, inserting files, compiling, linking, patching, writing the ROM,
+finishing) plus any warnings or errors. Each build target's compiling,
+linking and patching milestones are grouped under its own name. The detail
+this collapses \(en library search paths, per-patch tables, one line per
+inserted file \(en still goes to the log file in full;
+.B \-v
+or
+.B \-\-verbose-tag
+brings it to the console as well.
+.TP
+.B (hook environment)
+A pre-build, post-files or post-build hook is run with
+.B NCPATCHER
+(the running version),
+.B NCPATCHER_LOG_STYLE=ncp
+(drop bracketed tags; use
+.I "warning: "
+/
+.I "error: "
+prefixes),
+.B NCPATCHER_LOG_COLUMN
+and
+.B NCPATCHER_LOG_INDENT
+(the milestone verb column and the detail-line indent), and
+.B NCPATCHER_COLOR
+(\c
+.BR always " or " never ),
+so it can print lines that read as NCPatcher's own. A hook's own
+.B env:
+entries override any of these.
+.TP
 .BI \-\-color " auto|always|never"
 When to style the console output.
 .B NO_COLOR

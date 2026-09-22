@@ -31,8 +31,6 @@ void PatchTracker::initialize(
 
 void PatchTracker::collectPatchesFromUnits()
 {
-    Log::info("Getting patches from objects...");
-
 	if (m_ctx->isVerbose(ncp::VerboseTag::Patch))
 	{
 		Log::out << ANSI_bCYAN "Object patches (pre-ELF analysis):" ANSI_RESET "\n"
@@ -699,8 +697,6 @@ void PatchTracker::handleRtReplPatch(std::string_view symbolName, core::Compilat
 
 void PatchTracker::finalizePatchesWithElfData(const Elf32& elf)
 {
-    Log::info("Getting patches from elf...");
-
     const Elf32_Ehdr& eh = elf.getHeader();
     auto sh_tbl = elf.getSectionHeaderTable();
     auto str_tbl = elf.getSection<char>(sh_tbl[eh.e_shstrndx]);

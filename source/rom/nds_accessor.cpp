@@ -1,16 +1,19 @@
 #include "nds_accessor.hpp"
 
 #include <sstream>
+#include <system_error>
 
 #include "../system/log.hpp"
 #include "../system/except.hpp"
+#include "../utils/util.hpp"
 
 namespace fs = std::filesystem;
 
 namespace ncp::rom {
 
-NdsRomAccessor::NdsRomAccessor(fs::path file, fs::path output, u32 arm9Slack)
-	: m_file(std::move(file)), m_output(std::move(output)), m_arm9Slack(arm9Slack)
+NdsRomAccessor::NdsRomAccessor(fs::path file, fs::path output, u32 arm9Slack, fs::path displayRoot)
+	: m_file(std::move(file)), m_output(std::move(output)), m_arm9Slack(arm9Slack),
+	  m_displayRoot(std::move(displayRoot))
 {}
 
 void NdsRomAccessor::loadRom()
@@ -195,16 +198,38 @@ void NdsRomAccessor::commit()
 			return;
 	}
 
+	// Taken before save() so a build that writes back over its own source ROM
+	// still gets to compare against what was there before.
+	std::error_code sizeError;
+	const uintmax_t previousSize = fs::file_size(m_file, sizeError);
+
 	m_rom.commit(m_arm9Slack);
 
 	if (m_rom.lastCommitRebuilt())
 	{
+		Log::FileOnly fileOnly;
 		Log::info("The ROM had to be laid out again; every file offset in it has changed.");
 	}
 
 	const fs::path& destination = m_output.empty() ? m_file : m_output;
 	m_rom.save(destination);
-	Log::info("Wrote " + destination.string() + ".");
+
+	const fs::path displayPath = m_displayRoot.empty()
+		? destination : Util::relativeIfSubpath(destination, m_displayRoot);
+
+	std::ostringstream oss;
+	oss << displayPath.string() << "  " << Util::humanSize(fs::file_size(destination));
+	if (!sizeError)
+	{
+		const auto newSize = intmax_t(fs::file_size(destination));
+		const auto delta = newSize - intmax_t(previousSize);
+		if (delta != 0)
+		{
+			oss << " (" << (delta > 0 ? "+" : "-")
+			    << Util::humanSize(u64(delta < 0 ? -delta : delta)) << ")";
+		}
+	}
+	Log::step("Writing", oss.str());
 }
 
 } // namespace ncp::rom

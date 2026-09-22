@@ -64,6 +64,32 @@ void PatchMaker::makeTarget(
 		// Cleanup on failure if needed
 		throw;
 	}
+
+	const std::vector<u32>& patchedOverlays = m_ctx->rebuild->patchedOverlays(m_target->getArm9());
+	const std::size_t regionCount = m_overwriteRegionManager->getOverwriteRegions().size();
+	const OverwriteStats& stats = m_overwriteRegionManager->getStats();
+
+	std::ostringstream oss;
+	bool first = true;
+	auto clause = [&](std::size_t count, const char* singular, const char* plural) {
+		if (count == 0)
+			return;
+		oss << (first ? "" : ", ") << count << " " << (count == 1 ? singular : plural);
+		first = false;
+	};
+	clause(m_patchTracker->getPatchInfo().size(), "hook", "hooks");
+	clause(regionCount, "overwrite region", "overwrite regions");
+	if (regionCount != 0)
+	{
+		oss << " (" << Util::humanSize(stats.usedBytes) << "/" << Util::humanSize(stats.capacityBytes) << " used";
+		if (stats.spilledBytes != 0)
+			oss << ", " << stats.spilledSections << " spilled to newcode";
+		oss << ")";
+	}
+	clause(patchedOverlays.size(), "overlay", "overlays");
+	if (first)
+		oss << "nothing to patch";
+	Log::step("Patching", oss.str());
 }
 
 void PatchMaker::initializeComponents()
@@ -200,8 +226,6 @@ void PatchMaker::generateElfFile()
 		m_overwriteRegionManager->assignMeasuredSections(candidateSections, measuredSizes);
 	}
 
-    Log::out << OLINK << "Generating the linker script..." << std::endl;
-
 	// Generate the final ELF with properly filtered sections
 	m_linker->createLinkerScript(
 		m_patchTracker->getPatchInfo(),
@@ -239,6 +263,49 @@ void PatchMaker::processPatches()
 	
 	applyPatchesToRom(context);
 	m_linker->unloadElfFile();
+
+	logLinkingSummary();
+}
+
+// The final ELF is only fully known once processPatches() has read it back
+// (generateElfFile() only links it), so this runs after, not as part of
+// generating the ELF, or every build would report "no new code".
+void PatchMaker::logLinkingSummary()
+{
+	const auto& newcodeInfoForDest = m_patchTracker->getNewcodeInfoForDest();
+
+	std::ostringstream oss;
+	std::size_t overlayDests = 0;
+	bool wroteMain = false;
+
+	if (const auto it = newcodeInfoForDest.find(-1); it != newcodeInfoForDest.end())
+	{
+		const auto addr = m_newcodeAddrForDest.find(-1);
+		oss << "newcode ";
+		if (addr != m_newcodeAddrForDest.end())
+			oss << "0x" << std::hex << std::uppercase << addr->second << std::dec << ", ";
+		oss << Util::humanSize(it->second->binSize) << " code";
+		if (it->second->bssSize != 0)
+			oss << " + " << Util::humanSize(it->second->bssSize) << " bss";
+		wroteMain = true;
+	}
+
+	for (const auto& [dest, info] : newcodeInfoForDest)
+	{
+		if (dest != -1)
+			overlayDests++;
+	}
+	if (overlayDests != 0)
+	{
+		oss << (wroteMain ? ", " : "");
+		oss << overlayDests << " overlay newcode region" << (overlayDests == 1 ? "" : "s");
+		wroteMain = true;
+	}
+
+	if (!wroteMain)
+		oss << "no new code";
+
+	Log::step("Linking", oss.str());
 }
 
 void PatchMaker::finalizeBuild()
@@ -270,12 +337,16 @@ void PatchMaker::fetchNewcodeAddr()
 
 	auto newcodeAddrFromMissingArenaLo = [&](){
 		ArenaLoFinder::findArenaLo(arm, m_arenalo, m_newcodeAddrForDest[-1]);
+		Log::FileOnly fileOnly;
 		Log::out << OINFO << "Found ArenaLo at: 0x" << std::uppercase << std::hex << m_arenalo << std::endl;
 	};
 
 	if (m_arenalo == 0)
 	{
-		Log::out << OINFO << OSTR("arenaLo") << " not specified, searching..." << std::endl;
+		{
+			Log::FileOnly fileOnly;
+			Log::out << OINFO << OSTR("arenaLo") << " not specified, searching..." << std::endl;
+		}
 		newcodeAddrFromMissingArenaLo();
 	}
 	else
@@ -336,8 +407,6 @@ void PatchMaker::applyPatchesToRom(const PatchOperationContext& context)
 	ncp::ScopedContext ctx(ncp::Diag::PatchApplication, m_target->getArm9() ?
 		"Failed to apply patches for ARM9 target." :
 		"Failed to apply patches for ARM7 target.");
-
-	Log::info("Applying patches to ROM binaries...");
 
 	// Process individual patches by type
 	for (const auto& patch : *context.patchInfo)

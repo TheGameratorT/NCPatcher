@@ -231,7 +231,8 @@ void pruneEmptyRegions(BuildTarget& out, const TargetConfig& target,
 
 	if (!options.quiet && out.regions.size() != before)
 	{
-		Log::out << OBUILD << "Skipped " << (before - out.regions.size())
+		Log::FileOnly fileOnly;
+		Log::out << OINFO << "Skipped " << (before - out.regions.size())
 		         << " empty region(s)." << std::endl;
 	}
 }

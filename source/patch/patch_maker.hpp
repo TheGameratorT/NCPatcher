@@ -69,6 +69,7 @@ private:
 	void generateElfFile();
 	void processPatches();
 	void finalizeBuild();
+	void logLinkingSummary();
 
 	struct PatchOperationContext
 	{

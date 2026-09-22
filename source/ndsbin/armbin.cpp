@@ -32,9 +32,10 @@ void ArmBin::load(std::vector<u8> bytes, u32 entryAddr, u32 ramAddr, u32 autoLoa
 	m_autoLoadHookOff = autoLoadHookOff;
 	m_isArm9 = isArm9;
 
-	Log::info(getString(LoadInf));
-
 	ncp::ScopedContext ctx(ncp::Diag::ArmBinLoad, isArm9 ? LoadErr9 : LoadErr7);
+
+	Log::FileOnly fileOnly;
+	Log::info(getString(LoadInf));
 
 	const std::size_t fileSize = bytes.size();
 	if (fileSize < 4)

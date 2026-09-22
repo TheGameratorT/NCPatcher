@@ -102,7 +102,7 @@ void ObjMaker::makeTarget(
 	if (atLeastOneNeedsRebuild)
 		compileSources();
 	else
-		Log::out << OBUILD << "Nothing needs building." << std::endl;
+		Log::step("Compiling", "up to date");
 }
 
 void ObjMaker::getSourceFiles()
@@ -178,8 +178,6 @@ void ObjMaker::getSourceFiles()
 
 void ObjMaker::checkIfSourcesNeedRebuild()
 {
-	Log::info("Parsing object file dependencies...");
-
 	// Fetch dependencies to prevent multiple builds
 	std::unordered_map<std::string, fs::file_time_type> timeForDep;
 
@@ -441,6 +439,15 @@ void ObjMaker::compileSources()
 
 				std::string ccmd = makeBuildCmd(true, buildInfo.fileType, srcS, asmS);
 
+				// Several of these run at once, under the live block, so a
+				// direct write to Log::out here would tear its display apart
+				// (and race on Log's shared mode). The command line goes into
+				// this unit's own buffer instead, the same one the compiler's
+				// diagnostics do, and reaches the console with them once the
+				// live block has settled.
+				if (m_ctx->isVerbose(ncp::VerboseTag::Build))
+					out << ccmd << "\n";
+
 				int retcode = runCompiler(ccmd);
 				if (retcode != 0)
 				{
@@ -456,6 +463,9 @@ void ObjMaker::compileSources()
 			}
 
 			std::string ccmd = makeBuildCmd(buildInfo.fileType == SourceFileType::ASM, SourceFileType::ASM, srcS, objS);
+
+			if (m_ctx->isVerbose(ncp::VerboseTag::Build))
+				out << ccmd << "\n";
 
 			int retcode = runCompiler(ccmd);
 			if (retcode != 0)

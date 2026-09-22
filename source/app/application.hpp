@@ -84,7 +84,6 @@ private:
 	[[nodiscard]] ResolvedTarget resolveTarget(bool isArm9, Context& targetCtx) const;
 
 	void runHooks(config::HookWhen when,
-				  const char* message,
 				  Diag code,
 				  const char* errorContext);
 	// What one insertion pass did, in the terms the manifest needs to hear it.
