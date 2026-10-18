@@ -1933,6 +1933,8 @@ std::unique_ptr<rom::RomAccessor> Application::openRom()
 			m_config.romArm9Slack.configured() ? m_config.romArm9Slack.value : DEFAULT_ARM9_SLACK,
 			m_ctx.paths.workDir);
 		accessor->loadRom();
+		accessor->setDsiEnhanced(m_config.romDsiEnhanced.value,
+			m_config.romDsCopy.configured() ? m_ctx.paths.work(m_config.romDsCopy.value) : fs::path());
 		return accessor;
 	}
 

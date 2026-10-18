@@ -28,6 +28,15 @@ public:
 
 	void loadRom();
 
+	// Makes the written ROM DSi-enhanced. A non-empty `dsCopy` also saves the
+	// ROM as it was before that, with its DS header, for loaders that run a
+	// plain DS ROM in DSi mode on their own.
+	void setDsiEnhanced(bool enabled, std::filesystem::path dsCopy = {})
+	{
+		m_dsiEnhanced = enabled;
+		m_dsCopy = std::move(dsCopy);
+	}
+
 	[[nodiscard]] const std::filesystem::path& location() const override { return m_file; }
 	[[nodiscard]] const NdsRom& rom() const { return m_rom; }
 
@@ -73,6 +82,8 @@ private:
 	u32 m_arm9Slack;
 	std::filesystem::path m_displayRoot;
 	NdsRom m_rom;
+	bool m_dsiEnhanced = false;
+	std::filesystem::path m_dsCopy;
 
 	// The table as the build is editing it, per processor. Held here rather
 	// than read back from the ROM each time because a write is staged: reading

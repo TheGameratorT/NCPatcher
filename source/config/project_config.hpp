@@ -476,6 +476,11 @@ struct ProjectConfig
 	// NitroFS file, so there is no path that would name it.
 	Setting<std::filesystem::path> romBanner;
 
+	// Write the ROM with a DSi-enhanced (TWL) header. `romDsCopy`, which needs
+	// romOutput, also saves the ROM with its original DS header.
+	Setting<bool> romDsiEnhanced;
+	Setting<std::filesystem::path> romDsCopy;
+
 	Setting<std::string> toolchain;
 	Setting<int> threadCount;
 

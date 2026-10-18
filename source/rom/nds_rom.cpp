@@ -5,6 +5,7 @@
 #include <sstream>
 
 #include "layout.hpp"
+#include "../utils/crc.hpp"
 #include "../utils/endian.hpp"
 #include "../system/except.hpp"
 #include "../system/log.hpp"
@@ -153,7 +154,7 @@ u32 NdsRom::bannerSize() const
 	{
 	case 0x0001: return 0x0840;
 	case 0x0002: return 0x0940;
-	case 0x0003: return 0x1240;
+	case 0x0003: return 0x0A40;
 	case 0x0103: return 0x23C0;
 	default:     return 0x0840;
 	}
@@ -468,6 +469,119 @@ void NdsRom::commit(u32 arm9Slack)
 	m_pendingOvt[1].reset();
 	m_pendingFiles.clear();
 	m_pendingFnt.reset();
+}
+
+namespace {
+
+// [090h]/[092h] count in 512 KiB units, so the TWL area starts on one.
+constexpr u32 TWL_ALIGN = 0x80000;
+
+// Dedicated ARM9i/ARM7i load areas (GBATEK's usual addresses). The launcher
+// copies the stubs there before the game starts; nothing runs or reads them.
+constexpr u32 ARM9I_RAM = 0x02400000;
+constexpr u32 ARM7I_RAM = 0x02E80000;
+constexpr u32 TWL_STUB_SIZE = 0x400;
+
+// [1B8h] ARM7 SCFG_EXT7, of which the launcher takes bits 0, 1, 2, 10, 18 and
+// 31. Bit 31 keeps SCFG/MBK access so the code can use DSi hardware; the rest
+// stays off, which keeps the NITRO DMA/sound circuits the NTR SDK expects.
+constexpr u32 SCFG_EXT7 = 1u << 31;
+
+// [180h..1AFh] NWRAM. All of WRAM-A/B/C goes to the ARM9 as one 768 KiB window
+// at 0x03000000 and the ARM7 gets none, so it sees what it would in DS mode.
+// MBK9 = 0 leaves the slot registers writable from ARM9. [1AFh] WRAMCNT = 3
+// gives the old 32 KiB shared WRAM entirely to the ARM7, as in DS mode.
+constexpr u32 NWRAM_MBK1_5[5] = { 0x8C888480, 0x8C888480, 0x9C989490, 0x8C888480, 0x9C989490 };
+constexpr u32 NWRAM_MBK6_8_ARM9[3] = {
+	(0u << 4)  | (3u << 12) | (4u << 20),    // WRAM-A 0x03000000-0x0303FFFF
+	(8u << 3)  | (3u << 12) | (16u << 19),   // WRAM-B 0x03040000-0x0307FFFF
+	(16u << 3) | (3u << 12) | (24u << 19),   // WRAM-C 0x03080000-0x030BFFFF
+};
+
+std::vector<u8> twlStub(const char* name)
+{
+	std::string text = std::string("NCPatcher ") + name + " stub: not executed";
+	std::vector<u8> out(TWL_STUB_SIZE, 0);
+	std::copy(text.begin(), text.end(), out.begin());
+	return out;
+}
+
+} // namespace
+
+void NdsRom::makeDsiEnhanced()
+{
+	if (m_bytes.size() < 0x4000)
+		throw ncp::exception("The ROM is too small to hold a DSi header.");
+
+	const u8 unit = m_header.unitCode();
+	if (unit != 0x00 && unit != 0x02)
+	{
+		std::ostringstream oss;
+		oss << "Cannot make the ROM DSi-enhanced: unit code 0x" << std::hex << unsigned(unit)
+		    << " is neither NDS nor NDS+DSi.";
+		throw ncp::exception(oss.str());
+	}
+	if (m_header.arm(true).romOffset < 0x4000)
+		throw ncp::exception("Cannot make the ROM DSi-enhanced: ARM9 starts inside the 16 KiB DSi header area.");
+	for (std::size_t i = 0x1000; i < 0x4000; i++)
+	{
+		if (m_bytes[i] != 0)
+			throw ncp::exception("Cannot make the ROM DSi-enhanced: 0x1000-0x3FFF is not empty, so the DSi header area is in use.");
+	}
+
+	// Always from the NTR total, which the DSi fields never touch, so that
+	// running this again on its own output lands on the same layout.
+	const u32 twlStart = (m_header.totalUsedRomSize() + TWL_ALIGN - 1) / TWL_ALIGN;
+	const u32 arm9iRom = twlStart * TWL_ALIGN;
+	const u32 arm7iRom = arm9iRom + TWL_STUB_SIZE;
+
+	std::vector<u8> stubs = twlStub("ARM9i");
+	const std::vector<u8> arm7iStub = twlStub("ARM7i");
+	stubs.insert(stubs.end(), arm7iStub.begin(), arm7iStub.end());
+
+	std::vector<u8> hdr(m_bytes.begin(), m_bytes.begin() + Header::DSI_SIZE);
+	std::span<u8> h(hdr);
+
+	le::writeU8(h, 0x012, 0x02);
+	le::writeU8(h, 0x01C, 0x01);  // has a TWL-exclusive region; loaders ignore ARM9i/ARM7i without it
+	le::writeU16(h, 0x090, u16(twlStart));
+	le::writeU16(h, 0x092, u16(twlStart));
+
+	std::fill(hdr.begin() + 0x180, hdr.begin() + 0x1B0, 0);
+	for (int i = 0; i < 5; i++)
+		le::writeU32(h, 0x180 + 4 * std::size_t(i), NWRAM_MBK1_5[i]);
+	for (int i = 0; i < 3; i++)
+		le::writeU32(h, 0x194 + 4 * std::size_t(i), NWRAM_MBK6_8_ARM9[i]);
+	le::writeU8(h, 0x1AF, 0x03);
+
+	le::writeU32(h, 0x1B0, 0xFFFFFFFF);  // region free
+	le::writeU32(h, 0x1B4, 0);           // no access to SD, NAND or AES keys
+	le::writeU32(h, 0x1B8, SCFG_EXT7);
+	le::writeU8(h, 0x1BF, 0x00);         // touchscreen/sound controller stays in NDS mode
+
+	le::writeU32(h, 0x1C0, arm9iRom);
+	le::writeU32(h, 0x1C4, 0);
+	le::writeU32(h, 0x1C8, ARM9I_RAM);
+	le::writeU32(h, 0x1CC, TWL_STUB_SIZE);
+	le::writeU32(h, 0x1D0, arm7iRom);
+	le::writeU32(h, 0x1D4, 0);
+	le::writeU32(h, 0x1D8, ARM7I_RAM);
+	le::writeU32(h, 0x1DC, TWL_STUB_SIZE);
+
+	le::writeU32(h, 0x208, bannerSize());
+	le::writeU32(h, 0x210, arm9iRom + u32(stubs.size()));  // total used, TWL area included
+
+	// Title ID: the game code reversed, as a cartridge DSi title.
+	for (std::size_t i = 0; i < 4; i++)
+		hdr[0x230 + i] = hdr[0x00F - i];
+	hdr[0x234] = 0x00; hdr[0x235] = 0x00; hdr[0x236] = 0x03; hdr[0x237] = 0x00;
+	std::fill(hdr.begin() + 0x2F0, hdr.begin() + 0x300, 0x80);  // no age restrictions
+
+	le::writeU16(h, 0x15E, Crc::modbus16(std::span<const u8>(hdr).subspan(0, Header::CHECKSUM_COVERAGE)));
+
+	std::copy(hdr.begin(), hdr.end(), m_bytes.begin());
+	writeRegion(arm9iRom, stubs);
+	m_header.parse(std::vector<u8>(m_bytes.begin(), m_bytes.begin() + std::ptrdiff_t(Header::SIZE)));
 }
 
 // Lays the whole ROM out again, in the order a cartridge is normally built.

@@ -189,7 +189,7 @@ std::string NdsRomAccessor::nitroFilePath(u32 fileId) const
 
 void NdsRomAccessor::commit()
 {
-	if (!m_rom.dirty())
+	if (!m_rom.dirty() && !m_dsiEnhanced)
 	{
 		// Nothing was staged, so there is nothing to write, and writing the
 		// file anyway would change its timestamp for no reason. An explicit
@@ -209,6 +209,13 @@ void NdsRomAccessor::commit()
 	{
 		Log::FileOnly fileOnly;
 		Log::info("The ROM had to be laid out again; every file offset in it has changed.");
+	}
+
+	if (m_dsiEnhanced)
+	{
+		if (!m_dsCopy.empty())
+			m_rom.save(m_dsCopy);
+		m_rom.makeDsiEnhanced();
 	}
 
 	const fs::path& destination = m_output.empty() ? m_file : m_output;

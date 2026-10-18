@@ -862,6 +862,7 @@ bool projectDoesSomething(const ProjectConfig& config)
 		|| !config.hooks.empty()
 		|| config.modules.present
 		|| config.romBanner.configured()
+		|| config.romDsiEnhanced.value
 		|| config.filesReserve.configured()
 		|| variantWork;
 }
@@ -920,7 +921,7 @@ ProjectConfig loadV2(const fs::path& projectFile, const fs::path& projectRoot,
 	const cfg::Node rom = root.require("rom");
 	if (!rom.isMap())
 		rom.failType("a mapping");
-	checkKeys(rom, "rom", { "file", "dir", "output", "backup", "layout", "arm9-slack", "banner" });
+	checkKeys(rom, "rom", { "file", "dir", "output", "backup", "layout", "arm9-slack", "banner", "dsi-enhanced", "ds-copy" });
 
 	const bool hasFile = rom.has("file");
 	const bool hasDir = rom.has("dir");
@@ -977,6 +978,22 @@ ProjectConfig loadV2(const fs::path& projectFile, const fs::path& projectRoot,
 		config.romBanner.set(expander.expand(rom["banner"].asString(), rom["banner"]), Source::ProjectFile);
 		if (config.romBanner.value.empty())
 			rom["banner"].fail("A banner path cannot be empty.");
+	}
+
+	if (rom.has("dsi-enhanced"))
+	{
+		config.romDsiEnhanced.set(rom["dsi-enhanced"].asBool(), Source::ProjectFile);
+		if (config.romDsiEnhanced.value && !hasFile)
+			rom["dsi-enhanced"].fail("Only a project that patches a .nds can make it DSi-enhanced; give " ANSI_bCYAN "rom.file" ANSI_RESET " as well.");
+	}
+
+	if (rom.has("ds-copy"))
+	{
+		if (!config.romDsiEnhanced.value)
+			rom["ds-copy"].fail("A DS copy only exists alongside " ANSI_bCYAN "rom.dsi-enhanced" ANSI_RESET ".");
+		if (!config.romOutput.configured())
+			rom["ds-copy"].fail("A DS copy is the ROM before it is patched into " ANSI_bCYAN "rom.output" ANSI_RESET "; give that as well.");
+		config.romDsCopy.set(expander.expand(rom["ds-copy"].asString(), rom["ds-copy"]), Source::ProjectFile);
 	}
 
 	if (rom.has("arm9-slack"))

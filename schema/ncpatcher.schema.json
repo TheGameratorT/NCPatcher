@@ -371,6 +371,14 @@
           "type": "string",
           "minLength": 1
         },
+        "dsi-enhanced": {
+          "description": "Write the ROM with a DSi-enhanced (TWL) header: unit code 02h, NWRAM and SCFG settings, and inert ARM9i/ARM7i stubs. The game code is unchanged. The result is unsigned, so it boots in DSi mode under Unlaunch, TWiLight Menu++ and emulators, but not from the stock DSi menu. Only applies to a .nds (rom.file).",
+          "type": "boolean"
+        },
+        "ds-copy": {
+          "description": "Also save the ROM with its original DS header here, for loaders such as nds-bootstrap that only run plain DS ROMs in DSi mode. Needs dsi-enhanced and output.",
+          "type": "string"
+        },
         "layout": {
           "description": "Naming convention of the extracted ROM directory. A preset name, or a mapping of file names, optionally with `preset:` naming the one to start from.",
           "oneOf": [

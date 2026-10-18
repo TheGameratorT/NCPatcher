@@ -427,9 +427,10 @@ struct SyntheticRom
 	u32 file1 = 0;
 };
 
-SyntheticRom makeRom(u32 arm9Slack = 0)
+SyntheticRom makeRom(u32 arm9Slack = 0, u32 arm9Offset = HEADER_SIZE)
 {
 	SyntheticRom rom;
+	rom.arm9Offset = arm9Offset;
 	std::vector<u8>& b = rom.bytes;
 
 	const u32 arm9End = rom.arm9Offset + rom.arm9Size + NITROCODE_FOOTER_SIZE + arm9Slack;
@@ -661,6 +662,43 @@ static void testArm9GrowthRebuilds()
 	check(!again.lastCommitRebuilt(), "a second build of the same size fits in the slack");
 	check(again.readArm(true) == bigger, "and still has the right contents");
 	checkConsistent(again, "after a second in-place arm9 write");
+}
+
+static void testDsiEnhanced()
+{
+	const SyntheticRom source = makeRom(0, 0x4000);
+	NdsRom rom;
+	rom.parse(source.bytes);
+	rom.makeDsiEnhanced();
+
+	const std::vector<u8> once = rom.bytes();
+	const std::span<const u8> s(once);
+	const u32 twlRom = 0x80000;
+	check(rom.header().unitCode() == 0x02, "dsi: unit code");
+	check(rom.header().isDsi(), "dsi: header reports DSi");
+	check(readU16(s, 0x090) == 1 && readU16(s, 0x092) == 1, "dsi: TWL area in 512 KiB units");
+	check(readU32(s, 0x1C0) == twlRom && readU32(s, 0x1D0) == twlRom + 0x400, "dsi: ARM9i/ARM7i offsets");
+	check(readU32(s, 0x210) == twlRom + 0x800, "dsi: total used covers the stubs");
+	check(readU32(s, 0x080) == source.bytes.size(), "dsi: NTR total used is untouched");
+	check(std::memcmp(once.data() + 0x230, "TSET", 4) == 0, "dsi: title ID is the game code reversed");
+	check(once.size() == twlRom + 0x800, "dsi: stubs are written");
+	check(rom.header().storedChecksum() == rom.header().computeChecksum(), "dsi: header checksum");
+	check(std::equal(source.bytes.begin() + 0x4000, source.bytes.end(), once.begin() + 0x4000),
+		"dsi: NTR data is untouched");
+
+	// Running it on its own output changes nothing.
+	NdsRom again;
+	again.parse(once);
+	again.makeDsiEnhanced();
+	check(again.bytes() == once, "dsi: idempotent");
+
+	SyntheticRom busy = makeRom(0, 0x4000);
+	busy.bytes[0x2000] = 1;
+	NdsRom refused;
+	refused.parse(busy.bytes);
+	bool threw = false;
+	try { refused.makeDsiEnhanced(); } catch (const std::exception&) { threw = true; }
+	check(threw, "dsi: refuses a ROM whose DSi header area is in use");
 }
 
 static void testTruncatedRom()
@@ -897,6 +935,7 @@ int main()
 	testOverlayInPlace();
 	testOverlayRelocated();
 	testArm9GrowthRebuilds();
+	testDsiEnhanced();
 	testTruncatedRom();
 	testFntGrowthRebuilds();
 	testExtractWritesAWholeRom();

@@ -90,6 +90,13 @@ public:
 	// the file alone entirely, rather than rewriting it identically.
 	[[nodiscard]] bool dirty() const;
 
+	// Turns the image into a DSi-enhanced (TWL) one: unit code 02h, the DSi
+	// header fields GBATEK documents past 0x180, and small inert ARM9i/ARM7i
+	// stubs after the NTR data. Idempotent, and meant to run after commit().
+	// The game code is kept, so saves and per-game loader settings still apply.
+	// Throws when the image cannot take it (see the implementation).
+	void makeDsiEnhanced();
+
 	// Applies every staged write. `arm9Slack` is how many spare bytes to leave
 	// after the ARM9 binary when the ROM has to be laid out again; see the
 	// comment on rebuildLayout in the implementation for why that matters.

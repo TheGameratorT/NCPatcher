@@ -766,6 +766,32 @@ A variant may override it with its own `banner:`, though one banner normally
 serves every build, because the region carries a title in all six console
 languages at once.
 
+### Making the ROM DSi-enhanced
+
+`rom.dsi-enhanced: true` writes the ROM with a DSi (TWL) header, so a DSi-mode
+loader keeps the console in DSi mode for a game built with the DS SDK:
+
+```yaml
+rom:
+  file: rom.nds
+  output: build/game.nds
+  backup: backup
+  dsi-enhanced: true
+  ds-copy: build/game-ds.nds   # optional
+```
+
+The unit code becomes 02h, the DSi fields past 0x180 are filled in (all
+NWRAM to the ARM9, SCFG access kept, touchscreen/sound controller left in DS
+mode, region free) and two 1 KiB inert ARM9i/ARM7i stubs are placed after the
+DS data on a 512 KiB boundary. The game code is unchanged, so saves and cheats
+keep working. The result is unsigned: Unlaunch, TWiLight Menu++ and emulators
+boot it in DSi mode, the stock DSi menu does not. It needs `rom.file`, and
+refuses a ROM whose 0x1000-0x3FFF is not empty.
+
+`ds-copy` (which needs `output`) also saves the ROM with its original DS
+header. nds-bootstrap treats any DSi unit code as a DSi-SDK title, so that is
+the file to give it, with the game set to run in DSi mode.
+
 ## NitroFS trees
 
 `files:` is one line per file, which stops scaling around the point a project
