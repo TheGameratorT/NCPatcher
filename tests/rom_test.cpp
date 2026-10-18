@@ -699,6 +699,15 @@ static void testDsiEnhanced()
 	bool threw = false;
 	try { refused.makeDsiEnhanced(); } catch (const std::exception&) { threw = true; }
 	check(threw, "dsi: refuses a ROM whose DSi header area is in use");
+
+	// A game that is already DSi-enhanced keeps its own ARM9i/ARM7i binaries.
+	std::vector<u8> enhanced = once;
+	enhanced[twlRom] ^= 0xFF;
+	NdsRom native;
+	native.parse(enhanced);
+	threw = false;
+	try { native.makeDsiEnhanced(); } catch (const std::exception&) { threw = true; }
+	check(threw, "dsi: refuses a ROM with real DSi binaries");
 }
 
 static void testTruncatedRom()

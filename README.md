@@ -786,7 +786,8 @@ mode, region free) and two 1 KiB inert ARM9i/ARM7i stubs are placed after the
 DS data on a 512 KiB boundary. The game code is unchanged, so saves and cheats
 keep working. The result is unsigned: Unlaunch, TWiLight Menu++ and emulators
 boot it in DSi mode, the stock DSi menu does not. It needs `rom.file`, and
-refuses a ROM whose 0x1000-0x3FFF is not empty.
+refuses a ROM whose 0x1000-0x3FFF is not empty, a DSi-only game, and a game
+that is already DSi-enhanced with ARM9i/ARM7i binaries of its own.
 
 `ds-copy` (which needs `output`) also saves the ROM with its original DS
 header. nds-bootstrap treats any DSi unit code as a DSi-SDK title, so that is

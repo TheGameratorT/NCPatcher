@@ -508,6 +508,26 @@ std::vector<u8> twlStub(const char* name)
 
 } // namespace
 
+// Whether the ROM is the output of makeDsiEnhanced, as opposed to a game that
+// has real DSi binaries of its own.
+bool NdsRom::hasOwnTwlStubs() const
+{
+	if (m_bytes.size() < Header::DSI_SIZE)
+		return false;
+	const std::span<const u8> b(m_bytes);
+	for (std::size_t entry : { std::size_t(0x1C0), std::size_t(0x1D0) })
+	{
+		const u32 offset = le::readU32(b, entry);
+		const u32 size = le::readU32(b, entry + 0xC);
+		const std::vector<u8> stub = twlStub(entry == 0x1C0 ? "ARM9i" : "ARM7i");
+		if (size != stub.size() || offset > m_bytes.size() || m_bytes.size() - offset < size)
+			return false;
+		if (!std::equal(stub.begin(), stub.end(), m_bytes.begin() + offset))
+			return false;
+	}
+	return true;
+}
+
 void NdsRom::makeDsiEnhanced()
 {
 	if (m_bytes.size() < 0x4000)
@@ -521,6 +541,8 @@ void NdsRom::makeDsiEnhanced()
 		    << " is neither NDS nor NDS+DSi.";
 		throw ncp::exception(oss.str());
 	}
+	if (unit == 0x02 && !hasOwnTwlStubs())
+		throw ncp::exception("Cannot make the ROM DSi-enhanced: it already is, and its ARM9i/ARM7i binaries would be replaced by stubs.");
 	if (m_header.arm(true).romOffset < 0x4000)
 		throw ncp::exception("Cannot make the ROM DSi-enhanced: ARM9 starts inside the 16 KiB DSi header area.");
 	for (std::size_t i = 0x1000; i < 0x4000; i++)

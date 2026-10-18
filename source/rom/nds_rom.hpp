@@ -108,6 +108,8 @@ public:
 	[[nodiscard]] bool lastCommitRebuilt() const { return m_lastCommitRebuilt; }
 
 private:
+	[[nodiscard]] bool hasOwnTwlStubs() const;
+
 	std::vector<u8> m_bytes;
 	Header m_header;
 	Fat m_fat;
