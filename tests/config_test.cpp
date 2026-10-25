@@ -461,7 +461,7 @@ hooks:
     run: fid --variant ${variant.name} --manifest ${ncp.fileDump}
     when: post-files
   - name: Report result
-    run: report ${rom.output}
+    run: report ${rom.output} from ${rom.file}
     when: post-build
 
 files:
@@ -553,13 +553,13 @@ static void testV2Reader(const fs::path& root)
 	const std::string fileDump = (root / "build/generated/files.json").generic_string();
 	check(config.hooks[2].when == HookWhen::PostBuild, "post-build is a hook phase");
 
-	// Neither is knowable while the file is being read, so both must survive it
+	// None is knowable while the file is being read, so each must survive it
 	// intact for the hook runner to finish. A reader that resolved them here
 	// would bake the first variant's name into every later variant's command.
 	checkEqual(config.hooks[1].run, "fid --variant ${variant.name} --manifest " + fileDump,
 		"variant.name is deferred to the hook runner, and ncp.fileDump is not");
-	checkEqual(config.hooks[2].run, "report ${rom.output}",
-		"rom.output is deferred to the hook runner");
+	checkEqual(config.hooks[2].run, "report ${rom.output} from ${rom.file}",
+		"rom.output and rom.file are deferred to the hook runner");
 	check(config.files.size() == 4, "NitroFS files read back");
 	checkEqual(config.files[0].path, "sp/demo/readme.txt", "a NitroFS destination keeps '/' separators");
 	checkEqual(config.files[0].source.generic_string(), (root / "nitrofs/readme.txt").generic_string(),

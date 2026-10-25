@@ -896,11 +896,12 @@ ProjectConfig loadV2(const fs::path& projectFile, const fs::path& projectRoot,
 	Expander expander;
 	expander.setEnvFile(envFile);
 
-	// Not known until a variant has been chosen and --out has been applied,
-	// both of which happen after this. Hooks are the only things that reference
+	// Not known until a variant has been chosen and --rom and --out have been
+	// applied, all of which happen after this. Hooks are the only things that reference
 	// them, and they finish the expansion when they run.
 	expander.setDeferred("variant.name");
 	expander.setDeferred("rom.output");
+	expander.setDeferred("rom.file");
 
 	expander.setConstant("project.root", pathToUtf8Generic(projectRoot));
 	expander.setConstant("config.dir", pathToUtf8Generic(projectFile.parent_path()));

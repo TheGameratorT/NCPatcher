@@ -525,8 +525,8 @@ one and `--var NAME=VALUE` to override it. `${env.NAME}` reads the environment;
 `${project.root}`, `${config.dir}`, `${rom.dir}`, `${target.name}` and
 `${target.build}`. `${ncp.moduleDump}` is available when `modules.dump` is set,
 and `${ncp.fileDump}` when `files-dump` is.
-`${variant.name}` and `${rom.output}` are available in hooks; see below for why
-they are only resolved there. Write `$$` for a literal dollar sign.
+`${variant.name}`, `${rom.output}` and `${rom.file}` are available in hooks; see
+below for why they are only resolved there. Write `$$` for a literal dollar sign.
 
 ### The environment file
 
@@ -605,15 +605,17 @@ configuration references as the rest of the file. `${ncp.moduleDump}` is the
 absolute path configured by `modules.dump`, and `${ncp.fileDump}` the one
 configured by `files-dump`; each is available when its setting is present.
 
-Two references are resolved when the hook runs rather than when the file is
+Three references are resolved when the hook runs rather than when the file is
 read, because they are not known any earlier: `${variant.name}` is the variant
-being built, empty for a project with none, and `${rom.output}` is the ROM this
-build wrote, including the `_<variant>` suffix a variant build derives.
-That is what lets one post-build hook produce a patch per variant:
+being built, empty for a project with none, `${rom.output}` is the ROM this
+build wrote, including the `_<variant>` suffix a variant build derives, and
+`${rom.file}` is the `.nds` it patched -- `rom.file`, or what `--rom` named --
+empty for an extracted directory. That is what lets one post-build hook produce
+a patch per variant, whether or not the project names its ROM:
 
 ```yaml
   - name: Patch
-    run: xdelta3 -e -f -s rom.nds "${rom.output}" build/xdelta/${variant.name}.xdelta
+    run: xdelta3 -e -f -s "${rom.file}" "${rom.output}" build/xdelta/${variant.name}.xdelta
     when: post-build
 ```
 

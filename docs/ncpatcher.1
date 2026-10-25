@@ -370,14 +370,19 @@ for
 The module graph is written before pre-build hooks run, and the file manifest
 between NitroFS insertion and the post-files hooks.
 .PP
-.B ${variant.name}
-and
+.BR ${variant.name} ,
 .B ${rom.output}
+and
+.B ${rom.file}
 are resolved when the hook runs rather than when the configuration is read,
-because neither is known any earlier. They name the variant being built and the
-ROM this build wrote, including the suffix
-.B \-\-all\-variants
-derives.
+because none is known any earlier. They name the variant being built, the ROM
+this build wrote, including the suffix a variant build derives, and the
+.B .nds
+it patched:
+.B rom.file
+or what
+.B \-\-rom
+named, empty for an extracted directory.
 .PP
 The older
 .B pre-build

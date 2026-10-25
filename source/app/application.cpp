@@ -926,8 +926,9 @@ void Application::processTarget(rom::RomAccessor& rom, bool isArm9)
 
 // Finishes the expansion the configuration reader deliberately left alone.
 //
-// `${variant.name}` and `${rom.output}` are not knowable when the file is read:
-// the variant has not been chosen and --out has not been applied. The reader
+// `${variant.name}`, `${rom.output}` and `${rom.file}` are not knowable when
+// the file is read: the variant has not been chosen and --out and --rom have
+// not been applied. The reader
 // registers them as deferred, so they survive as literal text, and this
 // substitutes them when a hook actually runs. Only those exact tokens are
 // touched, so this is not a second general expansion pass over the text.
@@ -937,9 +938,14 @@ std::string Application::resolveDeferred(std::string text) const
 		? m_ctx.paths.work(m_config.romOutput.value)
 		: (m_config.romFile.configured() ? m_ctx.paths.work(m_config.romFile.value) : fs::path());
 
+	// The .nds this build patched: where --rom pointed, or rom.file. Empty for
+	// an extracted directory, which has no file of its own.
+	const fs::path inputPath = m_config.romFile.configured() ? m_ctx.paths.work(m_config.romFile.value) : fs::path();
+
 	const std::pair<std::string_view, std::string> replacements[] = {
 		{ "${variant.name}", m_variant },
 		{ "${rom.output}", outputPath.string() },
+		{ "${rom.file}", inputPath.string() },
 	};
 
 	for (const auto& [token, value] : replacements)
