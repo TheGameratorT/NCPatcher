@@ -624,15 +624,18 @@ selection.
 .B ncpatcher build \-\-all\-variants
 builds every entry from the original
 .BR rom.file .
-Each output adds
+Either way, each variant's output adds
 .BI _ NAME
 before the base output extension. For example,
 .B build/game.nds
 becomes
 .BR build/game_en.nds .
-Without a configured output, the input ROM name is the base. Building all
-variants is unavailable for an extracted directory because it has only one
-in-place destination.
+Without a configured output, the input ROM name is the base. A single build
+given
+.B \-\-out
+writes exactly there. Building all variants is unavailable for an extracted
+directory because it has only one in-place destination, which a single
+variant build patches as it is.
 .SH EXIT STATUS
 .TP
 .B 0

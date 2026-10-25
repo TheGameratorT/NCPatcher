@@ -710,7 +710,13 @@ void Application::runBuild()
 	}
 	else
 	{
-		applyVariant(m_cli.variant, false);
+		// One variant lands where it would under --all-variants, so the
+		// outputs of the variants never overwrite each other. A --out says
+		// exactly where to write, and an extracted directory is patched in
+		// place, so neither is given a suffix.
+		const bool deriveOutput = m_config.romFile.configured()
+			&& m_config.romOutput.source != config::Source::CommandLine;
+		applyVariant(m_cli.variant, deriveOutput);
 	}
 
 	Log::step("Building", describeBuild(m_config, m_cli.variant));

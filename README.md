@@ -608,7 +608,7 @@ configured by `files-dump`; each is available when its setting is present.
 Two references are resolved when the hook runs rather than when the file is
 read, because they are not known any earlier: `${variant.name}` is the variant
 being built, empty for a project with none, and `${rom.output}` is the ROM this
-build wrote, including the `_<variant>` suffix that `--all-variants` derives.
+build wrote, including the `_<variant>` suffix a variant build derives.
 That is what lets one post-build hook produce a patch per variant:
 
 ```yaml
@@ -1130,11 +1130,14 @@ silently produce the wrong language. Command-line `-D` values come after the
 variant definitions and therefore retain precedence.
 
 `ncpatcher build --all-variants` builds entries in declaration order from the
-original `rom.file`. Each output adds `_<variant>` before the extension: a base
-output of `build/game.nds` produces `build/game_en.nds` and
-`build/game_fr.nds`. Without `rom.output` or `--out`, the input ROM name is the
-base. All-variant builds require direct `.nds` input because an extracted
-directory has only one in-place destination.
+original `rom.file`. Each variant's output adds `_<variant>` before the
+extension, whether it is built alone or with the rest: a base output of
+`build/game.nds` produces `build/game_en.nds` and `build/game_fr.nds`, so one
+variant never overwrites another. Without `rom.output`, the input ROM name is
+the base. A single build given `--out` writes exactly there, with no suffix.
+All-variant builds require direct `.nds` input because an extracted directory
+has only one in-place destination, which a single variant build patches as it
+is.
 
 ## Modules
 
