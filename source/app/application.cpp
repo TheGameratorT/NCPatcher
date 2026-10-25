@@ -1796,7 +1796,14 @@ void Application::loadConfigurations()
 		}
 	}
 
-	m_config = config::load(projectFile(), m_ctx.paths.workDir, overrides, &m_envFile);
+	// Handed to the reader as well as applied after it, so that a project
+	// leaving the ROM to --rom reads at all.
+	std::optional<config::RomOverride> romOverride;
+	if (!m_cli.romPath.empty())
+		romOverride = config::RomOverride{ fs::absolute(m_cli.romPath), looksLikeRomFile(m_cli.romPath) };
+
+	m_config = config::load(projectFile(), m_ctx.paths.workDir, overrides, &m_envFile,
+	                        romOverride ? &*romOverride : nullptr);
 
 	applyCommandLineOverrides();
 

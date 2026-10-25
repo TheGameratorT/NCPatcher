@@ -212,7 +212,13 @@ the program from the project directory.
 The ROM to patch, overriding the configuration. Either a
 .B .nds
 or a directory holding an extracted one; which it is is decided by looking at
-the path.
+the path. A project whose
+.B rom
+section names neither
+.B file
+nor
+.B dir
+needs this option.
 .TP
 .BI \-\-out " PATH"
 Write the patched ROM here instead of patching it in place. Only meaningful for

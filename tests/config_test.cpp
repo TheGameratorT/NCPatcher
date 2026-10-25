@@ -762,6 +762,36 @@ rom:
 	check(contains(error, "file-trees"), "and is told what it could have said instead");
 }
 
+static void testV2LeavesTheRomToTheCommandLine(const fs::path& root)
+{
+	// A tool that keeps the input ROM's location to itself, as an editor does
+	// per machine, gives it with --rom; the project then names none.
+	write(root / "no-rom.yaml", R"(version: 2
+
+rom:
+  output: build/game.nds
+  backup: backup
+
+file-trees:
+  - dir: nitrofs
+)");
+
+	const std::string refused = errorFrom([&] { (void)loadV2(root / "no-rom.yaml", root); });
+	check(contains(refused, "rom.file") && contains(refused, "--rom"),
+		"without --rom, a project naming no ROM is told to name one or pass --rom");
+
+	const RomOverride file{ root / "clean" / "game.nds", true };
+	const ProjectConfig config = loadV2(root / "no-rom.yaml", root, {}, nullptr, &file);
+	checkEqual(config.romFile.value.generic_string(), file.path.generic_string(), "--rom supplies rom.file");
+	check(config.romFile.source == Source::CommandLine, "and is reported as coming from the command line");
+	check(config.filesystemDir.value.empty(), "rom.dir stays unset");
+
+	// rom.output needs a .nds, and an extracted directory from --rom is not one.
+	const RomOverride directory{ root / "extracted", false };
+	const std::string notAFile = errorFrom([&] { (void)loadV2(root / "no-rom.yaml", root, {}, nullptr, &directory); });
+	check(contains(notAFile, "Only a project that patches a .nds"), "an extracted --rom still cannot write rom.output");
+}
+
 static void testV2RejectsTypos(const fs::path& root)
 {
 	const std::string bad = std::string(V2_PROJECT).replace(
@@ -954,6 +984,7 @@ int main()
 	testV1Reader(root / "v1");
 	testV2Reader(root / "v1");   // reuses the source tree the v1 fixture built
 	testV2AllowsAProjectWithNoCode(root / "v1");
+	testV2LeavesTheRomToTheCommandLine(root / "v1");
 	testV2RejectsTypos(root / "v1");
 	testV2DumpCarriesResolutionInputs(root / "v1");
 	testMigrationPreservesTheBuild(root / "migrate");

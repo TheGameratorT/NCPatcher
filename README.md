@@ -101,6 +101,17 @@ rom:
   backup: backup
 ```
 
+A project may also name neither, and leave the ROM to `--rom`: a tool that
+keeps the clean ROM's location to itself, as an editor does per machine, then
+drives a project whose configuration is the same everywhere. `backup` and the
+rest of `rom:` still apply. Without `--rom`, such a project is refused.
+
+```yaml
+rom:
+  output: build/out.nds   # with ncpatcher --rom roms/nsmb.nds build
+  backup: backup
+```
+
 `ncpatcher rom extract <dir>` writes that directory out of a `.nds`, and
 `ncpatcher rom pack <dir>` folds it back in, which is the job most projects
 currently do with a script of their own.
@@ -207,7 +218,7 @@ Options, which may be written before or after the subcommand:
 | Option | Meaning |
 |---|---|
 | `-C, --project PATH` | Project directory, or the configuration file itself |
-| `--rom PATH` | ROM to patch: a `.nds` or an extracted directory |
+| `--rom PATH` | ROM to patch: a `.nds` or an extracted directory. Overrides `rom.file`/`rom.dir`, and stands in for them when the project names neither |
 | `--out PATH` | Write the patched ROM here instead of patching in place |
 | `build --variant NAME` | Build one configured define/file variant |
 | `build --all-variants` | Build every configured variant |

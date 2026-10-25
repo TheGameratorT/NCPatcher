@@ -351,11 +351,11 @@
       "additionalProperties": false,
       "properties": {
         "dir": {
-          "description": "Directory holding the extracted ROM: arm9.bin, arm7.bin, the overlay tables and the overlay binaries. Mutually exclusive with file.",
+          "description": "Directory holding the extracted ROM: arm9.bin, arm7.bin, the overlay tables and the overlay binaries. Mutually exclusive with file. Leave out both to require --rom instead.",
           "type": "string"
         },
         "file": {
-          "description": "A .nds read and written directly, as opposed to an extracted directory. Mutually exclusive with dir.",
+          "description": "A .nds read and written directly, as opposed to an extracted directory. Mutually exclusive with dir. Leave out both to require --rom instead.",
           "type": "string"
         },
         "output": {

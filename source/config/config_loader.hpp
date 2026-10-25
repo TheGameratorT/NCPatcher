@@ -24,6 +24,17 @@ class EnvFile;
 // machine whose reference tree lives somewhere unusual without being edited.
 using VarOverrides = std::vector<std::pair<std::string, std::string>>;
 
+// The ROM --rom names. Given one, a v2 project need not name a ROM itself:
+// `rom:` may leave out both `file` and `dir`, which lets a tool that keeps the
+// input ROM's location to itself drive a project whose configuration is the
+// same on every machine.
+struct RomOverride
+{
+	std::filesystem::path path;
+	// A .nds, as opposed to an extracted directory.
+	bool isFile = true;
+};
+
 // Locates the configuration file in `projectRoot`. A v2 ncpatcher.yaml wins
 // over a v1 ncpatcher.json when both are present, so a migrated project stops
 // reading the old file without anyone having to delete it first.
@@ -33,11 +44,13 @@ using VarOverrides = std::vector<std::pair<std::string, std::string>>;
 // Reads `projectFile`, dispatching on its schema. A document with no `version:`
 // key is v1. `envFile`, when given, is consulted by ${env.NAME} before the real
 // environment; see env_file.hpp for why that way round. It is borrowed, not
-// copied, so it must outlive this call.
+// copied, so it must outlive this call. `romOverride`, also borrowed, is what
+// --rom names; only the v2 reader uses it.
 [[nodiscard]] ProjectConfig load(const std::filesystem::path& projectFile,
                                  const std::filesystem::path& projectRoot,
                                  const VarOverrides& varOverrides = {},
-                                 const EnvFile* envFile = nullptr);
+                                 const EnvFile* envFile = nullptr,
+                                 const RomOverride* romOverride = nullptr);
 
 // The two readers, reachable directly because `migrate` needs the v1 one
 // specifically and the tests need both.
@@ -70,7 +83,8 @@ void loadTargets(ProjectConfig& config, const V1Options& options = {});
 [[nodiscard]] ProjectConfig loadV2(const std::filesystem::path& projectFile,
                                    const std::filesystem::path& projectRoot,
                                    const VarOverrides& varOverrides = {},
-                                   const EnvFile* envFile = nullptr);
+                                   const EnvFile* envFile = nullptr,
+                                   const RomOverride* romOverride = nullptr);
 
 // Translates one v1 `includes`/`sources` entry of the old [path, recursive]
 // pair form into the glob patterns that mean the same thing. Shared with

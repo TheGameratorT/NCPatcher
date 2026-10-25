@@ -870,7 +870,8 @@ bool projectDoesSomething(const ProjectConfig& config)
 } // namespace
 
 ProjectConfig loadV2(const fs::path& projectFile, const fs::path& projectRoot,
-                     const VarOverrides& varOverrides, const EnvFile* envFile)
+                     const VarOverrides& varOverrides, const EnvFile* envFile,
+                     const RomOverride* romOverride)
 {
 	ProjectConfig config;
 	config.version = 2;
@@ -927,17 +928,32 @@ ProjectConfig loadV2(const fs::path& projectFile, const fs::path& projectRoot,
 	const bool hasDir = rom.has("dir");
 	if (hasFile && hasDir)
 		rom.fail("Give either " ANSI_bCYAN "rom.file" ANSI_RESET " or " ANSI_bCYAN "rom.dir" ANSI_RESET ", not both.");
-	if (!hasFile && !hasDir)
-		rom.fail("Give either " ANSI_bCYAN "rom.file" ANSI_RESET " or " ANSI_bCYAN "rom.dir" ANSI_RESET ".");
+	// A project that names neither leaves the ROM to --rom, which then also
+	// settles whether this is a .nds or an extracted directory.
+	const bool fromCommandLine = !hasFile && !hasDir;
+	if (fromCommandLine && !romOverride)
+		rom.fail("Give either " ANSI_bCYAN "rom.file" ANSI_RESET " or " ANSI_bCYAN "rom.dir" ANSI_RESET
+		         ", or name the ROM with " ANSI_bCYAN "--rom" ANSI_RESET ".");
+	const bool patchesFile = hasFile || (fromCommandLine && romOverride->isFile);
 
 	if (hasFile)
 	{
 		config.romFile.set(expander.expand(rom["file"].asString(), rom["file"]), Source::ProjectFile);
 		expander.setConstant("rom.dir", pathToUtf8Generic(config.romFile.value.parent_path()));
 	}
-	else
+	else if (hasDir)
 	{
 		config.filesystemDir.set(expander.expand(rom["dir"].asString(), rom["dir"]), Source::ProjectFile);
+		expander.setConstant("rom.dir", pathToUtf8Generic(config.filesystemDir.value));
+	}
+	else if (patchesFile)
+	{
+		config.romFile.set(romOverride->path, Source::CommandLine);
+		expander.setConstant("rom.dir", pathToUtf8Generic(config.romFile.value.parent_path()));
+	}
+	else
+	{
+		config.filesystemDir.set(romOverride->path, Source::CommandLine);
 		expander.setConstant("rom.dir", pathToUtf8Generic(config.filesystemDir.value));
 	}
 
@@ -945,7 +961,7 @@ ProjectConfig loadV2(const fs::path& projectFile, const fs::path& projectRoot,
 
 	if (rom.has("output"))
 	{
-		if (!hasFile)
+		if (!patchesFile)
 			rom["output"].fail("Only a project that patches a .nds can write one; give " ANSI_bCYAN "rom.file" ANSI_RESET " as well.");
 		config.romOutput.set(expander.expand(rom["output"].asString(), rom["output"]), Source::ProjectFile);
 	}
@@ -983,7 +999,7 @@ ProjectConfig loadV2(const fs::path& projectFile, const fs::path& projectRoot,
 	if (rom.has("dsi-enhanced"))
 	{
 		config.romDsiEnhanced.set(rom["dsi-enhanced"].asBool(), Source::ProjectFile);
-		if (config.romDsiEnhanced.value && !hasFile)
+		if (config.romDsiEnhanced.value && !patchesFile)
 			rom["dsi-enhanced"].fail("Only a project that patches a .nds can make it DSi-enhanced; give " ANSI_bCYAN "rom.file" ANSI_RESET " as well.");
 	}
 
