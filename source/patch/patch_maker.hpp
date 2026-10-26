@@ -134,9 +134,12 @@ private:
 	void applyNewcodeToOverlay(int dest, const std::unique_ptr<NewcodeInfo>& newcodeInfo, const PatchOperationContext& context);
 	
 	// Overlay operation handlers
-	void handleAppendModeOverlay(int dest, const std::unique_ptr<NewcodeInfo>& newcodeInfo);
-	void handleReplaceModeOverlay(int dest, const std::unique_ptr<NewcodeInfo>& newcodeInfo);
-	void handleCreateModeOverlay(int dest, const std::unique_ptr<NewcodeInfo>& newcodeInfo);
+	void handleAppendModeOverlay(int dest, const std::unique_ptr<NewcodeInfo>& newcodeInfo,
+		const std::unique_ptr<AutogenDataInfo>* autogenInfo);
+	void handleReplaceModeOverlay(int dest, const std::unique_ptr<NewcodeInfo>& newcodeInfo,
+		const std::unique_ptr<AutogenDataInfo>* autogenInfo);
+	void handleCreateModeOverlay(int dest, const std::unique_ptr<NewcodeInfo>& newcodeInfo,
+		const std::unique_ptr<AutogenDataInfo>* autogenInfo);
 
 	// Helper methods
 	[[nodiscard]] ArmBin* getArm() const;

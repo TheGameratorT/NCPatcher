@@ -870,21 +870,28 @@ void PatchMaker::applyNewcodeToOverlay(int dest, const std::unique_ptr<NewcodeIn
 	if (region == nullptr)
 		throw ncp::exception("region of overlay " + std::to_string(dest) + " set to add code could not be found!");
 
+	// The hook and jump bridges of code in this overlay, which go at the end
+	// of its new code like the main binary's.
+	auto autogenDataIt = context.autogenDataInfoForDest->find(dest);
+	const std::unique_ptr<AutogenDataInfo>* autogenInfo =
+		autogenDataIt != context.autogenDataInfoForDest->end() ? &autogenDataIt->second : nullptr;
+
 	switch (region->mode)
 	{
 	case BuildTarget::Mode::Append:
-		handleAppendModeOverlay(dest, newcodeInfo);
+		handleAppendModeOverlay(dest, newcodeInfo, autogenInfo);
 		break;
 	case BuildTarget::Mode::Replace:
-		handleReplaceModeOverlay(dest, newcodeInfo);
+		handleReplaceModeOverlay(dest, newcodeInfo, autogenInfo);
 		break;
 	case BuildTarget::Mode::Create:
-		handleCreateModeOverlay(dest, newcodeInfo);
+		handleCreateModeOverlay(dest, newcodeInfo, autogenInfo);
 		break;
 	}
 }
 
-void PatchMaker::handleAppendModeOverlay(int dest, const std::unique_ptr<NewcodeInfo>& newcodeInfo)
+void PatchMaker::handleAppendModeOverlay(int dest, const std::unique_ptr<NewcodeInfo>& newcodeInfo,
+	const std::unique_ptr<AutogenDataInfo>* autogenInfo)
 {
 	OverlayBin* bin = getOverlay(dest);
 	auto& ovtEntries = m_fileSystemManager->getOvtEntries();
@@ -912,7 +919,7 @@ void PatchMaker::handleAppendModeOverlay(int dest, const std::unique_ptr<Newcode
 		std::memset(&pData[szData], 0, ovtEntry.bssSize); // Keep original BSS as data
 		
 		// Write new code after BSS
-		writeNewcodeData(&pData[szData + ovtEntry.bssSize], newcodeInfo, nullptr);
+		writeNewcodeData(&pData[szData + ovtEntry.bssSize], newcodeInfo, autogenInfo);
 		
 		ovtEntry.ramSize = newSzData;
 		ovtEntry.bssSize = newcodeInfo->bssSize; // Set the BSS to our new code BSS
@@ -925,7 +932,8 @@ void PatchMaker::handleAppendModeOverlay(int dest, const std::unique_ptr<Newcode
 	bin->setDirty(true);
 }
 
-void PatchMaker::handleReplaceModeOverlay(int dest, const std::unique_ptr<NewcodeInfo>& newcodeInfo)
+void PatchMaker::handleReplaceModeOverlay(int dest, const std::unique_ptr<NewcodeInfo>& newcodeInfo,
+	const std::unique_ptr<AutogenDataInfo>* autogenInfo)
 {
 	OverlayBin* bin = getOverlay(dest);
 	auto& ovtEntries = m_fileSystemManager->getOvtEntries();
@@ -959,13 +967,14 @@ void PatchMaker::handleReplaceModeOverlay(int dest, const std::unique_ptr<Newcod
 	else
 	{
 		data.resize(newcodeInfo->binSize);
-		writeNewcodeData(data.data(), newcodeInfo, nullptr);
+		writeNewcodeData(data.data(), newcodeInfo, autogenInfo);
 	}
 
 	bin->setDirty(true);
 }
 
-void PatchMaker::handleCreateModeOverlay(int dest, const std::unique_ptr<NewcodeInfo>& newcodeInfo)
+void PatchMaker::handleCreateModeOverlay(int dest, const std::unique_ptr<NewcodeInfo>& newcodeInfo,
+	const std::unique_ptr<AutogenDataInfo>* autogenInfo)
 {
 	const BuildTarget::Region* region = m_target->getRegionByDestination(dest);
 	if (region == nullptr)
@@ -981,7 +990,7 @@ void PatchMaker::handleCreateModeOverlay(int dest, const std::unique_ptr<Newcode
 
 	std::vector<u8> data(newcodeInfo->binSize);
 	if (!data.empty())
-		writeNewcodeData(data.data(), newcodeInfo, nullptr);
+		writeNewcodeData(data.data(), newcodeInfo, autogenInfo);
 
 	m_fileSystemManager->createOverlayBin(entry, std::move(data));
 }
