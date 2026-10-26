@@ -127,7 +127,12 @@ private:
         const std::vector<std::unique_ptr<SectionInfo>>* candidateSections
     );
 
-    void runLinker(const std::filesystem::path& scriptPath, const std::string& extraFlags, const char* failure);
+    void runLinker(
+        const std::filesystem::path& scriptPath,
+        const std::string& leadingFlags,
+        const std::string& extraFlags,
+        const char* failure
+    );
 
     static std::string ldFlagsToGccFlags(std::string flags);
     //void parseLinkerOutput(const std::string& output);

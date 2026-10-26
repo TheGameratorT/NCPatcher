@@ -596,7 +596,12 @@ std::string Linker::ldFlagsToGccFlags(std::string flags)
     return flags;
 }
 
-void Linker::runLinker(const std::filesystem::path& scriptPath, const std::string& extraFlags, const char* failure)
+void Linker::runLinker(
+    const std::filesystem::path& scriptPath,
+    const std::string& leadingFlags,
+    const std::string& extraFlags,
+    const char* failure
+)
 {
     std::string ccmd;
     ccmd.reserve(128);
@@ -604,6 +609,12 @@ void Linker::runLinker(const std::filesystem::path& scriptPath, const std::strin
     ccmd += "gcc -nostartfiles -Wl,--gc-sections,-T\"";
     ccmd += ncp::pathToUtf8(Util::relativeIfSubpath(scriptPath, m_paths->workDir));
     ccmd += '\"';
+
+    // Before the project's flags, so before the libraries they name: ld only
+    // takes a member out of an archive for a symbol still undefined when it
+    // reaches it.
+    ccmd += leadingFlags;
+
     std::string targetFlags = ldFlagsToGccFlags(m_target->ldFlags);
     if (!targetFlags.empty())
         ccmd += ',';
@@ -636,12 +647,12 @@ void Linker::runLinker(const std::filesystem::path& scriptPath, const std::strin
 
 void Linker::linkElfFile()
 {
-    runLinker(m_ldscriptPath, "", "Could not link the final ELF file.");
+    runLinker(m_ldscriptPath, "", "", "Could not link the final ELF file.");
 }
 
 void Linker::linkMeasurementElf()
 {
-    runLinker(m_measureLdscriptPath, "", "Could not link the overwrite-region measurement ELF file.");
+    runLinker(m_measureLdscriptPath, "", "", "Could not link the overwrite-region measurement ELF file.");
 }
 
 void Linker::linkRuntimeModule(
@@ -807,17 +818,21 @@ void Linker::linkRuntimeModule(
 
     // The main link's symbols, without its contents: a module can call the
     // project's code, and defining a symbol the project already has is an
-    // error rather than a second copy.
-    std::string extraFlags = ",--just-symbols=\"";
-    extraFlags += relative(m_elfPath);
-    extraFlags += "\",-Map=\"";
+    // error rather than a second copy. They go ahead of the project's
+    // libraries, so that a library function the main binary already has, such
+    // as operator delete, is called there rather than linked in again.
+    std::string leadingFlags = " -Wl,--just-symbols=\"";
+    leadingFlags += relative(m_elfPath);
+    leadingFlags += '"';
+
+    std::string extraFlags = ",-Map=\"";
     extraFlags += relative(mapPathOf(elfPath));
     extraFlags += '"';
     if (atexitCapacity != 0)
         extraFlags += ",--wrap=__aeabi_atexit";
 
     std::string failure = "Could not link the runtime module rt:" + region.runtimeName + ".";
-    runLinker(scriptPath, extraFlags, failure.c_str());
+    runLinker(scriptPath, leadingFlags, extraFlags, failure.c_str());
 }
 
 std::vector<u32> Linker::readMeasuredSizes(std::size_t candidateCount)
