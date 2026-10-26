@@ -18,7 +18,7 @@ you can prefix them with a "t" (eg. `ncp_tjump`, `ncp_thook`) or use the address
 This is valid for the `ncp_set` variants as well (eg. `ncp_set_tjump`, `ncp_set_tcall`). \
 "hook" patch type only supports hooking from ARM mode.
 
-〇 Function tags (not stackable - only 1 hook per function)
+〇 Function tags (stackable - multiple hooks per function)
 
 C/C++:
 
@@ -39,9 +39,18 @@ ncp_call(0x02010000, 0)
 void MyFunction2() {
     // A call to this function will be placed at 0x02010000 in overlay 0
 }
+
+ncp_jump(0x02020000)
+ncp_jump(0x02020100)
+void MyFunction3() {
+    // Jumps to this function will be placed at 0x02020000 and 0x02020100
+}
 ```
 
-〇 Labels (stackable - multiple hooks per function)
+〇 Labels (for functions defined elsewhere)
+
+These point at a function by name instead of tagging its definition, so they work
+for functions declared in another file or library.
 
 C/C++:
 
