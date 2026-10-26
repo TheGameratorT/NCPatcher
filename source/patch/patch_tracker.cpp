@@ -139,16 +139,19 @@ void PatchTracker::normalizePatchType(ParsedPatchInfo& info) const
             info.forceThumb = true;
             break;
         case patch::PatchType::SetTJump:
-            info.type = patch::PatchType::SetJump;
+            info.type = patch::PatchType::Jump;
             info.forceThumb = true;
+            info.isNcpSet = true;
             break;
         case patch::PatchType::SetTCall:
-            info.type = patch::PatchType::SetCall;
+            info.type = patch::PatchType::Call;
             info.forceThumb = true;
+            info.isNcpSet = true;
             break;
         case patch::PatchType::SetTHook:
-            info.type = patch::PatchType::SetHook;
+            info.type = patch::PatchType::Hook;
             info.forceThumb = true;
+            info.isNcpSet = true;
             break;
         case patch::PatchType::SetJump:
             info.type = patch::PatchType::Jump;
@@ -290,9 +293,11 @@ void PatchTracker::processElfSymbols(const Elf32& elf, const Elf32_Ehdr& eh, con
         {
             parseRegularSymbol(symbolName, symbol.st_shndx, symbol.st_value, unit, objPatchInfo);
         }
-        else if (symbolName.starts_with("__ncp_"))
+        else if (symbolName.starts_with("__ncp_") && !symbolName.starts_with("__ncp_repl_"))
         {
             // Handle symver patches: __ncp_<type>_<address>[_ov<overlay>]_<unique ids to ignore>
+            // An ncp_repl function is not one: it only carries the .ncp_over_
+            // section that is the patch.
             parseSymverSymbol(symbolName, symbol.st_shndx, symbol.st_value, unit, objPatchInfo);
         }
         return false;
