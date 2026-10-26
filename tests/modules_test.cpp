@@ -643,6 +643,215 @@ static void testMissingCatalogFileIsAnError(const fs::path& root)
 	check(contains(error, "overlays9.yaml"), "the catalog it could not find is named");
 }
 
+// Runtime modules ---------------------------------------------------------
+
+static void testParsesRuntimeTargets()
+{
+	TargetRef ref;
+	std::string error;
+	check(parseTargetRef("arm9(rt:actors)", ref, error), "arm9(rt:<name>) parses");
+	check(ref.isRuntime() && ref.runtime == "actors", "and names the runtime module");
+	check(ref.str() == "arm9(rt:actors)", "it prints as it was written");
+	check(ref.regionName() == "rt:actors", "its region is spelled as a region's dest is");
+
+	check(parseTargetRef("!arm7(rt:sound_2)", ref, error) && ref.locked && !ref.arm9,
+		"a runtime target can be locked, and be on arm7");
+
+	error.clear();
+	check(!parseTargetRef("arm9(rt:a-b)", ref, error) && contains(error, "letters"),
+		"a runtime name with other characters is refused");
+	check(!parseTargetRef("arm9(rt:)", ref, error), "an empty runtime name is refused");
+}
+
+// `gamma` creates rt:actors and puts code in it two ways; `delta` adds to it
+// from outside, which is how a game module extends a module's actors.
+static void makeRuntimeModules(const fs::path& root, bool declare = true)
+{
+	write(root / "modules" / "gamma" / "module.yaml", std::string(R"YAML(id: Gamma
+)YAML") + (declare ? R"YAML(runtime:
+  actors:
+    file: ncprt/actors.ncrt
+)YAML" : "") + R"YAML(targets:
+  - arm9(rt:actors):
+      sources: "rt/*"
+components:
+  - Boss:
+      target: arm9(rt:actors)
+      sources: "boss/boss.cpp"
+      objects: [BossObject]
+)YAML");
+	write(root / "modules" / "gamma" / "rt" / "actor.cpp", "\n");
+	write(root / "modules" / "gamma" / "boss" / "boss.cpp", "\n");
+
+	write(root / "modules" / "delta" / "module.yaml", R"YAML(id: Delta
+components:
+  - Extra:
+      target: arm9(rt:actors)
+      sources: "extra.cpp"
+)YAML");
+	write(root / "modules" / "delta" / "extra.cpp", "\n");
+}
+
+static BuildTarget resolveArm9(const config::ProjectConfig& config, const ModuleGraph& graph,
+                               const fs::path& root)
+{
+	PathContext paths;
+	paths.workDir = root;
+	paths.targetWorkDir = root;
+	config::TargetResolver::Options quiet;
+	quiet.quiet = true;
+	return config::TargetResolver::resolve(config, config.arm9, paths, &graph, quiet);
+}
+
+static void testModuleCreatesRuntimeModule(const fs::path& root)
+{
+	makeProject(root);
+	makeRuntimeModules(root);
+	const config::ProjectConfig config = load(root, "modules:\n  enabled: [gamma, delta]\n");
+	const ModuleGraph graph = resolveQuiet(config, root);
+
+	const TargetContribution& arm9 = graph.contribution(true);
+	check(arm9.regionSources.empty(), "runtime code is not counted as main or overlay code");
+	check(arm9.runtime.count("actors") == 1, "the runtime module is contributed");
+	if (arm9.runtime.count("actors") == 1)
+	{
+		const RuntimeContribution& actors = arm9.runtime.at("actors");
+		check(actors.sources.size() == 3, "the catch-all, a component and another module all add to it");
+		check(actors.files == std::vector<std::string>({ "ncprt/actors.ncrt" }),
+			"the declaring module says where it is written");
+		check(actors.declaredBy == "gamma", "and is remembered as the one that did");
+	}
+
+	const BuildTarget target = resolveArm9(config, graph, root);
+	check(target.runtimeRegions.size() == 1, "a module creates a runtime region the project never declared");
+	if (target.runtimeRegions.size() == 1)
+	{
+		const BuildTarget::Region& region = target.runtimeRegions.front();
+		check(region.runtimeName == "actors", "named as the module named it");
+		check(region.destination == BuildTarget::RuntimeDestination, "with the runtime destination");
+		check(region.sources.size() == 3, "holding all of its code");
+		check(region.files == std::vector<std::string>({ "ncprt/actors.ncrt" }), "written where the module said");
+		check(contains(region.cppFlags, "-DMODULE_GAMMA"), "compiled with the target's flags");
+	}
+	check(target.getMainRegion() == nullptr || target.getMainRegion()->sources.empty(),
+		"none of it lands in the main binary");
+
+	std::ostringstream out;
+	writeDump(out, graph);
+	const std::string text = out.str();
+	check(contains(text, "\"runtime\": \"actors\""), "a component's runtime target reaches the dump");
+	check(contains(text, "\"dest\": \"rt:actors\""), "the target's runtime modules reach the dump");
+	check(contains(text, "\"declared-by\": \"gamma\""), "with the module that declared it");
+	check(contains(text, "BossObject"), "next to what a generator needs from the component");
+}
+
+// The project has the last word on where an image goes, as it does on every
+// other region; the module's code still lands in it.
+static void testProjectRedirectsRuntimeModule(const fs::path& root)
+{
+	makeProject(root);
+	makeRuntimeModules(root);
+	write(root / "ncpatcher.yaml", R"YAML(version: 2
+rom:
+  dir: rom
+  backup: backup
+targets:
+  arm9:
+    build: build/arm9
+    regions:
+      - dest: main
+        sources: []
+      - dest: rt:actors
+        output: out/actors.bin
+modules:
+  enabled: [gamma, delta]
+)YAML");
+	const config::ProjectConfig config = config::load(root / "ncpatcher.yaml", root, {});
+	const ModuleGraph graph = resolveQuiet(config, root);
+	const BuildTarget target = resolveArm9(config, graph, root);
+
+	check(target.runtimeRegions.size() == 1, "the project's region and the module's are the same one");
+	if (target.runtimeRegions.size() == 1)
+	{
+		const BuildTarget::Region& region = target.runtimeRegions.front();
+		check(region.sources.size() == 3, "the module's code goes into the project's region");
+		check(region.files.empty(), "the module's file gives way to the project's output");
+		check(region.outputs.size() == 1, "which is kept");
+	}
+}
+
+static void testUndeclaredRuntimeModuleIsAnError(const fs::path& root)
+{
+	makeProject(root);
+	makeRuntimeModules(root, false);
+	const config::ProjectConfig config = load(root, "modules:\n  enabled: [gamma, delta]\n");
+	const ModuleGraph graph = resolveQuiet(config, root);
+
+	const std::string error = errorFrom([&] { (void)resolveArm9(config, graph, root); });
+	check(contains(error, "rt:actors"), "a runtime module written nowhere is named");
+	check(contains(error, "runtime"), "and the module-side way to declare it is offered");
+}
+
+static void testTwoDeclarationsAreAnError(const fs::path& root)
+{
+	makeProject(root);
+	makeRuntimeModules(root);
+	write(root / "modules" / "delta" / "module.yaml", R"YAML(id: Delta
+runtime:
+  actors:
+    file: ncprt/other.ncrt
+components:
+  - Extra:
+      target: arm9(rt:actors)
+      sources: "extra.cpp"
+)YAML");
+	const config::ProjectConfig config = load(root, "modules:\n  enabled: [gamma, delta]\n");
+
+	const std::string error = errorFrom([&] { (void)resolveQuiet(config, root); });
+	check(contains(error, "gamma") && contains(error, "delta"), "both declaring modules are named");
+}
+
+static void testRuntimeDeclarationNeedsAFile(const fs::path& root)
+{
+	makeProject(root);
+	write(root / "modules" / "gamma" / "module.yaml", R"YAML(id: Gamma
+runtime:
+  actors: {}
+)YAML");
+	const config::ProjectConfig config = load(root, "modules:\n  enabled: [gamma]\n");
+
+	const std::string error = errorFrom([&] { (void)resolveQuiet(config, root); });
+	check(contains(error, "file"), "a runtime declaration without a file is refused");
+}
+
+// A component switched off takes its code out of the runtime module; one left
+// with no code at all is not built, and so is not declared either.
+static void testDisabledCodeLeavesNoRuntimeModule(const fs::path& root)
+{
+	makeProject(root);
+	write(root / "modules" / "gamma" / "module.yaml", R"YAML(id: Gamma
+runtime:
+  actors:
+    file: ncprt/actors.ncrt
+components:
+  - Boss:
+      target: arm9(rt:actors)
+      sources: "boss.cpp"
+)YAML");
+	write(root / "modules" / "gamma" / "boss.cpp", "\n");
+	const config::ProjectConfig config = load(root, R"YAML(modules:
+  enabled:
+    - gamma:
+        components:
+          Boss: false
+)YAML");
+	const ModuleGraph graph = resolveQuiet(config, root);
+	check(graph.contribution(true).runtime.empty(), "nothing is contributed for a runtime module with no code");
+
+	const BuildTarget target = resolveArm9(config, graph, root);
+	check(target.runtimeRegions.empty(), "and no runtime region is created");
+}
+
 // The dump ---------------------------------------------------------------
 
 static void testDumpCarriesUnknownKeys(const fs::path& root)
@@ -705,6 +914,13 @@ int main()
 	testOverlayMissingFromCatalogIsAnError(root / "catalog-missing-entry");
 	testMissingCatalogFileIsAnError(root / "catalog-missing-file");
 	testDumpCarriesUnknownKeys(root / "dump");
+	testParsesRuntimeTargets();
+	testModuleCreatesRuntimeModule(root / "rt");
+	testProjectRedirectsRuntimeModule(root / "rt-redirect");
+	testUndeclaredRuntimeModuleIsAnError(root / "rt-undeclared");
+	testTwoDeclarationsAreAnError(root / "rt-twice");
+	testRuntimeDeclarationNeedsAFile(root / "rt-nofile");
+	testDisabledCodeLeavesNoRuntimeModule(root / "rt-disabled");
 
 	fs::remove_all(root);
 

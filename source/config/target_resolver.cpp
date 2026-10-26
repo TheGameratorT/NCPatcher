@@ -168,6 +168,40 @@ void foldModuleSources(BuildTarget& out, const modules::TargetContribution& cont
 			appendUnique(region->sources, relativeTo(paths.targetWorkDir, source));
 	}
 
+	// Unlike an overlay, a runtime module has no size the game gives it to
+	// protect, so a module may create one the project never declared. One the
+	// project does declare takes the module's code, and the module's `file`
+	// unless the project says where to write it.
+	for (const auto& [name, runtime] : contribution.runtime)
+	{
+		const auto found = std::find_if(out.runtimeRegions.begin(), out.runtimeRegions.end(),
+			[&](const BuildTarget::Region& region) { return region.runtimeName == name; });
+
+		BuildTarget::Region* region;
+		if (found != out.runtimeRegions.end())
+		{
+			region = &*found;
+		}
+		else
+		{
+			BuildTarget::Region created{};
+			created.destination = BuildTarget::RuntimeDestination;
+			created.mode = BuildTarget::Mode::Append;
+			created.runtimeName = name;
+			created.cFlags = out.cFlags;
+			created.cppFlags = out.cppFlags;
+			created.asmFlags = out.asmFlags;
+			out.runtimeRegions.push_back(std::move(created));
+			region = &out.runtimeRegions.back();
+		}
+
+		if (region->files.empty() && region->outputs.empty())
+			region->files = runtime.files;
+
+		for (const fs::path& source : runtime.sources)
+			appendUnique(region->sources, relativeTo(paths.targetWorkDir, source));
+	}
+
 	if (!missing.empty())
 	{
 		// Silently inventing the region is how a mistyped overlay id becomes
@@ -397,8 +431,9 @@ BuildTarget TargetResolver::resolve(const ProjectConfig& config, const TargetCon
 			std::ostringstream oss;
 			oss << "The runtime module " << OSTR("rt:" + region.runtimeName)
 			    << " is not written anywhere."
-			    << OREASONNL "Give it a " << OSTRa("file") << " in NitroFS, an "
-			    << OSTRa("output") << " path on disk, or both.";
+			    << OREASONNL "Give its region a " << OSTRa("file") << " in NitroFS, an "
+			    << OSTRa("output") << " path on disk, or both. A module that creates it "
+			    << "declares its " << OSTRa("file") << " under " << OSTRa("runtime") << ".";
 			throw ncp::exception(oss.str());
 		}
 	}

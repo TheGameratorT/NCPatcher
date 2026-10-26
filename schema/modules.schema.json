@@ -96,6 +96,19 @@
           "description": "Root keys of module.yaml that NCPatcher does not define, re-emitted as JSON with YAML's scalar types resolved. This is the extension point: a key here means something to whichever tool reads the dump, and nothing at all to NCPatcher. nsmb-coop-module's glue module declares `level-data` this way.",
           "additionalProperties": true
         },
+        "runtime": {
+          "type": "array",
+          "description": "The runtime modules this module declares. The file id each image gets is in the file manifest, under `runtime-module`.",
+          "items": {
+            "type": "object",
+            "required": ["name", "files"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string" },
+              "files": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
         "components": {
           "type": "array",
           "description": "In declaration order.",
@@ -128,7 +141,11 @@
                 "proc": { "enum": ["arm7", "arm9"] },
                 "overlay": {
                   "type": ["integer", "null"],
-                  "description": "The overlay this component's code goes into, or null for the main binary."
+                  "description": "The overlay this component's code goes into, or null for the main binary or a runtime module."
+                },
+                "runtime": {
+                  "type": "string",
+                  "description": "The runtime module this component's code goes into, when it targets `rt:<name>`."
                 },
                 "locked": {
                   "type": "boolean",
@@ -181,7 +198,7 @@
     },
     "target": {
       "type": "object",
-      "required": ["includes", "defines", "regions"],
+      "required": ["includes", "defines", "regions", "runtime"],
       "additionalProperties": false,
       "properties": {
         "includes": {
@@ -192,6 +209,22 @@
         "defines": {
           "type": "array",
           "items": { "$ref": "#/$defs/define" }
+        },
+        "runtime": {
+          "type": "array",
+          "description": "Sources grouped by the runtime module they go into, with where its image is written.",
+          "items": {
+            "type": "object",
+            "required": ["dest", "name", "files", "sources"],
+            "additionalProperties": false,
+            "properties": {
+              "dest": { "type": "string", "description": "`rt:<name>`." },
+              "name": { "type": "string" },
+              "files": { "type": "array", "items": { "type": "string" }, "description": "From the module that declares it; empty when none does." },
+              "declared-by": { "type": "string", "description": "The key of the module that declares it." },
+              "sources": { "type": "array", "items": { "type": "string" } }
+            }
+          }
         },
         "regions": {
           "type": "array",

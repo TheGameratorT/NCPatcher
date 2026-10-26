@@ -1,6 +1,17 @@
 #include "module_graph.hpp"
 
+#include <algorithm>
+
 namespace ncp::modules {
+
+void TargetContribution::addSource(const TargetRef& target, const std::filesystem::path& path)
+{
+	std::vector<std::filesystem::path>& list = target.isRuntime()
+		? runtime[target.runtime].sources
+		: regionSources[target.overlay];
+	if (std::find(list.begin(), list.end(), path) == list.end())
+		list.push_back(path);
+}
 
 const ResolvedComponent* ResolvedModule::findComponent(std::string_view name) const
 {

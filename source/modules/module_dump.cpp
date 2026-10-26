@@ -157,6 +157,22 @@ void writeContribution(Json::Writer& writer, const TargetContribution& contribut
 	}
 	writer.endArray();
 
+	writer.key("runtime");
+	writer.beginArray();
+	for (const auto& [name, runtime] : contribution.runtime)
+	{
+		writer.beginObject();
+		writer.field("dest", "rt:" + name);
+		writer.field("name", name);
+		writer.field("files", runtime.files);
+		if (!runtime.declaredBy.empty())
+			writer.field("declared-by", runtime.declaredBy);
+		writer.key("sources");
+		writePaths(writer, runtime.sources);
+		writer.endObject();
+	}
+	writer.endArray();
+
 	writer.endObject();
 }
 
@@ -216,6 +232,22 @@ void writeDump(std::ostream& out, const ModuleGraph& graph)
 			writer.endObject();
 		}
 
+		// The runtime modules this module says where to write. Which file id
+		// each gets is in the file manifest, under `runtime-module`.
+		if (!module.def->runtime.empty())
+		{
+			writer.key("runtime");
+			writer.beginArray();
+			for (const RuntimeDef& runtime : module.def->runtime)
+			{
+				writer.beginObject();
+				writer.field("name", runtime.name);
+				writer.field("files", runtime.files);
+				writer.endObject();
+			}
+			writer.endArray();
+		}
+
 		if (!module.def->extra.empty())
 		{
 			writer.key("extra");
@@ -247,6 +279,8 @@ void writeDump(std::ostream& out, const ModuleGraph& graph)
 					writer.field("overlay", component.target.overlay);
 				else
 					{ writer.key("overlay"); writer.null(); }
+				if (component.target.isRuntime())
+					writer.field("runtime", component.target.runtime);
 				writer.field("locked", component.target.locked);
 				writer.field("origin", originName(component.targetOrigin));
 				writer.endObject();

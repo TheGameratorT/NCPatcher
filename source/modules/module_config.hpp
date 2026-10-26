@@ -23,30 +23,34 @@
 
 namespace ncp::modules {
 
-// "arm9", "arm7", "arm9(12)". A leading '!' locks the choice, so that a project
-// overriding it is told rather than silently ignored.
+// "arm9", "arm7", "arm9(12)", "arm9(rt:actors)". A leading '!' locks the
+// choice, so that a project overriding it is told rather than silently ignored.
 struct TargetRef
 {
 	bool valid = false;   // false when the module named no target at all
 	bool arm9 = true;
-	int overlay = -1;     // -1 is the main binary
+	int overlay = -1;     // -1 is the main binary, or a runtime module
+	std::string runtime;  // the runtime module's name, empty otherwise
 	bool locked = false;
 
-	// "arm9", "arm9(12)", without the lock marker, which is not part of the
-	// identity of the target.
+	// "arm9", "arm9(12)", "arm9(rt:actors)", without the lock marker, which is
+	// not part of the identity of the target.
 	[[nodiscard]] std::string str() const;
 
-	// "main" / "ov12", the spelling regions use.
+	// "main" / "ov12" / "rt:actors", the spelling regions use.
 	[[nodiscard]] std::string regionName() const;
+
+	[[nodiscard]] bool isRuntime() const { return !runtime.empty(); }
 
 	[[nodiscard]] bool operator==(const TargetRef& other) const
 	{
-		return valid == other.valid && arm9 == other.arm9 && overlay == other.overlay;
+		return valid == other.valid && arm9 == other.arm9 && overlay == other.overlay
+			&& runtime == other.runtime;
 	}
 };
 
 // Parses one target string. Returns false and fills `error` on anything that is
-// not a processor optionally followed by an overlay id.
+// not a processor optionally followed by an overlay id or a runtime module.
 [[nodiscard]] bool parseTargetRef(std::string_view text, TargetRef& out, std::string& error);
 
 // A define as the file wrote it: "NAME" or "NAME=VALUE".
@@ -91,6 +95,16 @@ struct NitroFsDef
 	cfg::Mark mark;
 };
 
+// One entry of `runtime:`, where the module says where the image of a runtime
+// module it puts code in is written. The project can still redirect it with a
+// region of its own for the same `rt:` name.
+struct RuntimeDef
+{
+	std::string name;
+	std::vector<std::string> files;   // NitroFS paths
+	cfg::Mark mark;
+};
+
 struct ComponentDef
 {
 	std::string name;
@@ -131,6 +145,7 @@ struct ModuleDef
 	std::vector<ComponentDef> components;
 
 	NitroFsDef nitrofs;
+	std::vector<RuntimeDef> runtime;
 
 	// Module-level keys this program does not know, kept for the same reason
 	// ComponentDef::extra is: a game-specific generator declares things here

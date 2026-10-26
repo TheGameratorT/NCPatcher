@@ -61,6 +61,19 @@
         }
       }
     },
+    "runtime": {
+      "description": "Runtime modules this module creates, by name, and the NitroFS paths their images are written to. Code goes into one with a target of `arm9(rt:<name>)`, from this module or any other. A project region with the same `rt:` dest and its own `file` or `output` redirects it.",
+      "type": "object",
+      "propertyNames": { "pattern": "^[A-Za-z0-9_]+$" },
+      "additionalProperties": {
+        "type": "object",
+        "required": ["file"],
+        "additionalProperties": false,
+        "properties": {
+          "file": { "$ref": "#/$defs/stringList" }
+        }
+      }
+    },
     "components": {
       "$ref": "#/$defs/components"
     }
@@ -101,7 +114,7 @@
     },
     "targetRef": {
       "type": "string",
-      "pattern": "^!?arm[79](\\([0-9]+\\))?$"
+      "pattern": "^!?arm[79](\\(([0-9]+|rt:[A-Za-z0-9_]+)\\))?$"
     },
     "targetBody": {
       "oneOf": [

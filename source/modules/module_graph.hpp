@@ -96,6 +96,17 @@ struct ResolvedModule
 	[[nodiscard]] const ResolvedComponent* findComponent(std::string_view name) const;
 };
 
+// The code modules put in one runtime module, and where its image goes.
+struct RuntimeContribution
+{
+	std::vector<std::filesystem::path> sources;
+
+	// From the module that declares it under `runtime:`. Empty when none does,
+	// which leaves it to the project.
+	std::vector<std::string> files;
+	std::string declaredBy;   // that module's key
+};
+
 // Everything the modules contribute to one processor.
 struct TargetContribution
 {
@@ -109,10 +120,15 @@ struct TargetContribution
 	// to the sources that land in it. Ordered, so region creation is too.
 	std::map<int, std::vector<std::filesystem::path>> regionSources;
 
+	// By runtime module name. Only names some enabled code lands in are here.
+	std::map<std::string, RuntimeContribution> runtime;
+
 	[[nodiscard]] bool empty() const
 	{
-		return includes.empty() && defines.empty() && regionSources.empty();
+		return includes.empty() && defines.empty() && regionSources.empty() && runtime.empty();
 	}
+
+	void addSource(const TargetRef& target, const std::filesystem::path& path);
 };
 
 class ModuleGraph

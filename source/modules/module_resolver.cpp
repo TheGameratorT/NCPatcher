@@ -174,6 +174,7 @@ private:
 	void validateRequires();
 	void collectClaims();
 	void fold();
+	void foldRuntime();
 
 	// Both halves of a `requires:` entry, resolved. Returns nullptr and leaves
 	// `reason` set when it cannot be.
@@ -200,7 +201,7 @@ private:
 	{
 		std::size_t moduleIndex;
 		std::size_t componentIndex;
-		int destination;
+		TargetRef target;
 	};
 
 	// (absolute source path, arm9) -> the component that asked for it.
@@ -571,18 +572,14 @@ void ModuleResolver::collectClaims()
 			{
 				const auto key = std::make_pair(path.generic_string(), component.target.arm9);
 				const auto [it, inserted] = m_claims.emplace(
-					key, Claim{ moduleIndex, componentIndex, component.target.overlay });
+					key, Claim{ moduleIndex, componentIndex, component.target });
 
 				if (!inserted)
 				{
 					const ResolvedModule& other = m_graph.m_modules[it->second.moduleIndex];
 					const ResolvedComponent& otherComponent = other.components[it->second.componentIndex];
 
-					TargetRef otherTarget;
-					otherTarget.valid = true;
-					otherTarget.arm9 = component.target.arm9;
-					otherTarget.overlay = it->second.destination;
-					const std::string otherRegion = otherTarget.regionName();
+					const std::string otherRegion = it->second.target.regionName();
 
 					std::ostringstream oss;
 					oss << "Two components both claim " << OSTR(path.generic_string()) << "."
@@ -667,7 +664,7 @@ void ModuleResolver::fold()
 						continue;
 					if (m_claims.count(std::make_pair(generic, target.target.arm9)) != 0)
 						continue;
-					addUnique(into.regionSources[target.target.overlay], path);
+					into.addSource(target.target, path);
 				}
 			}
 		}
@@ -735,7 +732,7 @@ void ModuleResolver::fold()
 				if (component.target.valid)
 				{
 					for (const fs::path& path : component.sources)
-						addUnique(into.regionSources[component.target.overlay], path);
+						into.addSource(component.target, path);
 				}
 			}
 		}
@@ -750,6 +747,44 @@ void ModuleResolver::fold()
 				splitDefine(define.text, resolved.name, resolved.value, resolved.hasValue);
 				resolved.origin = "component " + qualify(module, component);
 				component.defines.push_back(std::move(resolved));
+			}
+		}
+	}
+}
+
+// Where the runtime modules the code went into are written. Done once every
+// module is folded, since the code in a runtime module may come from modules
+// other than the one that declares it. A declaration nothing put code in is a
+// module whose components are all off, and is left out with them.
+void ModuleResolver::foldRuntime()
+{
+	for (const ResolvedModule& module : m_graph.m_modules)
+	{
+		if (module.def == nullptr)
+			continue;
+
+		for (const RuntimeDef& runtime : module.def->runtime)
+		{
+			for (bool proc : { false, true })
+			{
+				const auto found = contribution(proc).runtime.find(runtime.name);
+				if (found == contribution(proc).runtime.end())
+					continue;
+
+				RuntimeContribution& into = found->second;
+				if (!into.declaredBy.empty())
+				{
+					std::ostringstream oss;
+					oss << "Modules " << OSTR(into.declaredBy) << " and " << OSTR(module.key)
+					    << " both say where " << OSTR("rt:" + runtime.name) << " is written."
+					    << OREASONNL "One module declares a runtime module; others can still "
+					    << "put code in it with a target of " << OSTRa("arm9(rt:" + runtime.name + ")") << ".";
+					m_problems.add(module.def->document->root(), oss.str());
+					continue;
+				}
+
+				into.files = runtime.files;
+				into.declaredBy = module.key;
 			}
 		}
 	}
@@ -773,6 +808,7 @@ ModuleGraph ModuleResolver::run()
 
 	collectClaims();
 	fold();
+	foldRuntime();
 
 	m_problems.raise("The module configuration could not be resolved.");
 

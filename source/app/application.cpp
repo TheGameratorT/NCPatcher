@@ -1188,9 +1188,44 @@ std::vector<config::FileConfig> Application::resolveNitroFiles(rom::RomAccessor&
 		if (!target.enabled)
 			continue;
 
+		// The project's regions, then those only modules create. A module's
+		// `file` applies when the project's region says nowhere to write it,
+		// the same rule TargetResolver follows.
+		std::vector<std::pair<std::string, std::vector<std::string>>> runtimeFiles;
 		for (const config::RegionConfig& region : target.regions)
 		{
-			for (const std::string& path : region.files)
+			if (region.destination == config::RuntimeDestination)
+				runtimeFiles.emplace_back(region.runtimeName, region.files);
+		}
+		if (!m_modules.empty())
+		{
+			for (const auto& [name, runtime] : m_modules.contribution(arm9).runtime)
+			{
+				const config::RegionConfig* declared = nullptr;
+				for (const config::RegionConfig& region : target.regions)
+				{
+					if (region.destination == config::RuntimeDestination && region.runtimeName == name)
+						declared = &region;
+				}
+
+				if (declared == nullptr)
+				{
+					runtimeFiles.emplace_back(name, runtime.files);
+				}
+				else if (declared->files.empty() && declared->outputs.empty())
+				{
+					for (auto& [declaredName, paths] : runtimeFiles)
+					{
+						if (declaredName == name)
+							paths = runtime.files;
+					}
+				}
+			}
+		}
+
+		for (const auto& [runtimeName, runtimePaths] : runtimeFiles)
+		{
+			for (const std::string& path : runtimePaths)
 			{
 				const auto existing = std::find_if(files.begin(), files.end(),
 					[&](const config::FileConfig& other) { return other.path == path; });
@@ -1198,7 +1233,7 @@ std::vector<config::FileConfig> Application::resolveNitroFiles(rom::RomAccessor&
 				{
 					std::ostringstream oss;
 					oss << "NitroFS file " << OSTR(path) << " is the " << OSTR("file") << " of "
-					    << OSTR("rt:" + region.runtimeName) << ", and is also written by ";
+					    << OSTR("rt:" + runtimeName) << ", and is also written by ";
 					if (!existing->runtimeModule.empty())
 						oss << OSTR("rt:" + existing->runtimeModule) << ".";
 					else if (!existing->module.empty())
@@ -1210,7 +1245,7 @@ std::vector<config::FileConfig> Application::resolveNitroFiles(rom::RomAccessor&
 
 				config::FileConfig file;
 				file.path = path;
-				file.runtimeModule = region.runtimeName;
+				file.runtimeModule = runtimeName;
 				files.push_back(std::move(file));
 			}
 		}

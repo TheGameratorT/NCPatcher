@@ -17,14 +17,32 @@ std::string TargetRef::str() const
 	if (!valid)
 		return {};
 	std::string out = arm9 ? "arm9" : "arm7";
-	if (overlay >= 0)
+	if (isRuntime())
+		out += "(rt:" + runtime + ")";
+	else if (overlay >= 0)
 		out += "(" + std::to_string(overlay) + ")";
 	return out;
 }
 
 std::string TargetRef::regionName() const
 {
+	if (isRuntime())
+		return "rt:" + runtime;
 	return overlay < 0 ? std::string("main") : "ov" + std::to_string(overlay);
+}
+
+static bool isRuntimeName(std::string_view name)
+{
+	if (name.empty())
+		return false;
+	for (char c : name)
+	{
+		const bool ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+			|| (c >= '0' && c <= '9') || c == '_';
+		if (!ok)
+			return false;
+	}
+	return true;
 }
 
 bool parseTargetRef(std::string_view text, TargetRef& out, std::string& error)
@@ -68,6 +86,22 @@ bool parseTargetRef(std::string_view text, TargetRef& out, std::string& error)
 	if (open == std::string_view::npos)
 	{
 		out.overlay = -1;
+		out.valid = true;
+		return true;
+	}
+
+	if (overlay.starts_with("rt:"))
+	{
+		const std::string_view name = overlay.substr(3);
+		if (!isRuntimeName(name))
+		{
+			std::ostringstream oss;
+			oss << "Runtime module name " << OSTR(std::string(name))
+			    << " may contain only letters, digits and " << OSTRa("_") << ".";
+			error = oss.str();
+			return false;
+		}
+		out.runtime = std::string(name);
 		out.valid = true;
 		return true;
 	}
@@ -349,7 +383,7 @@ ModuleDef loadModuleFile(const fs::path& file, std::string key)
 	{
 		static constexpr std::string_view KNOWN[] = {
 			"id", "name", "description", "authors", "repo",
-			"defines", "targets", "components", "nitrofs" };
+			"defines", "targets", "components", "nitrofs", "runtime" };
 
 		for (const auto& [key, value] : root.fields())
 		{
@@ -406,6 +440,52 @@ ModuleDef loadModuleFile(const fs::path& file, std::string key)
 			checkKeys(nitrofs, "a module NitroFS tree",
 				{ "dir", "layered", "base-variant", "into" }, problems);
 		}
+	}
+
+	std::set<std::string> runtimeNames;
+	for (const auto& [name, body] : readEntries(root["runtime"], "runtime modules", problems))
+	{
+		const cfg::Node& at = body.defined() ? body : root["runtime"];
+		if (!isRuntimeName(name))
+		{
+			std::ostringstream oss;
+			oss << "Runtime module name " << OSTR(name)
+			    << " may contain only letters, digits and " << OSTRa("_") << ".";
+			problems.add(at, oss.str());
+			continue;
+		}
+		if (!runtimeNames.insert(name).second)
+		{
+			std::ostringstream oss;
+			oss << "Runtime module " << OSTR("rt:" + name) << " is declared more than once.";
+			problems.add(at, oss.str());
+			continue;
+		}
+
+		RuntimeDef runtime;
+		runtime.name = name;
+		runtime.mark = at.mark();
+		if (body.defined() && body.isMap())
+		{
+			checkKeys(body, "a runtime module", { "file" }, problems);
+			runtime.files = readStrings(body["file"], problems);
+		}
+		else if (body.defined() && !body.isNull())
+		{
+			problems.add(body, "Expected a mapping with a " ANSI_bCYAN "file" ANSI_RESET ".");
+			continue;
+		}
+
+		if (runtime.files.empty())
+		{
+			std::ostringstream oss;
+			oss << "Runtime module " << OSTR("rt:" + name) << " needs a " << OSTRa("file")
+			    << ", the NitroFS path its image is written to.";
+			problems.add(at, oss.str());
+			continue;
+		}
+
+		out.runtime.push_back(std::move(runtime));
 	}
 
 	for (const auto& [text, body] : readEntries(root["targets"], "targets", problems))
