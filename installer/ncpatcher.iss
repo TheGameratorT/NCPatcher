@@ -49,6 +49,7 @@ Source: "{#StageDir}\ncp_ide.h"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#StageDir}\ncprt.c"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#StageDir}\ncpatcher.schema.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#StageDir}\README.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#StageDir}\docs\*.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "{#StageDir}\LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 [Registry]

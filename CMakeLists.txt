@@ -249,6 +249,9 @@ endif()
 
 install(FILES "${PROJECT_SOURCE_DIR}/LICENSE.txt" "${PROJECT_SOURCE_DIR}/README.md"
 	DESTINATION "${NCP_INSTALL_DATADIR}")
+install(DIRECTORY "${PROJECT_SOURCE_DIR}/docs/"
+	DESTINATION "${NCP_INSTALL_DATADIR}/docs"
+	FILES_MATCHING PATTERN "*.md")
 
 # Packaging =================================================================
 
