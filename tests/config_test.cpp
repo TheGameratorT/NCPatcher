@@ -708,6 +708,11 @@ static void testV2RuntimeRegions(const fs::path& root)
 		checkEqual(region.runtimeName, "water4C", "the resolved runtime region keeps its name");
 		check(region.sources.size() == 1, "a runtime region expands its sources");
 		check(contains(region.cppFlags, "-DRT_MODULE"), "a runtime region applies its own defines");
+		for (const std::string* flags : { &region.cFlags, &region.cppFlags, &region.asmFlags })
+			check(contains(*flags, "-DNCP_RUNTIME_MODULE=water4C"), "a runtime region's code is told its module");
+		check(!contains(resolved.regions[0].cppFlags, "NCP_RUNTIME_MODULE")
+			&& !contains(resolved.regions[1].cppFlags, "NCP_RUNTIME_MODULE"),
+			"the binary's own regions are not");
 		checkEqual(region.outputs[0].generic_string(), (root / "out/water.rcm").generic_string(),
 			"an output path starts at the target's workdir");
 	}

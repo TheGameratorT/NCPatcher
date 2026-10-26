@@ -94,6 +94,17 @@ the main binary cannot call the module, which may not be loaded. See
 [Regions](configuration.md#runtime-modules) for the region's keys, and
 [Modules](modules.md#runtime-modules) for putting module code in one.
 
+A module's C, C++ and assembly code is compiled with `NCP_RUNTIME_MODULE`
+defined to its name, `bosses` here, and the rest of the target's code is not.
+A header can use it to tell which module it is part of, and to include what a
+generator wrote for that module:
+
+```cpp
+#define NCP_STR_(x) #x
+#define NCP_STR(x) NCP_STR_(x)
+#include NCP_STR(generated/NCP_RUNTIME_MODULE.hpp)
+```
+
 ### Loading
 
 The game supplies a filesystem provider, which reads a whole module file into

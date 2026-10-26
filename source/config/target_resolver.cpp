@@ -143,6 +143,15 @@ void applyDefines(DefineSet& defines, const ListOp& op, const char* origin)
 	}
 }
 
+// A runtime module's code is told which module it is in, so a header can pull
+// in what was generated for that module by its name.
+void markRuntimeModule(BuildTarget::Region& region)
+{
+	const std::string define = "-DNCP_RUNTIME_MODULE=" + region.runtimeName;
+	for (std::string* flags : { &region.cFlags, &region.cppFlags, &region.asmFlags })
+		*flags += (flags->empty() ? "" : " ") + define;
+}
+
 // Folds the module graph's per-region sources into the target that was just
 // resolved.
 //
@@ -191,6 +200,7 @@ void foldModuleSources(BuildTarget& out, const modules::TargetContribution& cont
 			created.cFlags = out.cFlags;
 			created.cppFlags = out.cppFlags;
 			created.asmFlags = out.asmFlags;
+			markRuntimeModule(created);
 			out.runtimeRegions.push_back(std::move(created));
 			region = &out.runtimeRegions.back();
 		}
@@ -402,6 +412,7 @@ BuildTarget TargetResolver::resolve(const ProjectConfig& config, const TargetCon
 				region.outputs.push_back(path.lexically_normal());
 			}
 
+			markRuntimeModule(region);
 			out.runtimeRegions.push_back(std::move(region));
 			continue;
 		}

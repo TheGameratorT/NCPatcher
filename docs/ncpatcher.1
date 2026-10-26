@@ -569,6 +569,9 @@ and
 from
 .BR ncprt.c ,
 which is compiled into the target's main region whenever code uses it.
+Its C, C++ and assembly code is compiled with
+.BI \-DNCP_RUNTIME_MODULE= name\fR,
+so that a header can tell which module it is part of.
 .PP
 The image is written to every NitroFS path in the region's
 .B file:

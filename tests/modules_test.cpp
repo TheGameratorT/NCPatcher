@@ -732,6 +732,10 @@ static void testModuleCreatesRuntimeModule(const fs::path& root)
 		check(region.sources.size() == 3, "holding all of its code");
 		check(region.files == std::vector<std::string>({ "ncprt/actors.ncrt" }), "written where the module said");
 		check(contains(region.cppFlags, "-DMODULE_GAMMA"), "compiled with the target's flags");
+		check(contains(region.cFlags, "-DNCP_RUNTIME_MODULE=actors")
+			&& contains(region.cppFlags, "-DNCP_RUNTIME_MODULE=actors")
+			&& contains(region.asmFlags, "-DNCP_RUNTIME_MODULE=actors"),
+			"and told which module it is");
 	}
 	check(target.getMainRegion() == nullptr || target.getMainRegion()->sources.empty(),
 		"none of it lands in the main binary");
@@ -777,6 +781,9 @@ modules:
 		check(region.sources.size() == 3, "the module's code goes into the project's region");
 		check(region.files.empty(), "the module's file gives way to the project's output");
 		check(region.outputs.size() == 1, "which is kept");
+		check(contains(region.cppFlags, "-DNCP_RUNTIME_MODULE=actors"), "and the region is told its module once");
+		check(region.cppFlags.find("NCP_RUNTIME_MODULE") == region.cppFlags.rfind("NCP_RUNTIME_MODULE"),
+			"not again for the module's code");
 	}
 }
 
