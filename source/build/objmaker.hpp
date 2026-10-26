@@ -3,6 +3,8 @@
 #include <memory>
 #include <vector>
 #include <filesystem>
+#include <string>
+#include <unordered_map>
 
 #include "../config/buildtarget.hpp"
 #include "../app/context.hpp"
@@ -33,6 +35,9 @@ private:
 	ncp::build::DiagnosticsFormat m_diagnosticsFormat = ncp::build::DiagnosticsFormat::Text;
 
 	void getSourceFiles();
+	core::CompilationUnit* addSourceUnit(const std::filesystem::path& srcPath, const BuildTarget::Region& region, std::size_t fileType);
+	bool addRuntimeIfUsed();
 	void checkIfSourcesNeedRebuild();
+	void checkIfUnitNeedsRebuild(core::CompilationUnit* unit, std::unordered_map<std::string, std::filesystem::file_time_type>& timeForDep);
 	void compileSources();
 };

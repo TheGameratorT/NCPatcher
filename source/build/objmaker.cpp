@@ -19,6 +19,8 @@
 #include "../system/process.hpp"
 #include "../system/paths.hpp"
 #include "../system/diagnostics.hpp"
+#include "../system/cache.hpp"
+#include "../formats/elf.hpp"
 #include "../core/compilation_unit_manager.hpp"
 #include "../utils/base32.hpp"
 #include "../utils/util.hpp"
@@ -101,7 +103,19 @@ void ObjMaker::makeTarget(
 
 	if (atLeastOneNeedsRebuild)
 		compileSources();
-	else
+
+	// Everything queued so far is built, so a second compile below only
+	// takes the runtime.
+	for (auto* unit : m_compilationUnitMgr->getUserUnits())
+		unit->setNeedsRebuild(false);
+
+	if (addRuntimeIfUsed())
+	{
+		atLeastOneNeedsRebuild = true;
+		compileSources();
+	}
+
+	if (!atLeastOneNeedsRebuild)
 		Log::step("Compiling", "up to date");
 }
 
@@ -114,66 +128,128 @@ void ObjMaker::getSourceFiles()
 			std::size_t fileType = Util::indexOf(srcPath.extension(), ExtensionForSourceFileType, 3);
 			if (fileType == -1)
 				continue;
-
-			// Create a safe build path that works for sources both inside and outside the project
-			fs::path safeBuildPath;
-			if (srcPath.is_absolute())
-			{
-				// For absolute paths, create a relative path structure under build directory
-				// Convert absolute path to a safe relative structure by replacing path separators
-				std::string pathStr = srcPath.string();
-				
-				// Replace drive letter colon and path separators with underscores for safety
-				std::replace(pathStr.begin(), pathStr.end(), ':', '_');
-				std::replace(pathStr.begin(), pathStr.end(), '\\', '_');
-				std::replace(pathStr.begin(), pathStr.end(), '/', '_');
-				
-				// Remove any leading path separator replacements
-				if (pathStr.front() == '_')
-					pathStr = pathStr.substr(1);
-					
-				safeBuildPath = m_paths->buildDir / "external" / pathStr;
-			}
-			else
-			{
-				// For relative paths, use the original behavior
-				safeBuildPath = m_paths->buildDir / srcPath;
-			}
-			
-			std::string buildPath = safeBuildPath.string();
-			fs::path objPath = buildPath + ".o";
-			fs::path depPath = buildPath + ".d";
-			fs::path asmPath = buildPath + ".s";
-
-			bool buildSrc;
-			fs::file_time_type objTime;
-			if (fs::exists(objPath) && !m_target->getForceRebuild())
-			{
-				objTime = fs::last_write_time(objPath);
-				buildSrc = false;
-			}
-			else
-			{
-				buildSrc = true;
-			}
-
-			core::CompilationUnit* unit = m_compilationUnitMgr->createCompilationUnit(
-				core::CompilationUnitType::UserSourceFile,
-				srcPath,
-				objPath
-			);
-			
-			unit->setTargetRegion(&region);
-			unit->setNeedsRebuild(buildSrc);
-			
-			// Set up build info
-			core::BuildInfo& buildInfo = unit->getBuildInfo();
-			buildInfo.dependencyPath = depPath;
-			buildInfo.assemblyPath = asmPath;
-			buildInfo.objectWriteTime = objTime;
-			buildInfo.fileType = fileType;
+			addSourceUnit(srcPath, region, fileType);
 		}
 	}
+}
+
+core::CompilationUnit* ObjMaker::addSourceUnit(const fs::path& srcPath, const BuildTarget::Region& region, std::size_t fileType)
+{
+	// Create a safe build path that works for sources both inside and outside the project
+	fs::path safeBuildPath;
+	if (srcPath.is_absolute())
+	{
+		// For absolute paths, create a relative path structure under build directory
+		// Convert absolute path to a safe relative structure by replacing path separators
+		std::string pathStr = srcPath.string();
+		
+		// Replace drive letter colon and path separators with underscores for safety
+		std::replace(pathStr.begin(), pathStr.end(), ':', '_');
+		std::replace(pathStr.begin(), pathStr.end(), '\\', '_');
+		std::replace(pathStr.begin(), pathStr.end(), '/', '_');
+		
+		// Remove any leading path separator replacements
+		if (pathStr.front() == '_')
+			pathStr = pathStr.substr(1);
+			
+		safeBuildPath = m_paths->buildDir / "external" / pathStr;
+	}
+	else
+	{
+		// For relative paths, use the original behavior
+		safeBuildPath = m_paths->buildDir / srcPath;
+	}
+	
+	std::string buildPath = safeBuildPath.string();
+	fs::path objPath = buildPath + ".o";
+	fs::path depPath = buildPath + ".d";
+	fs::path asmPath = buildPath + ".s";
+
+	bool buildSrc;
+	fs::file_time_type objTime;
+	if (fs::exists(objPath) && !m_target->getForceRebuild())
+	{
+		objTime = fs::last_write_time(objPath);
+		buildSrc = false;
+	}
+	else
+	{
+		buildSrc = true;
+	}
+
+	core::CompilationUnit* unit = m_compilationUnitMgr->createCompilationUnit(
+		core::CompilationUnitType::UserSourceFile,
+		srcPath,
+		objPath
+	);
+	
+	unit->setTargetRegion(&region);
+	unit->setNeedsRebuild(buildSrc);
+	
+	// Set up build info
+	core::BuildInfo& buildInfo = unit->getBuildInfo();
+	buildInfo.dependencyPath = depPath;
+	buildInfo.assemblyPath = asmPath;
+	buildInfo.objectWriteTime = objTime;
+	buildInfo.fileType = fileType;
+
+	return unit;
+}
+
+// ncprt.c is compiled into the main region only when an object calls into
+// it, so projects that never apply a patch group at runtime do not carry it.
+// A project that compiles its own copy keeps it.
+bool ObjMaker::addRuntimeIfUsed()
+{
+	// The functions ncprt.c defines.
+	static constexpr std::string_view RuntimeSymbols[] = {
+		"__ncprt_apply", "__ncprt_revert", "__ncprt_encode", "ncprt_sync_code"
+	};
+
+	bool referenced = false;
+	bool defined = false;
+	for (auto* unit : m_compilationUnitMgr->getUserUnits())
+	{
+		Elf32* elf = ncp::cache::CacheManager::getInstance().getOrLoadElf(unit->getObjectPath());
+		Elf32::forEachSymbol(*elf, elf->getHeader(), elf->getSectionHeaderTable(),
+		[&](const Elf32_Sym& symbol, std::string_view symbolName) -> bool {
+			if (std::find(std::begin(RuntimeSymbols), std::end(RuntimeSymbols), symbolName) == std::end(RuntimeSymbols))
+				return false;
+			if (symbol.st_shndx == SHN_UNDEF)
+				referenced = true;
+			else if (ELF32_ST_BIND(symbol.st_info) == STB_GLOBAL)
+				defined = true;
+			return false;
+		});
+	}
+
+	if (!referenced || defined)
+		return false;
+
+	const BuildTarget::Region* mainRegion = m_target->getMainRegion();
+	if (mainRegion == nullptr)
+	{
+		std::ostringstream oss;
+		oss << "The runtime is used, but there is no main region to compile " << OSTR("ncprt.c") << " into.";
+		throw ncp::exception(oss.str());
+	}
+
+	fs::path runtimeSource = ncp::paths::findDataFile("ncprt.c");
+	if (runtimeSource.empty())
+	{
+		std::ostringstream oss;
+		oss << "Could not find " << OSTR("ncprt.c") << ", which the runtime is compiled from. Searched:\n"
+		    << ncp::paths::dataDirList();
+		throw ncp::exception(oss.str());
+	}
+
+	core::CompilationUnit* unit = addSourceUnit(runtimeSource, *mainRegion, SourceFileType::C);
+	if (!unit->needsRebuild())
+	{
+		std::unordered_map<std::string, fs::file_time_type> timeForDep;
+		checkIfUnitNeedsRebuild(unit, timeForDep);
+	}
+	return unit->needsRebuild();
 }
 
 void ObjMaker::checkIfSourcesNeedRebuild()
@@ -183,88 +259,91 @@ void ObjMaker::checkIfSourcesNeedRebuild()
 
 	for (auto* unit : m_compilationUnitMgr->getUserUnits())
 	{
-		core::BuildInfo& buildInfo = unit->getBuildInfo();
-
 		// Previously set as needing rebuild, no need to check.
-		if (unit->needsRebuild())
-			continue;
+		if (!unit->needsRebuild())
+			checkIfUnitNeedsRebuild(unit, timeForDep);
+	}
+}
 
-		// If the dependency file doesn't exist,
-		// then we can't be sure if the object is up-to-date.
-		if (!fs::exists(buildInfo.dependencyPath))
+void ObjMaker::checkIfUnitNeedsRebuild(core::CompilationUnit* unit, std::unordered_map<std::string, fs::file_time_type>& timeForDep)
+{
+	core::BuildInfo& buildInfo = unit->getBuildInfo();
+
+	// If the dependency file doesn't exist,
+	// then we can't be sure if the object is up-to-date.
+	if (!fs::exists(buildInfo.dependencyPath))
+	{
+		unit->setNeedsRebuild(true);
+		return;
+	}
+
+	std::vector<fs::path> deps;
+
+	// If the dependency file can't be open,
+	// then we can't be sure if the object is up-to-date.
+	std::ifstream depStrm(buildInfo.dependencyPath);
+	if (!depStrm.is_open())
+	{
+		unit->setNeedsRebuild(true);
+		return;
+	}
+
+	std::string line;
+	while (std::getline(depStrm, line))
+	{
+		std::string_view trimLine;
+		trimLine = line.ends_with('\\') ?
+			std::string_view(line).substr(0, line.find_last_of(' ', line.size() - 1)) :
+			line;
+
+		if (trimLine.starts_with(' '))
+			trimLine = trimLine.substr(1);
+
+		std::string trimLineStr(trimLine);
+		std::string subLine;
+		std::istringstream subStrm(trimLineStr);
+		while (std::getline(subStrm, subLine, ' '))
 		{
-			unit->setNeedsRebuild(true);
-			continue;
-		}
-
-		std::vector<fs::path> deps;
-
-		// If the dependency file can't be open,
-		// then we can't be sure if the object is up-to-date.
-		std::ifstream depStrm(buildInfo.dependencyPath);
-		if (!depStrm.is_open())
-		{
-			unit->setNeedsRebuild(true);
-			continue;
-		}
-
-		std::string line;
-		while (std::getline(depStrm, line))
-		{
-			std::string_view trimLine;
-			trimLine = line.ends_with('\\') ?
-				std::string_view(line).substr(0, line.find_last_of(' ', line.size() - 1)) :
-				line;
-
-			if (trimLine.starts_with(' '))
-				trimLine = trimLine.substr(1);
-
-			std::string trimLineStr(trimLine);
-			std::string subLine;
-			std::istringstream subStrm(trimLineStr);
-			while (std::getline(subStrm, subLine, ' '))
-			{
-				if (subLine.ends_with(':'))
-					continue;
+			if (subLine.ends_with(':'))
+				continue;
 #ifdef GCC_HAS_DEP_PATH_BUG
-				std::size_t pathBugPos = subLine.find("\\:");
-				if (pathBugPos != std::string::npos)
-					subLine.erase(subLine.begin() + pathBugPos);
+			std::size_t pathBugPos = subLine.find("\\:");
+			if (pathBugPos != std::string::npos)
+				subLine.erase(subLine.begin() + pathBugPos);
 #endif
-				deps.emplace_back(subLine);
-			}
+			deps.emplace_back(subLine);
+		}
+	}
+
+	depStrm.close();
+
+	for (auto& dep : deps)
+	{
+		// gcc writes these relative to the directory it was run in, which is
+		// the target work dir, not wherever ncpatcher happens to sit. Anchor
+		// them, or every dependency reads as missing and nothing is ever
+		// considered up to date.
+		dep = m_paths->target(dep);
+
+		if (!fs::exists(dep))
+		{
+			unit->setNeedsRebuild(true);
+			continue;
 		}
 
-		depStrm.close();
+		std::string depS = dep.string();
 
-		for (auto& dep : deps)
+		if (!timeForDep.contains(depS))
 		{
-			// gcc writes these relative to the directory it was run in, which is
-			// the target work dir, not wherever ncpatcher happens to sit. Anchor
-			// them, or every dependency reads as missing and nothing is ever
-			// considered up to date.
-			dep = m_paths->target(dep);
+			fs::file_time_type depT = fs::last_write_time(dep);
+			timeForDep.insert(std::make_pair(depS, depT));
+		}
 
-			if (!fs::exists(dep))
-			{
-				unit->setNeedsRebuild(true);
-				continue;
-			}
-
-			std::string depS = dep.string();
-
-			if (!timeForDep.contains(depS))
-			{
-				fs::file_time_type depT = fs::last_write_time(dep);
-				timeForDep.insert(std::make_pair(depS, depT));
-			}
-
-			fs::file_time_type depFileWriteTime = timeForDep[depS];
-			if (depFileWriteTime > buildInfo.objectWriteTime)
-			{
-				unit->setNeedsRebuild(true);
-				continue;
-			}
+		fs::file_time_type depFileWriteTime = timeForDep[depS];
+		if (depFileWriteTime > buildInfo.objectWriteTime)
+		{
+			unit->setNeedsRebuild(true);
+			continue;
 		}
 	}
 }

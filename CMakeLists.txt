@@ -163,6 +163,7 @@ set(SOURCES
 	source/patch/overwrite_packing.cpp
 	source/patch/overwrite_region_manager.cpp
 	source/patch/patch_maker.cpp
+	source/patch/patch_group.cpp
 	source/patch/patch_name.cpp
 	source/patch/patch_tracker.cpp
 	source/patch/types.cpp
@@ -350,6 +351,15 @@ if (NCP_BUILD_TESTS)
 		source/patch/overwrite_packing.cpp)
 	ncp_add_test(runtime_encode_test tests/runtime_encode_test.cpp
 		source/patch/asm_generator.cpp source/system/except.cpp)
+	ncp_add_test(patch_group_test tests/patch_group_test.cpp
+		source/patch/patch_group.cpp
+		source/patch/types.cpp
+		source/utils/util.cpp
+		source/system/ansi.cpp
+		source/system/diagnostics.cpp
+		source/system/except.cpp
+		source/system/log.cpp
+		source/system/log_sink.cpp)
 	ncp_add_test(patch_name_test tests/patch_name_test.cpp
 		source/patch/patch_name.cpp
 		source/patch/types.cpp

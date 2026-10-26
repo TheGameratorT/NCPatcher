@@ -204,14 +204,6 @@ std::unique_ptr<PatchInfo> PatchTracker::createPatchInfo(
 
 void PatchTracker::validatePatchForRegion(const ParsedPatchInfo& parsedInfo, std::string_view symbolName, core::CompilationUnit* unit) const
 {
-    if (!parsedInfo.group.empty())
-    {
-        std::ostringstream oss;
-        oss << OSTRa(symbolName) << " (" << OSTR(unit->getSourcePath().string())
-            << ") belongs to the runtime group " << OSTRa(parsedInfo.group) << ", and runtime groups are not yet supported.";
-        throw ncp::exception(oss.str());
-    }
-
     const auto* targetRegion = m_target->getRegionByDestination(parsedInfo.destAddressOv);
     if (targetRegion && targetRegion->mode != BuildTarget::Mode::Append)
     {
@@ -721,10 +713,22 @@ void PatchTracker::checkForOverlappingPatches()
             auto& b = m_patchInfo[j];
             if (a->destAddressOv != b->destAddressOv)
                 continue;
+            // A grouped patch saves the bytes it finds when it is applied, so
+            // it may overlap a patch written at build time and revert to it.
+            if (a->group.empty() != b->group.empty())
+                continue;
             u32 aSz = a->getOverwriteAmount();
             u32 bSz = b->getOverwriteAmount();
             if (Util::overlaps(a->destAddress, a->destAddress + aSz, b->destAddress, b->destAddress + bSz))
             {
+                if (a->group != b->group)
+                {
+                    Log::out << OWARN
+                        << OSTRa(a->getPrettyName()) << " (" << OSTR(a->unit->getSourcePath().string()) << ") overlaps with "
+                        << OSTRa(b->getPrettyName()) << " (" << OSTR(b->unit->getSourcePath().string()) << "). "
+                        << "Never apply both groups at once, or revert them in the reverse order they were applied." << std::endl;
+                    continue;
+                }
                 Log::out << OERROR
                     << OSTRa(a->symbol) << "[sz=" << aSz << "] (" << OSTR(a->unit->getSourcePath().string()) << ") overlaps with "
                     << OSTRa(b->symbol) << "[sz=" << bSz << "] (" << OSTR(b->unit->getSourcePath().string()) << ")\n";

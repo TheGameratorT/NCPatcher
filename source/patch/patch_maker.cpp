@@ -12,6 +12,7 @@
 #include "dependency_resolver.hpp"
 #include "asm_generator.hpp"
 #include "arenalo_finder.hpp"
+#include "patch_group.hpp"
 
 #include "../system/diagnostics.hpp"
 #include "../system/log.hpp"
@@ -77,7 +78,16 @@ void PatchMaker::makeTarget(
 		oss << (first ? "" : ", ") << count << " " << (count == 1 ? singular : plural);
 		first = false;
 	};
-	clause(m_patchTracker->getPatchInfo().size(), "hook", "hooks");
+	const auto& patchInfo = m_patchTracker->getPatchInfo();
+	const std::size_t groupedCount = std::count_if(patchInfo.begin(), patchInfo.end(),
+		[](const auto& info) { return !info->group.empty(); });
+	clause(patchInfo.size() - groupedCount, "hook", "hooks");
+	if (groupedCount != 0)
+	{
+		const std::size_t groupCount = layoutGroups(patchInfo).size();
+		clause(groupedCount, "runtime patch", "runtime patches");
+		oss << " in " << groupCount << (groupCount == 1 ? " group" : " groups");
+	}
 	clause(regionCount, "overwrite region", "overwrite regions");
 	if (regionCount != 0)
 	{
@@ -427,6 +437,8 @@ void PatchMaker::applyPatchesToRom(const PatchOperationContext& context)
 		}
 	}
 
+	writeGroupTables(context);
+
 	// Apply overwrite regions and newcode
 	applyOverwriteRegions(context);
 	applyNewcodeToDestinations(context);
@@ -434,41 +446,33 @@ void PatchMaker::applyPatchesToRom(const PatchOperationContext& context)
 
 void PatchMaker::applyJumpPatch(const std::unique_ptr<PatchInfo>& patch, const PatchOperationContext& context)
 {
-	ICodeBin* bin = getBinaryForDestination(patch->destAddressOv);
-
 	if (!patch->destThumb && !patch->srcThumb) 
 	{
 		// ARM -> ARM
-		bin->write<u32>(patch->destAddress, callAsmGeneratorWithContext(patch, [&]() {
+		writePatchOpCode(patch, RuntimeKind::ArmB, patch->srcAddress, callAsmGeneratorWithContext(patch, [&]() {
 			return AsmGenerator::makeJumpOpCode(AsmGenerator::armOpcodeB, patch->destAddress, patch->srcAddress);
 		}));
 	}
 	else if (!patch->destThumb && patch->srcThumb) 
 	{
 		// ARM -> THUMB: Create bridge
-		createArm2ThumbJumpBridge(patch, context);
+		u32 bridgeAddr = createArm2ThumbJumpBridge(patch, context);
+		writePatchOpCode(patch, RuntimeKind::ArmB, bridgeAddr, callAsmGeneratorWithContext(patch, [&]() {
+			return AsmGenerator::makeJumpOpCode(AsmGenerator::armOpcodeB, patch->destAddress, bridgeAddr);
+		}));
 	}
-	else if (patch->destThumb && !patch->srcThumb) 
+	else
 	{
-		// THUMB -> ARM
+		// THUMB -> ARM or THUMB -> THUMB
+		bool exchange = !patch->srcThumb;
 		u8 patchData[8];
 		le::writeU16(patchData, 0, AsmGenerator::thumbOpCodePushLR);
 		le::writeU32(patchData, 2, callAsmGeneratorWithContext(patch, [&]() {
-			return AsmGenerator::makeThumbCallOpCode(true, patch->destAddress + 2, patch->srcAddress);
+			return AsmGenerator::makeThumbCallOpCode(exchange, patch->destAddress + 2, patch->srcAddress);
 		}));
 		le::writeU16(patchData, 6, AsmGenerator::thumbOpCodePopPC);
-		bin->writeBytes(patch->destAddress, patchData, 8);
-	}
-	else 
-	{
-		// THUMB -> THUMB
-		u8 patchData[8];
-		le::writeU16(patchData, 0, AsmGenerator::thumbOpCodePushLR);
-		le::writeU32(patchData, 2, callAsmGeneratorWithContext(patch, [&]() {
-			return AsmGenerator::makeThumbCallOpCode(false, patch->destAddress + 2, patch->srcAddress);
-		}));
-		le::writeU16(patchData, 6, AsmGenerator::thumbOpCodePopPC);
-		bin->writeBytes(patch->destAddress, patchData, 8);
+		writePatch(patch, exchange ? RuntimeKind::ThumbJumpX : RuntimeKind::ThumbJump,
+			patch->srcAddress | (patch->srcThumb ? 1 : 0), patchData, 8);
 	}
 }
 
@@ -476,33 +480,31 @@ void PatchMaker::applyCallPatch(const std::unique_ptr<PatchInfo>& patch, const P
 {
 	validateThumbInterworking(patch);
 	
-	ICodeBin* bin = getBinaryForDestination(patch->destAddressOv);
-
 	if (!patch->destThumb && !patch->srcThumb) 
 	{
 		// ARM -> ARM
-		bin->write<u32>(patch->destAddress, callAsmGeneratorWithContext(patch, [&]() {
+		writePatchOpCode(patch, RuntimeKind::ArmBL, patch->srcAddress, callAsmGeneratorWithContext(patch, [&]() {
 			return AsmGenerator::makeJumpOpCode(AsmGenerator::armOpcodeBL, patch->destAddress, patch->srcAddress);
 		}));
 	}
 	else if (!patch->destThumb && patch->srcThumb) 
 	{
 		// ARM -> THUMB
-		bin->write<u32>(patch->destAddress, callAsmGeneratorWithContext(patch, [&]() {
+		writePatchOpCode(patch, RuntimeKind::ArmBLX, patch->srcAddress | 1, callAsmGeneratorWithContext(patch, [&]() {
 			return AsmGenerator::makeBLXOpCode(patch->destAddress, patch->srcAddress);
 		}));
 	}
 	else if (patch->destThumb && !patch->srcThumb) 
 	{
 		// THUMB -> ARM
-		bin->write<u32>(patch->destAddress, callAsmGeneratorWithContext(patch, [&]() {
+		writePatchOpCode(patch, RuntimeKind::ThumbBLX, patch->srcAddress, callAsmGeneratorWithContext(patch, [&]() {
 			return AsmGenerator::makeThumbCallOpCode(true, patch->destAddress, patch->srcAddress);
 		}));
 	}
 	else 
 	{
 		// THUMB -> THUMB
-		bin->write<u32>(patch->destAddress, callAsmGeneratorWithContext(patch, [&]() {
+		writePatchOpCode(patch, RuntimeKind::ThumbBL, patch->srcAddress | 1, callAsmGeneratorWithContext(patch, [&]() {
 			return AsmGenerator::makeThumbCallOpCode(false, patch->destAddress, patch->srcAddress);
 		}));
 	}
@@ -519,17 +521,27 @@ void PatchMaker::applyHookPatch(const std::unique_ptr<PatchInfo>& patch, const P
 		throw ncp::exception(oss.str());
 	}
 
-	createHookBridge(patch, context);
+	u32 hookBridgeAddr = createHookBridge(patch, context);
+	writePatchOpCode(patch, RuntimeKind::ArmB, hookBridgeAddr, callAsmGeneratorWithContext(patch, [&]() {
+		return AsmGenerator::makeJumpOpCode(AsmGenerator::armOpcodeB, patch->destAddress, hookBridgeAddr);
+	}));
 }
 
 void PatchMaker::applyOverPatch(const std::unique_ptr<PatchInfo>& patch, const PatchOperationContext& context)
 {
+	if (!patch->group.empty())
+	{
+		// The payload was linked into the main binary at srcAddress.
+		m_groupEntries[patch.get()] = { RuntimeKind::Copy, patch->srcAddress };
+		return;
+	}
+
 	ICodeBin* bin = getBinaryForDestination(patch->destAddressOv);
 	const char* sectionData = context.elf->getSection<char>(static_cast<const Elf32_Shdr*>(context.sectionHeaderTable)[patch->sectionIdx]);
 	bin->writeBytes(patch->destAddress, sectionData, patch->sectionSize);
 }
 
-void PatchMaker::createArm2ThumbJumpBridge(const std::unique_ptr<PatchInfo>& patch, const PatchOperationContext& context)
+u32 PatchMaker::createArm2ThumbJumpBridge(const std::unique_ptr<PatchInfo>& patch, const PatchOperationContext& context)
 {
 	/*
 	 * ARM to THUMB jump bridge:
@@ -556,11 +568,6 @@ void PatchMaker::createArm2ThumbJumpBridge(const std::unique_ptr<PatchInfo>& pat
 		         << " from " << patch->unit->getObjectPath().filename().string() << std::endl;
 	}
 
-	ICodeBin* bin = getBinaryForDestination(patch->destAddressOv);
-	bin->write<u32>(patch->destAddress, callAsmGeneratorWithContext(patch, [&]() {
-		return AsmGenerator::makeJumpOpCode(AsmGenerator::armOpcodeB, patch->destAddress, bridgeAddr);
-	}));
-
 	const std::span<u8> bridgeWords(bridgeData.data() + offset, SizeOfArm2ThumbJumpBridge);
 
 	le::writeU32(bridgeWords, 0, 0xE51FF004);                  // LDR PC, [PC,#-4]
@@ -570,9 +577,10 @@ void PatchMaker::createArm2ThumbJumpBridge(const std::unique_ptr<PatchInfo>& pat
 		Util::printDataAsHex(bridgeData.data() + offset, SizeOfArm2ThumbJumpBridge, 32);
 
 	info->curAddress += SizeOfArm2ThumbJumpBridge;
+	return bridgeAddr;
 }
 
-void PatchMaker::createHookBridge(const std::unique_ptr<PatchInfo>& patch, const PatchOperationContext& context)
+u32 PatchMaker::createHookBridge(const std::unique_ptr<PatchInfo>& patch, const PatchOperationContext& context)
 {
 	/*
 	 * Hook bridge:
@@ -605,10 +613,6 @@ void PatchMaker::createHookBridge(const std::unique_ptr<PatchInfo>& patch, const
 		         << " from " << patch->unit->getObjectPath().filename().string() << std::endl;
 	}
 
-	bin->write<u32>(patch->destAddress, callAsmGeneratorWithContext(patch, [&]() {
-		return AsmGenerator::makeJumpOpCode(AsmGenerator::armOpcodeB, patch->destAddress, hookBridgeAddr);
-	}));
-
 	const std::span<u8> hookWords(hookData.data() + offset, SizeOfHookBridge);
 
 	u32 jmpOpCode = callAsmGeneratorWithContext(patch, [&]() {
@@ -631,6 +635,101 @@ void PatchMaker::createHookBridge(const std::unique_ptr<PatchInfo>& patch, const
 		Util::printDataAsHex(hookData.data() + offset, SizeOfHookBridge, 32);
 
 	info->curAddress += SizeOfHookBridge;
+	return hookBridgeAddr;
+}
+
+void PatchMaker::writePatch(const std::unique_ptr<PatchInfo>& patch, RuntimeKind kind, u32 value, const u8* data, u32 size)
+{
+	if (!patch->group.empty())
+	{
+		m_groupEntries[patch.get()] = { kind, value };
+		return;
+	}
+
+	ICodeBin* bin = getBinaryForDestination(patch->destAddressOv);
+	bin->writeBytes(patch->destAddress, data, size);
+}
+
+void PatchMaker::writePatchOpCode(const std::unique_ptr<PatchInfo>& patch, RuntimeKind kind, u32 value, u32 opCode)
+{
+	u8 data[4];
+	le::writeU32(data, 0, opCode);
+	writePatch(patch, kind, value, data, 4);
+}
+
+void PatchMaker::writeGroupTables(const PatchOperationContext& context)
+{
+	std::vector<GroupLayout> groups = layoutGroups(*context.patchInfo);
+	if (groups.empty())
+		return;
+
+	std::unordered_map<std::string, u32> addressForSymbol;
+	Elf32::forEachSymbol(*context.elf, context.elf->getHeader(), context.elf->getSectionHeaderTable(),
+	[&](const Elf32_Sym& symbol, std::string_view symbolName) -> bool {
+		if (symbolName.starts_with("ncprt_group_"))
+			addressForSymbol.emplace(symbolName, symbol.st_value);
+		return false;
+	});
+
+	auto infoIt = context.autogenDataInfoForDest->find(-1);
+	if (infoIt == context.autogenDataInfoForDest->end())
+		throw ncp::exception("The main region has no autogenerated data to hold the patch group tables.");
+	AutogenDataInfo& info = *infoIt->second;
+
+	for (const GroupLayout& group : groups)
+	{
+		auto addrIt = addressForSymbol.find(group.symbol());
+		if (addrIt == addressForSymbol.end())
+			throw ncp::exception("The table of patch group " + group.name + " was not linked.");
+		u32 groupAddr = addrIt->second;
+
+		std::size_t offset = groupAddr - info.address;
+		if (info.data.size() < offset + group.size)
+			info.data.resize(offset + group.size);
+		const std::span<u8> block(info.data.data() + offset, group.size);
+
+		if (group.patches.size() > 0xFFFF)
+			throw ncp::exception("Patch group " + group.name + " has more than 65535 patches.");
+
+		u32 entriesAddr = groupAddr + SizeOfGroupHeader;
+		u32 saveAddr = entriesAddr + u32(group.patches.size()) * SizeOfGroupEntry;
+
+		le::writeU32(block, 0, entriesAddr);
+		le::writeU16(block, 4, u16(group.patches.size()));
+		block[6] = 0; // applied
+		block[7] = 0; // flags
+
+		std::size_t entryOffset = SizeOfGroupHeader;
+		for (const PatchInfo* patch : group.patches)
+		{
+			const GroupEntry& entry = m_groupEntries.at(patch);
+			u32 size = patch->getOverwriteAmount();
+			if (size > 0xFFFF)
+			{
+				std::ostringstream oss;
+				oss << OSTRa(patch->getPrettyName()) << " (" << OSTR(patch->unit->getSourcePath().string())
+				    << ") writes " << size << " bytes, more than a group patch can hold (65535).";
+				throw ncp::exception(oss.str());
+			}
+
+			le::writeU32(block, entryOffset, patch->destAddress);
+			le::writeU16(block, entryOffset + 4, u16(size));
+			block[entryOffset + 6] = u8(entry.kind);
+			block[entryOffset + 7] = 0; // flags
+			le::writeU32(block, entryOffset + 8, entry.value);
+			le::writeU32(block, entryOffset + 12, saveAddr);
+
+			entryOffset += SizeOfGroupEntry;
+			saveAddr += size;
+		}
+
+		if (m_ctx->isVerbose(ncp::VerboseTag::Patch))
+		{
+			Log::out << "PATCH GROUP: " << Util::intToAddr(groupAddr, 8) << " " << group.name
+			         << " (" << group.patches.size() << " patches)" << std::endl;
+			Util::printDataAsHex(block.data(), group.size, 32);
+		}
+	}
 }
 
 void PatchMaker::applyOverwriteRegions(const PatchOperationContext& context)
