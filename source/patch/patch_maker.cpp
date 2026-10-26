@@ -39,7 +39,8 @@ void PatchMaker::makeTarget(
 	const BuildTarget& target,
 	const ncp::Context& ctx,
 	ncp::rom::RomAccessor& rom,
-	core::CompilationUnitManager& compilationUnitMgr
+	core::CompilationUnitManager& compilationUnitMgr,
+	std::vector<std::unique_ptr<core::CompilationUnitManager>>& runtimeUnitMgrs
 	)
 {
 	// Store core data references
@@ -48,6 +49,7 @@ void PatchMaker::makeTarget(
 	m_paths = &ctx.paths;
 	m_rom = &rom;
 	m_compilationUnitMgr = &compilationUnitMgr;
+	m_runtimeUnitMgrs = &runtimeUnitMgrs;
 
 	// TODO: change this, the user might want to link only a library
 	if (m_compilationUnitMgr->getUnits().empty())
@@ -59,6 +61,7 @@ void PatchMaker::makeTarget(
 		prepareBuildEnvironment();
 		generateElfFile();
 		processPatches();
+		makeRuntimeModules(runtimeUnitMgrs);
 		finalizeBuild();
 	}
 	catch (const std::exception&) {
@@ -212,6 +215,13 @@ void PatchMaker::generateElfFile()
 		m_overwriteRegionManager->checkForConflictsWithPatches(m_patchTracker->getPatchInfo());
 	}
 
+	std::vector<std::string> externSymbols = m_patchTracker->getExternSymbols();
+	for (std::string& symbol : collectRuntimeImports())
+	{
+		if (std::find(externSymbols.begin(), externSymbols.end(), symbol) == externSymbols.end())
+			externSymbols.push_back(std::move(symbol));
+	}
+
 	// Get candidate sections for overwrites
 	auto& candidateSections = m_patchTracker->getOverwriteCandidateSections();
 
@@ -224,7 +234,7 @@ void PatchMaker::generateElfFile()
 		// re-implementing.
 		m_linker->createMeasurementScript(
 			m_patchTracker->getPatchInfo(),
-			m_patchTracker->getExternSymbols(),
+			externSymbols,
 			m_overwriteRegionManager->getOverwriteRegions(),
 			candidateSections
 		);
@@ -238,7 +248,7 @@ void PatchMaker::generateElfFile()
 	// Generate the final ELF with properly filtered sections
 	m_linker->createLinkerScript(
 		m_patchTracker->getPatchInfo(),
-		m_patchTracker->getExternSymbols(),
+		externSymbols,
 		m_overwriteRegionManager->getOverwriteRegions()
 	);
 	m_linker->linkElfFile();
@@ -415,7 +425,17 @@ void PatchMaker::applyPatchesToRom(const PatchOperationContext& context)
 		"Failed to apply patches for ARM9 target." :
 		"Failed to apply patches for ARM7 target.");
 
-	// Process individual patches by type
+	applyEachPatch(context);
+
+	writeGroupTables(context);
+
+	// Apply overwrite regions and newcode
+	applyOverwriteRegions(context);
+	applyNewcodeToDestinations(context);
+}
+
+void PatchMaker::applyEachPatch(const PatchOperationContext& context)
+{
 	for (const auto& patch : *context.patchInfo)
 	{
 		switch (patch->type)
@@ -436,12 +456,6 @@ void PatchMaker::applyPatchesToRom(const PatchOperationContext& context)
 			throw ncp::exception("Unsupported patch type for symbol: " + patch->symbol);
 		}
 	}
-
-	writeGroupTables(context);
-
-	// Apply overwrite regions and newcode
-	applyOverwriteRegions(context);
-	applyNewcodeToDestinations(context);
 }
 
 void PatchMaker::applyJumpPatch(const std::unique_ptr<PatchInfo>& patch, const PatchOperationContext& context)
@@ -449,30 +463,41 @@ void PatchMaker::applyJumpPatch(const std::unique_ptr<PatchInfo>& patch, const P
 	if (!patch->destThumb && !patch->srcThumb) 
 	{
 		// ARM -> ARM
-		writePatchOpCode(patch, RuntimeKind::ArmB, patch->srcAddress, callAsmGeneratorWithContext(patch, [&]() {
-			return AsmGenerator::makeJumpOpCode(AsmGenerator::armOpcodeB, patch->destAddress, patch->srcAddress);
-		}));
+		writePatchOpCode(patch, RuntimeKind::ArmB, patch->srcAddress, [&]() {
+			return callAsmGeneratorWithContext(patch, [&]() {
+				return AsmGenerator::makeJumpOpCode(AsmGenerator::armOpcodeB, patch->destAddress, patch->srcAddress);
+			});
+		});
 	}
 	else if (!patch->destThumb && patch->srcThumb) 
 	{
 		// ARM -> THUMB: Create bridge
 		u32 bridgeAddr = createArm2ThumbJumpBridge(patch, context);
-		writePatchOpCode(patch, RuntimeKind::ArmB, bridgeAddr, callAsmGeneratorWithContext(patch, [&]() {
-			return AsmGenerator::makeJumpOpCode(AsmGenerator::armOpcodeB, patch->destAddress, bridgeAddr);
-		}));
+		writePatchOpCode(patch, RuntimeKind::ArmB, bridgeAddr, [&]() {
+			return callAsmGeneratorWithContext(patch, [&]() {
+				return AsmGenerator::makeJumpOpCode(AsmGenerator::armOpcodeB, patch->destAddress, bridgeAddr);
+			});
+		});
 	}
 	else
 	{
 		// THUMB -> ARM or THUMB -> THUMB
 		bool exchange = !patch->srcThumb;
+		RuntimeKind kind = exchange ? RuntimeKind::ThumbJumpX : RuntimeKind::ThumbJump;
+		u32 value = patch->srcAddress | (patch->srcThumb ? 1 : 0);
+		if (m_runtimeModule != nullptr)
+		{
+			m_groupEntries[patch.get()] = { kind, value };
+			return;
+		}
+
 		u8 patchData[8];
 		le::writeU16(patchData, 0, AsmGenerator::thumbOpCodePushLR);
 		le::writeU32(patchData, 2, callAsmGeneratorWithContext(patch, [&]() {
 			return AsmGenerator::makeThumbCallOpCode(exchange, patch->destAddress + 2, patch->srcAddress);
 		}));
 		le::writeU16(patchData, 6, AsmGenerator::thumbOpCodePopPC);
-		writePatch(patch, exchange ? RuntimeKind::ThumbJumpX : RuntimeKind::ThumbJump,
-			patch->srcAddress | (patch->srcThumb ? 1 : 0), patchData, 8);
+		writePatch(patch, kind, value, patchData, 8);
 	}
 }
 
@@ -483,30 +508,38 @@ void PatchMaker::applyCallPatch(const std::unique_ptr<PatchInfo>& patch, const P
 	if (!patch->destThumb && !patch->srcThumb) 
 	{
 		// ARM -> ARM
-		writePatchOpCode(patch, RuntimeKind::ArmBL, patch->srcAddress, callAsmGeneratorWithContext(patch, [&]() {
-			return AsmGenerator::makeJumpOpCode(AsmGenerator::armOpcodeBL, patch->destAddress, patch->srcAddress);
-		}));
+		writePatchOpCode(patch, RuntimeKind::ArmBL, patch->srcAddress, [&]() {
+			return callAsmGeneratorWithContext(patch, [&]() {
+				return AsmGenerator::makeJumpOpCode(AsmGenerator::armOpcodeBL, patch->destAddress, patch->srcAddress);
+			});
+		});
 	}
 	else if (!patch->destThumb && patch->srcThumb) 
 	{
 		// ARM -> THUMB
-		writePatchOpCode(patch, RuntimeKind::ArmBLX, patch->srcAddress | 1, callAsmGeneratorWithContext(patch, [&]() {
-			return AsmGenerator::makeBLXOpCode(patch->destAddress, patch->srcAddress);
-		}));
+		writePatchOpCode(patch, RuntimeKind::ArmBLX, patch->srcAddress | 1, [&]() {
+			return callAsmGeneratorWithContext(patch, [&]() {
+				return AsmGenerator::makeBLXOpCode(patch->destAddress, patch->srcAddress);
+			});
+		});
 	}
 	else if (patch->destThumb && !patch->srcThumb) 
 	{
 		// THUMB -> ARM
-		writePatchOpCode(patch, RuntimeKind::ThumbBLX, patch->srcAddress, callAsmGeneratorWithContext(patch, [&]() {
-			return AsmGenerator::makeThumbCallOpCode(true, patch->destAddress, patch->srcAddress);
-		}));
+		writePatchOpCode(patch, RuntimeKind::ThumbBLX, patch->srcAddress, [&]() {
+			return callAsmGeneratorWithContext(patch, [&]() {
+				return AsmGenerator::makeThumbCallOpCode(true, patch->destAddress, patch->srcAddress);
+			});
+		});
 	}
 	else 
 	{
 		// THUMB -> THUMB
-		writePatchOpCode(patch, RuntimeKind::ThumbBL, patch->srcAddress | 1, callAsmGeneratorWithContext(patch, [&]() {
-			return AsmGenerator::makeThumbCallOpCode(false, patch->destAddress, patch->srcAddress);
-		}));
+		writePatchOpCode(patch, RuntimeKind::ThumbBL, patch->srcAddress | 1, [&]() {
+			return callAsmGeneratorWithContext(patch, [&]() {
+				return AsmGenerator::makeThumbCallOpCode(false, patch->destAddress, patch->srcAddress);
+			});
+		});
 	}
 }
 
@@ -522,16 +555,19 @@ void PatchMaker::applyHookPatch(const std::unique_ptr<PatchInfo>& patch, const P
 	}
 
 	u32 hookBridgeAddr = createHookBridge(patch, context);
-	writePatchOpCode(patch, RuntimeKind::ArmB, hookBridgeAddr, callAsmGeneratorWithContext(patch, [&]() {
-		return AsmGenerator::makeJumpOpCode(AsmGenerator::armOpcodeB, patch->destAddress, hookBridgeAddr);
-	}));
+	writePatchOpCode(patch, RuntimeKind::ArmB, hookBridgeAddr, [&]() {
+		return callAsmGeneratorWithContext(patch, [&]() {
+			return AsmGenerator::makeJumpOpCode(AsmGenerator::armOpcodeB, patch->destAddress, hookBridgeAddr);
+		});
+	});
 }
 
 void PatchMaker::applyOverPatch(const std::unique_ptr<PatchInfo>& patch, const PatchOperationContext& context)
 {
-	if (!patch->group.empty())
+	if (!patch->group.empty() || m_runtimeModule != nullptr)
 	{
-		// The payload was linked into the main binary at srcAddress.
+		// The payload was linked into the main binary, or into the runtime
+		// module, at srcAddress.
 		m_groupEntries[patch.get()] = { RuntimeKind::Copy, patch->srcAddress };
 		return;
 	}
@@ -592,8 +628,7 @@ u32 PatchMaker::createHookBridge(const std::unique_ptr<PatchInfo>& patch, const 
 	 *     B    (destAddr + 4)
 	 */
 
-	ICodeBin* bin = getBinaryForDestination(patch->destAddressOv);
-	u32 ogOpCode = bin->read<u32>(patch->destAddress);
+	u32 ogOpCode = m_fileSystemManager->peekBinary(patch->destAddressOv)->read<u32>(patch->destAddress);
 
 	auto infoIt = context.autogenDataInfoForDest->find(patch->srcAddressOv);
 	if (infoIt == context.autogenDataInfoForDest->end())
@@ -602,9 +637,29 @@ u32 PatchMaker::createHookBridge(const std::unique_ptr<PatchInfo>& patch, const 
 	auto& info = infoIt->second;
 	std::vector<u8>& hookData = info->data;
 	std::size_t offset = hookData.size();
-	hookData.resize(offset + SizeOfHookBridge);
-
 	u32 hookBridgeAddr = info->curAddress;
+
+	if (m_runtimeModule != nullptr)
+	{
+		hookData.resize(offset + AsmGenerator::SizeOfModuleHookBridge);
+		callAsmGeneratorWithContext(patch, [&]() {
+			AsmGenerator::makeModuleHookBridge(hookData.data() + offset, hookBridgeAddr,
+				patch->srcAddress, patch->srcThumb, ogOpCode, patch->destAddress, m_target->getArm9());
+		});
+
+		if (m_ctx->isVerbose(ncp::VerboseTag::Patch))
+		{
+			Log::out << "HOOK BRIDGE: " << Util::intToAddr(hookBridgeAddr, 8)
+			         << " for " << patch->getPrettyName()
+			         << " from " << patch->unit->getObjectPath().filename().string() << std::endl;
+			Util::printDataAsHex(hookData.data() + offset, AsmGenerator::SizeOfModuleHookBridge, 32);
+		}
+
+		info->curAddress += AsmGenerator::SizeOfModuleHookBridge;
+		return hookBridgeAddr;
+	}
+
+	hookData.resize(offset + SizeOfHookBridge);
 
 	if (m_ctx->isVerbose(ncp::VerboseTag::Patch))
 	{
@@ -650,10 +705,16 @@ void PatchMaker::writePatch(const std::unique_ptr<PatchInfo>& patch, RuntimeKind
 	bin->writeBytes(patch->destAddress, data, size);
 }
 
-void PatchMaker::writePatchOpCode(const std::unique_ptr<PatchInfo>& patch, RuntimeKind kind, u32 value, u32 opCode)
+void PatchMaker::writePatchOpCode(const std::unique_ptr<PatchInfo>& patch, RuntimeKind kind, u32 value, const std::function<u32()>& makeOpCode)
 {
+	if (m_runtimeModule != nullptr)
+	{
+		m_groupEntries[patch.get()] = { kind, value };
+		return;
+	}
+
 	u8 data[4];
-	le::writeU32(data, 0, opCode);
+	le::writeU32(data, 0, makeOpCode());
 	writePatch(patch, kind, value, data, 4);
 }
 
@@ -691,37 +752,11 @@ void PatchMaker::writeGroupTables(const PatchOperationContext& context)
 		if (group.patches.size() > 0xFFFF)
 			throw ncp::exception("Patch group " + group.name + " has more than 65535 patches.");
 
-		u32 entriesAddr = groupAddr + SizeOfGroupHeader;
-		u32 saveAddr = entriesAddr + u32(group.patches.size()) * SizeOfGroupEntry;
-
-		le::writeU32(block, 0, entriesAddr);
+		le::writeU32(block, 0, groupAddr + SizeOfGroupHeader);
 		le::writeU16(block, 4, u16(group.patches.size()));
 		block[6] = 0; // applied
 		block[7] = 0; // flags
-
-		std::size_t entryOffset = SizeOfGroupHeader;
-		for (const PatchInfo* patch : group.patches)
-		{
-			const GroupEntry& entry = m_groupEntries.at(patch);
-			u32 size = patch->getOverwriteAmount();
-			if (size > 0xFFFF)
-			{
-				std::ostringstream oss;
-				oss << OSTRa(patch->getPrettyName()) << " (" << OSTR(patch->unit->getSourcePath().string())
-				    << ") writes " << size << " bytes, more than a group patch can hold (65535).";
-				throw ncp::exception(oss.str());
-			}
-
-			le::writeU32(block, entryOffset, patch->destAddress);
-			le::writeU16(block, entryOffset + 4, u16(size));
-			block[entryOffset + 6] = u8(entry.kind);
-			block[entryOffset + 7] = 0; // flags
-			le::writeU32(block, entryOffset + 8, entry.value);
-			le::writeU32(block, entryOffset + 12, saveAddr);
-
-			entryOffset += SizeOfGroupEntry;
-			saveAddr += size;
-		}
+		writeGroupEntries(block.subspan(SizeOfGroupHeader), groupAddr + SizeOfGroupHeader, group.patches);
 
 		if (m_ctx->isVerbose(ncp::VerboseTag::Patch))
 		{
@@ -729,6 +764,35 @@ void PatchMaker::writeGroupTables(const PatchOperationContext& context)
 			         << " (" << group.patches.size() << " patches)" << std::endl;
 			Util::printDataAsHex(block.data(), group.size, 32);
 		}
+	}
+}
+
+void PatchMaker::writeGroupEntries(std::span<u8> block, u32 entriesAddr, const std::vector<const PatchInfo*>& patches) const
+{
+	u32 saveAddr = entriesAddr + u32(patches.size()) * SizeOfGroupEntry;
+
+	std::size_t entryOffset = 0;
+	for (const PatchInfo* patch : patches)
+	{
+		const GroupEntry& entry = m_groupEntries.at(patch);
+		u32 size = patch->getOverwriteAmount();
+		if (size > 0xFFFF)
+		{
+			std::ostringstream oss;
+			oss << OSTRa(patch->getPrettyName()) << " (" << OSTR(patch->unit->getSourcePath().string())
+			    << ") writes " << size << " bytes, more than a runtime patch can hold (65535).";
+			throw ncp::exception(oss.str());
+		}
+
+		le::writeU32(block, entryOffset, patch->destAddress);
+		le::writeU16(block, entryOffset + 4, u16(size));
+		block[entryOffset + 6] = u8(entry.kind);
+		block[entryOffset + 7] = 0; // flags
+		le::writeU32(block, entryOffset + 8, entry.value);
+		le::writeU32(block, entryOffset + 12, saveAddr);
+
+		entryOffset += SizeOfGroupEntry;
+		saveAddr += size;
 	}
 }
 

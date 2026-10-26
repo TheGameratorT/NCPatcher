@@ -164,6 +164,39 @@ OverlayBin* FileSystemManager::getOverlay(std::size_t ovID)
 	return loadOverlayBin(ovID);
 }
 
+const ICodeBin* FileSystemManager::peekBinary(int destination)
+{
+	if (destination == -1)
+		return m_arm.get();
+
+	const std::size_t ovID = std::size_t(destination);
+	if (const auto it = m_loadedOverlays.find(ovID); it != m_loadedOverlays.end())
+		return it->second.get();
+	if (const auto it = m_peekedOverlays.find(ovID); it != m_peekedOverlays.end())
+		return it->second.get();
+
+	if (ovID >= m_ovt.size())
+	{
+		std::ostringstream oss;
+		oss << "Overlay " << ovID << " does not exist.";
+		throw ncp::exception(oss.str());
+	}
+
+	const bool arm9 = isArm9();
+	const std::string key = BackupStore::overlayKey(arm9, u32(ovID));
+	const OverlayEntry& ovte = m_ovt.entries()[ovID];
+
+	auto overlay = std::make_unique<OverlayBin>();
+	if (m_backup->has(key))
+		overlay->load(m_backup->read(key), ovte.ramAddress, ovte.compressed(), int(ovID));
+	else
+		overlay->load(m_rom->readOverlay(arm9, u32(ovID)), ovte.ramAddress, ovte.compressed(), int(ovID));
+
+	const OverlayBin* result = overlay.get();
+	m_peekedOverlays.emplace(ovID, std::move(overlay));
+	return result;
+}
+
 OverlayBin* FileSystemManager::createOverlayBin(OverlayEntry entry, std::vector<u8> data)
 {
 	const std::size_t ovID = entry.overlayId;

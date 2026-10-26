@@ -40,6 +40,7 @@ enum class Diag : unsigned
 	PatchProcessing      = 2005,
 	PatchApplication     = 2006,
 	PatchFinalize        = 2007,
+	PatchRuntimeModule   = 2008,  // linking a runtime module and writing its image
 
 	RomHeaderLoad        = 3001,
 	ArmBinLoad           = 3002,

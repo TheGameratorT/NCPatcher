@@ -12,6 +12,8 @@
 #include "../utils/unicode.hpp"
 #include "../system/process.hpp"
 #include "patch_group.hpp"
+#include "asm_generator.hpp"
+#include "runtime_image.hpp"
 
 namespace ncp::patch {
 
@@ -594,14 +596,15 @@ std::string Linker::ldFlagsToGccFlags(std::string flags)
     return flags;
 }
 
-void Linker::linkElfFile()
+void Linker::runLinker(const std::filesystem::path& scriptPath, const std::string& extraFlags, const char* failure)
 {
     std::string ccmd;
     ccmd.reserve(128);
     ccmd += m_ctx->toolchain();
     ccmd += "gcc -nostartfiles -Wl,--gc-sections,-T\"";
-    ccmd += ncp::pathToUtf8(Util::relativeIfSubpath(m_ldscriptPath, m_paths->workDir));
+    ccmd += ncp::pathToUtf8(Util::relativeIfSubpath(scriptPath, m_paths->workDir));
     ccmd += '\"';
+    ccmd += extraFlags;
     std::string targetFlags = ldFlagsToGccFlags(m_target->ldFlags);
     if (!targetFlags.empty())
         ccmd += ',';
@@ -609,7 +612,7 @@ void Linker::linkElfFile()
 
     if (m_ctx->isVerbose(ncp::VerboseTag::Linking))
     {
-        Log::out << OINFO << "Linker script: " << ncp::pathToUtf8(m_ldscriptPath) << std::endl;
+        Log::out << OINFO << "Linker script: " << ncp::pathToUtf8(scriptPath) << std::endl;
         Log::out << OINFO << ccmd << std::endl;
     }
 
@@ -619,31 +622,175 @@ void Linker::linkElfFile()
     if (retcode != 0)
     {
         Log::out << oss.str() << std::endl;
-        throw ncp::exception("Could not link the final ELF file.");
+        throw ncp::exception(failure);
     }
+}
+
+void Linker::linkElfFile()
+{
+    runLinker(m_ldscriptPath, "", "Could not link the final ELF file.");
 }
 
 void Linker::linkMeasurementElf()
 {
-    std::string ccmd;
-    ccmd.reserve(128);
-    ccmd += m_ctx->toolchain();
-    ccmd += "gcc -nostartfiles -Wl,--gc-sections,-T\"";
-    ccmd += ncp::pathToUtf8(Util::relativeIfSubpath(m_measureLdscriptPath, m_paths->workDir));
-    ccmd += '\"';
-    std::string targetFlags = ldFlagsToGccFlags(m_target->ldFlags);
-    if (!targetFlags.empty())
-        ccmd += ',';
-    ccmd += targetFlags;
+    runLinker(m_measureLdscriptPath, "", "Could not link the overwrite-region measurement ELF file.");
+}
 
-    std::ostringstream oss;
-    int retcode = Process::start(ccmd.c_str(), m_paths->workDir, &oss);
+void Linker::linkRuntimeModule(
+    const BuildTarget::Region& region,
+    u32 base,
+    const core::CompilationUnitManager& units,
+    const std::vector<std::unique_ptr<PatchInfo>>& patchInfo,
+    const std::vector<std::string>& externSymbols,
+    const std::filesystem::path& scriptPath,
+    const std::filesystem::path& elfPath
+)
+{
+    auto relative = [this](const std::filesystem::path& path) {
+        return ncp::pathToUtf8(Util::relativeIfSubpath(path, m_paths->workDir));
+    };
 
-    if (retcode != 0)
+    // The hook bridges, then the patch table and the bytes it saves.
+    u32 bridgesSize = 0;
+    u32 tableSize = 0;
+    for (const auto& info : patchInfo)
     {
-        Log::out << oss.str() << std::endl;
-        throw ncp::exception("Could not link the overwrite-region measurement ELF file.");
+        if (info->type == PatchType::Hook)
+            bridgesSize += AsmGenerator::SizeOfModuleHookBridge;
+        else if (info->type == PatchType::Jump && !info->destThumb && info->srcThumb)
+            bridgesSize += SizeOfArm2ThumbJumpBridge;
+        tableSize += SizeOfGroupEntry + info->getOverwriteAmount();
     }
+    tableSize = (tableSize + 3) & ~3u;
+
+    bool hasNcpSetPatches = std::any_of(patchInfo.begin(), patchInfo.end(), [](const auto& info) {
+        return info->isNcpSet;
+    });
+
+    std::string o;
+    o.reserve(16384);
+
+    o += "/* NCPatcher: Auto-generated linker script for rt:";
+    o += region.runtimeName;
+    o += " */\n\n";
+
+    if (!m_target->symbols.empty())
+    {
+        o += "INCLUDE \"";
+        o += relative(m_paths->work(m_target->symbols));
+        o += "\"\n\n";
+    }
+
+    o += "INPUT (\n";
+    for (const auto* unit : units.getUserUnits())
+    {
+        o += "\t\"";
+        o += relative(unit->getObjectPath());
+        o += "\"\n";
+    }
+    o += ")\n\nOUTPUT (\"";
+    o += relative(elfPath);
+    o += "\")\n\nMEMORY {\n\trt (rwx): ORIGIN = ";
+    o += Util::intToAddr(int(base), 8);
+    o += ", LENGTH = 0x01000000\n";
+    if (hasNcpSetPatches)
+        o += "\tncp_set (rwx): ORIGIN = 0x00000000, LENGTH = 0x00100000\n";
+    o += "}\n\nSECTIONS {\n"
+         "\t.rt : ALIGN(4) {\n"
+         "\t\t__ncprt_module = .;\n"
+         "\t\tFILL(0)\n"
+         "\t\t. = __ncprt_module + ";
+    o += std::to_string(runtime::SizeOfModuleHeader);
+    o += ";\n";
+
+    for (const auto& info : patchInfo)
+    {
+        if (info->origin != PatchOrigin::Section || info->isNcpSet)
+            continue;
+        o += "\t\t. = ALIGN(4);\n\t\t";
+        o += std::string_view(info->symbol).substr(1);
+        o += " = .;\n\t\tKEEP(* (";
+        o += info->symbol;
+        o += "))\n";
+    }
+
+    o += "\t\t* (.text)\n"
+         "\t\t* (.rodata)\n"
+         "\t\t* (.data)\n"
+         "\t\t* (.text.*)\n"
+         "\t\t* (.rodata.*)\n"
+         "\t\t* (.data.*)\n"
+         "\t\t. = ALIGN(4);\n"
+         "\t\t__ncprt_module_init = .;\n"
+         "\t\tKEEP(* (SORT_BY_INIT_PRIORITY(.init_array.*)))\n"
+         "\t\tKEEP(* (.init_array))\n"
+         "\t\t__ncprt_module_init_end = .;\n"
+         "\t\t__ncprt_module_fini = .;\n"
+         "\t\tKEEP(* (SORT_BY_INIT_PRIORITY(.fini_array.*)))\n"
+         "\t\tKEEP(* (.fini_array))\n"
+         "\t\t__ncprt_module_fini_end = .;\n"
+         "\t\t. = ALIGN(4);\n"
+         "\t\t__ncprt_module_exports = .;\n"
+         "\t\tKEEP(* (.ncprt_exports))\n"
+         "\t\t__ncprt_module_exports_end = .;\n"
+         "\t\t. = ALIGN(4);\n"
+         "\t\tncp_autogendata_rt = .;\n"
+         "\t\t__ncprt_module_patches = ncp_autogendata_rt + ";
+    o += std::to_string(bridgesSize);
+    o += ";\n\t\t. = ncp_autogendata_rt + ";
+    o += std::to_string(bridgesSize + tableSize);
+    o += ";\n"
+         "\t\t__ncprt_module_bss = .;\n"
+         "\t\t* (.bss)\n"
+         "\t\t* (.bss.*)\n"
+         "\t\t* (COMMON)\n"
+         "\t\t. = ALIGN(4);\n"
+         "\t\t__ncprt_module_end = .;\n"
+         "\t} > rt\n\n";
+
+    for (const auto& info : patchInfo)
+    {
+        if (!info->isNcpSet)
+            continue;
+        o += '\t';
+        o += info->symbol;
+        o += " : { KEEP(\"";
+        o += relative(info->unit->getObjectPath());
+        o += "\" (";
+        o += info->symbol;
+        o += ")) } > ncp_set\n";
+    }
+
+    o += "\n\t/DISCARD/ : {*(.*)}\n"
+         "}\n";
+
+    if (!externSymbols.empty())
+    {
+        o += "\nEXTERN (\n";
+        for (const std::string& e : externSymbols)
+        {
+            o += '\t';
+            o += e;
+            o += '\n';
+        }
+        o += ")\n";
+    }
+
+    std::ofstream outputFile(scriptPath);
+    if (!outputFile.is_open())
+        throw ncp::file_error(scriptPath, ncp::file_error::write);
+    outputFile.write(o.data(), std::streamsize(o.length()));
+    outputFile.close();
+
+    // The main link's symbols, without its contents: a module can call the
+    // project's code, and defining a symbol the project already has is an
+    // error rather than a second copy.
+    std::string extraFlags = ",--just-symbols=\"";
+    extraFlags += relative(m_elfPath);
+    extraFlags += '"';
+
+    std::string failure = "Could not link the runtime module rt:" + region.runtimeName + ".";
+    runLinker(scriptPath, extraFlags, failure.c_str());
 }
 
 std::vector<u32> Linker::readMeasuredSizes(std::size_t candidateCount)

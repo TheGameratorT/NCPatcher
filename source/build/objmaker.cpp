@@ -58,13 +58,15 @@ ObjMaker::ObjMaker() = default;
 void ObjMaker::makeTarget(
 	const BuildTarget& target,
 	const ncp::Context& ctx,
-	core::CompilationUnitManager& compilationUnitMgr
+	core::CompilationUnitManager& compilationUnitMgr,
+	std::vector<std::unique_ptr<core::CompilationUnitManager>>& runtimeUnitMgrs
 	)
 {
 	m_target = &target;
 	m_ctx = &ctx;
 	m_paths = &ctx.paths;
 	m_compilationUnitMgr = &compilationUnitMgr;
+	m_runtimeUnitMgrs = &runtimeUnitMgrs;
 
 	// Not m_paths->appDir any more: the header is a data file with an install
 	// location of its own, and it is checked for version agreement before a
@@ -94,7 +96,7 @@ void ObjMaker::makeTarget(
 	checkIfSourcesNeedRebuild();
 
 	bool atLeastOneNeedsRebuild = false;
-	for (const auto* unit : m_compilationUnitMgr->getUserUnits())
+	for (const auto* unit : allUserUnits())
 	{
 		if (!unit->needsRebuild())
 			continue;
@@ -106,7 +108,7 @@ void ObjMaker::makeTarget(
 
 	// Everything queued so far is built, so a second compile below only
 	// takes the runtime.
-	for (auto* unit : m_compilationUnitMgr->getUserUnits())
+	for (auto* unit : allUserUnits())
 		unit->setNeedsRebuild(false);
 
 	if (addRuntimeIfUsed())
@@ -121,19 +123,38 @@ void ObjMaker::makeTarget(
 
 void ObjMaker::getSourceFiles()
 {
-	for (const BuildTarget::Region& region : m_target->regions)
-	{
+	auto addRegion = [&](const BuildTarget::Region& region, core::CompilationUnitManager& unitMgr, const fs::path& buildRoot) {
 		for (auto& srcPath : region.sources)
 		{
 			std::size_t fileType = Util::indexOf(srcPath.extension(), ExtensionForSourceFileType, 3);
 			if (fileType == -1)
 				continue;
-			addSourceUnit(srcPath, region, fileType);
+			addSourceUnit(srcPath, region, fileType, unitMgr, buildRoot);
 		}
+	};
+
+	for (const BuildTarget::Region& region : m_target->regions)
+		addRegion(region, *m_compilationUnitMgr, m_paths->buildDir);
+
+	// A module's objects get a directory of their own, so a source it shares
+	// with the project or with another module is compiled under its flags.
+	for (std::size_t i = 0; i < m_target->runtimeRegions.size(); i++)
+	{
+		const BuildTarget::Region& region = m_target->runtimeRegions[i];
+		addRegion(region, *(*m_runtimeUnitMgrs)[i], m_paths->buildDir / "rt" / region.runtimeName);
 	}
 }
 
-core::CompilationUnit* ObjMaker::addSourceUnit(const fs::path& srcPath, const BuildTarget::Region& region, std::size_t fileType)
+std::vector<core::CompilationUnit*> ObjMaker::allUserUnits() const
+{
+	std::vector<core::CompilationUnit*> units = m_compilationUnitMgr->getUserUnits();
+	for (const auto& unitMgr : *m_runtimeUnitMgrs)
+		units.insert(units.end(), unitMgr->getUserUnits().begin(), unitMgr->getUserUnits().end());
+	return units;
+}
+
+core::CompilationUnit* ObjMaker::addSourceUnit(const fs::path& srcPath, const BuildTarget::Region& region, std::size_t fileType,
+	core::CompilationUnitManager& unitMgr, const fs::path& buildRoot)
 {
 	// Create a safe build path that works for sources both inside and outside the project
 	fs::path safeBuildPath;
@@ -152,12 +173,12 @@ core::CompilationUnit* ObjMaker::addSourceUnit(const fs::path& srcPath, const Bu
 		if (pathStr.front() == '_')
 			pathStr = pathStr.substr(1);
 			
-		safeBuildPath = m_paths->buildDir / "external" / pathStr;
+		safeBuildPath = buildRoot / "external" / pathStr;
 	}
 	else
 	{
 		// For relative paths, use the original behavior
-		safeBuildPath = m_paths->buildDir / srcPath;
+		safeBuildPath = buildRoot / srcPath;
 	}
 	
 	std::string buildPath = safeBuildPath.string();
@@ -177,7 +198,7 @@ core::CompilationUnit* ObjMaker::addSourceUnit(const fs::path& srcPath, const Bu
 		buildSrc = true;
 	}
 
-	core::CompilationUnit* unit = m_compilationUnitMgr->createCompilationUnit(
+	core::CompilationUnit* unit = unitMgr.createCompilationUnit(
 		core::CompilationUnitType::UserSourceFile,
 		srcPath,
 		objPath
@@ -206,10 +227,13 @@ bool ObjMaker::addRuntimeIfUsed()
 		"__ncprt_apply", "__ncprt_revert", "__ncprt_encode", "ncprt_sync_code"
 	};
 
+	// A module that calls the runtime links against the main binary's copy,
+	// so only the project's own regions can provide it.
 	bool referenced = false;
 	bool defined = false;
-	for (auto* unit : m_compilationUnitMgr->getUserUnits())
+	for (auto* unit : allUserUnits())
 	{
+		const bool inModule = !unit->getTargetRegion()->runtimeName.empty();
 		Elf32* elf = ncp::cache::CacheManager::getInstance().getOrLoadElf(unit->getObjectPath());
 		Elf32::forEachSymbol(*elf, elf->getHeader(), elf->getSectionHeaderTable(),
 		[&](const Elf32_Sym& symbol, std::string_view symbolName) -> bool {
@@ -217,7 +241,7 @@ bool ObjMaker::addRuntimeIfUsed()
 				return false;
 			if (symbol.st_shndx == SHN_UNDEF)
 				referenced = true;
-			else if (ELF32_ST_BIND(symbol.st_info) == STB_GLOBAL)
+			else if (ELF32_ST_BIND(symbol.st_info) == STB_GLOBAL && !inModule)
 				defined = true;
 			return false;
 		});
@@ -243,7 +267,7 @@ bool ObjMaker::addRuntimeIfUsed()
 		throw ncp::exception(oss.str());
 	}
 
-	core::CompilationUnit* unit = addSourceUnit(runtimeSource, *mainRegion, SourceFileType::C);
+	core::CompilationUnit* unit = addSourceUnit(runtimeSource, *mainRegion, SourceFileType::C, *m_compilationUnitMgr, m_paths->buildDir);
 	if (!unit->needsRebuild())
 	{
 		std::unordered_map<std::string, fs::file_time_type> timeForDep;
@@ -257,7 +281,7 @@ void ObjMaker::checkIfSourcesNeedRebuild()
 	// Fetch dependencies to prevent multiple builds
 	std::unordered_map<std::string, fs::file_time_type> timeForDep;
 
-	for (auto* unit : m_compilationUnitMgr->getUserUnits())
+	for (auto* unit : allUserUnits())
 	{
 		// Previously set as needing rebuild, no need to check.
 		if (!unit->needsRebuild())
@@ -358,19 +382,21 @@ void ObjMaker::compileSources()
 		? ncp::build::detectDiagnosticsFormat(m_ctx->toolchain() + "gcc", m_paths->buildDir)
 		: ncp::build::DiagnosticsFormat::Text;
 
+	const std::vector<core::CompilationUnit*> units = allUserUnits();
+
 	BuildLogger logger;
-	logger.setUnits(m_compilationUnitMgr->getUserUnits());
+	logger.setUnits(units);
 	logger.start();
 
 	// Counted up front rather than as they are pushed, because a progress event
 	// is only worth anything to the caller if it knows the denominator.
 	std::size_t pendingCount = 0;
-	for (const auto* unit : m_compilationUnitMgr->getUserUnits())
+	for (const auto* unit : units)
 		pendingCount += unit->needsRebuild() ? 1 : 0;
 
 	auto completed = std::make_shared<std::atomic<std::size_t>>(0);
 
-	for (auto* unit : m_compilationUnitMgr->getUserUnits())
+	for (auto* unit : units)
 	{
 		if (!unit->needsRebuild())
 			continue;
@@ -578,7 +604,7 @@ void ObjMaker::compileSources()
 		// The human already has the compiler's own output from BuildLogger.
 		// This is the same information addressed to a tool: which files failed,
 		// and what the compiler said about each.
-		for (const auto* unit : m_compilationUnitMgr->getUserUnits())
+		for (const auto* unit : units)
 		{
 			const core::BuildInfo& buildInfo = unit->getBuildInfo();
 			if (!buildInfo.buildFailed)

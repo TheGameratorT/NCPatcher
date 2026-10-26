@@ -162,8 +162,13 @@ A runtime module needs at least one `file` or `output`. `mode`, `address`,
 to wherever the game loads it. `sources`, `defines` and `flags` work as they do
 for any other region. A runtime module cannot be listed in a region catalog.
 
-This version reads runtime regions but does not build them yet: a build warns
-and skips them.
+A module links on its own, after the target's main link. It can call the
+game's functions and the project's own code, and the main link keeps whatever
+project code a module uses even when the main binary never calls it. A symbol
+that both the module and the project define is a link error. The image is
+written to every `output` path, and a copy is kept as
+`<build>/rt/<name>/<name>.ncrt`. This version does not write `file` paths into
+the ROM yet: a build warns about them.
 
 A target may also take its overlay regions from a shared table; see
 [Region catalogs](modules.md#region-catalogs).

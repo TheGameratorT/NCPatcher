@@ -34,6 +34,7 @@ ExitCode exitCodeFor(Diag code)
 	// Producing the ELF is the link step; everything else under patching is
 	// the splice into the binaries.
 	case Diag::PatchElfGeneration:
+	case Diag::PatchRuntimeModule:
 		return ExitCode::Link;
 
 	case Diag::PatchInit:

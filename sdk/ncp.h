@@ -248,6 +248,10 @@ static inline void __ncprt_write_call(int address, void* function) { *(int*)(__U
 #define ncprt_revert(group) __ncprt_revert(ncprt_get_group(group))
 #define ncprt_is_applied(group) (ncprt_get_group(group)->applied != 0)
 
+// Runtime modules: the object a module gives its loader, at most one per
+// module, as in ncprt_exports(const struct my_api) = { my_function };
+#define ncprt_exports(type) __attribute__((section(".ncprt_exports"), used)) static type __ncprt_module_exports_object
+
 #elif defined __ncp_lang_asm
 
 #define __ncp_get_macro(_1, _2, _3, NAME, ...) NAME

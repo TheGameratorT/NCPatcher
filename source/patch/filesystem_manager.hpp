@@ -47,6 +47,11 @@ public:
 	OverlayBin* loadOverlayBin(std::size_t ovID);
 	OverlayBin* createOverlayBin(ncp::rom::OverlayEntry entry, std::vector<u8> data);
 	OverlayBin* getOverlay(std::size_t ovID);
+
+	// The code of a destination for reading only: a binary this build already
+	// loaded, or else the overlay as it is, loaded aside so that reading it
+	// neither marks it as patched nor writes it back.
+	const ICodeBin* peekBinary(int destination);
 	void saveOverlayBins();
 
 	[[nodiscard]] inline ArmBin* getArm() const { return m_arm.get(); }
@@ -70,6 +75,7 @@ private:
     
 	std::unique_ptr<ArmBin> m_arm;
 	std::unordered_map<std::size_t, std::unique_ptr<OverlayBin>> m_loadedOverlays;
+	std::unordered_map<std::size_t, std::unique_ptr<OverlayBin>> m_peekedOverlays;
 	std::unordered_set<std::size_t> m_createdOverlays;
 	ncp::rom::OverlayTable m_ovt;
 	ncp::rom::OverlayTable m_bakOvt;

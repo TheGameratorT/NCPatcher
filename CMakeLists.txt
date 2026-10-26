@@ -166,6 +166,8 @@ set(SOURCES
 	source/patch/patch_group.cpp
 	source/patch/patch_name.cpp
 	source/patch/patch_tracker.cpp
+	source/patch/runtime_image.cpp
+	source/patch/runtime_module.cpp
 	source/patch/types.cpp
 	source/rom/backup_store.cpp
 	source/rom/dir_accessor.cpp
@@ -351,6 +353,9 @@ if (NCP_BUILD_TESTS)
 		source/patch/overwrite_packing.cpp)
 	ncp_add_test(runtime_encode_test tests/runtime_encode_test.cpp
 		source/patch/asm_generator.cpp source/system/except.cpp)
+	ncp_add_test(runtime_image_test tests/runtime_image_test.cpp
+		source/patch/runtime_image.cpp source/patch/asm_generator.cpp
+		source/system/except.cpp source/utils/endian.cpp)
 	ncp_add_test(patch_group_test tests/patch_group_test.cpp
 		source/patch/patch_group.cpp
 		source/patch/types.cpp

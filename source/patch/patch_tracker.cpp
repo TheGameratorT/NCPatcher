@@ -596,7 +596,9 @@ void PatchTracker::finalizePatchesWithElfData(const Elf32& elf)
         if (symbolName.starts_with("ncp_autogendata"))
         {
             int srcAddrOv = -1;
-            if (symbolName.length() != 15 && symbolName.substr(15).starts_with("_ov"))
+            if (symbolName.substr(15) == "_rt")
+                srcAddrOv = BuildTarget::RuntimeDestination;
+            else if (symbolName.length() != 15 && symbolName.substr(15).starts_with("_ov"))
             {
                 try {
                     srcAddrOv = std::stoi(std::string(symbolName.substr(18)));

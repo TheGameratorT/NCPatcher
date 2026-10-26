@@ -911,23 +911,24 @@ void Application::processTarget(rom::RomAccessor& rom, bool isArm9)
 		"Could not compile the ARM9 target." :
 		"Could not compile the ARM7 target.");
 
-	if (!buildTarget.runtimeRegions.empty())
+	for (const BuildTarget::Region& region : buildTarget.runtimeRegions)
 	{
-		std::ostringstream oss;
-		oss << "This NCPatcher does not build runtime modules yet, so ";
-		for (std::size_t i = 0; i < buildTarget.runtimeRegions.size(); i++)
-			oss << (i == 0 ? "" : ", ") << OSTR("rt:" + buildTarget.runtimeRegions[i].runtimeName);
-		oss << " will be skipped.";
-		Log::out << OWARN << oss.str() << std::endl;
+		if (region.files.empty())
+			continue;
+		Log::out << OWARN << "This NCPatcher does not write runtime modules into the ROM yet, so the "
+		         << OSTR("file") << " of " << OSTR("rt:" + region.runtimeName) << " is not written." << std::endl;
 	}
 
 	core::CompilationUnitManager compilationUnitsMgr;
+	std::vector<std::unique_ptr<core::CompilationUnitManager>> runtimeUnitMgrs;
+	for (std::size_t i = 0; i < buildTarget.runtimeRegions.size(); i++)
+		runtimeUnitMgrs.push_back(std::make_unique<core::CompilationUnitManager>());
 
 	ObjMaker objMaker;
-	objMaker.makeTarget(buildTarget, targetCtx, compilationUnitsMgr);
+	objMaker.makeTarget(buildTarget, targetCtx, compilationUnitsMgr, runtimeUnitMgrs);
 
 	ncp::patch::PatchMaker patchMaker;
-	patchMaker.makeTarget(buildTarget, targetCtx, rom, compilationUnitsMgr);
+	patchMaker.makeTarget(buildTarget, targetCtx, rom, compilationUnitsMgr, runtimeUnitMgrs);
 
 	m_rebuild.setTargetHash(isArm9, configHash);
 

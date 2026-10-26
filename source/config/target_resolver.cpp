@@ -10,6 +10,8 @@
 
 namespace fs = std::filesystem;
 
+static_assert(ncp::config::RuntimeDestination == BuildTarget::RuntimeDestination);
+
 namespace ncp::config {
 
 namespace {

@@ -32,6 +32,9 @@ public:
 		u32 endAddress;
 	};
 
+	// The destination of every runtime module region.
+	static constexpr int RuntimeDestination = -2;
+
 	struct Region
 	{
 		std::vector<std::filesystem::path> sources;

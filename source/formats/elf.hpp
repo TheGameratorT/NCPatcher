@@ -39,6 +39,7 @@ typedef uint32_t Elf32_Word;
 #define SHT_HIUSER   0xffffffff
 
 #define SHN_UNDEF     0x0
+#define SHN_ABS       0xFFF1
 #define SHF_WRITE     0x1
 #define SHF_ALLOC     0x2
 #define SHF_EXECINSTR 0x4

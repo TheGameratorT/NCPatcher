@@ -78,6 +78,20 @@ public:
     void loadElfFile();
     void unloadElfFile();
 
+    // Links the runtime module `region` on its own at `base`, against the
+    // symbols of the main link, so a module can call into the project's own
+    // code. Everything it keeps goes into one section, .rt, which starts with
+    // the module header and ends with its zeroed bss.
+    void linkRuntimeModule(
+        const BuildTarget::Region& region,
+        u32 base,
+        const core::CompilationUnitManager& units,
+        const std::vector<std::unique_ptr<PatchInfo>>& patchInfo,
+        const std::vector<std::string>& externSymbols,
+        const std::filesystem::path& scriptPath,
+        const std::filesystem::path& elfPath
+    );
+
     const Elf32* getElf() const { return m_elf.get(); }
 
 private:
@@ -103,6 +117,8 @@ private:
         const std::vector<std::unique_ptr<OverwriteRegionInfo>>& overwriteRegions,
         const std::vector<std::unique_ptr<SectionInfo>>* candidateSections
     );
+
+    void runLinker(const std::filesystem::path& scriptPath, const std::string& extraFlags, const char* failure);
 
     static std::string ldFlagsToGccFlags(std::string flags);
     //void parseLinkerOutput(const std::string& output);
