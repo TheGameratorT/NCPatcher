@@ -146,6 +146,7 @@ A region whose `dest` is `rt:<name>` links into a relocatable image of its own
 instead of into the binary or an overlay. The game loads and unloads that image
 while it runs, and the module's patches apply when it loads and revert when it
 unloads. The name may contain only letters, digits and `_`.
+[The NCP Runtime](runtime.md) describes how the game loads one.
 
 ```yaml
 regions:
@@ -175,6 +176,11 @@ compiled, so the [file manifest](file-manifest.md) lists it, marked with
 of an archive. A game that keeps modules inside its archives, as Mario Kart DS
 keeps one per course, writes them to `output` paths and packs the archives with
 its own tools.
+
+A [module](modules.md#runtime-modules) can put code in a runtime module with a
+target of `arm9(rt:<name>)`, and create one the project does not declare. A
+project region with the same `dest` takes that code, and its `file` or
+`output`, when it gives one, replaces the module's.
 
 A target may also take its overlay regions from a shared table; see
 [Region catalogs](modules.md#region-catalogs).

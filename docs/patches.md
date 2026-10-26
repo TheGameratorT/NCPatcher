@@ -136,6 +136,10 @@ The `ncprt_*` names stand for the NCPatcher Runtime: unlike the static patches
 above, which are spliced into the binary at build time, these write to memory
 while the ROM is running.
 
+Patches that are switched on and off as a set (`ncprt_jump(group, address)`
+and the rest), and code loaded from a file while the game runs, are described
+in [The NCP Runtime](runtime.md). The helpers below write a single word.
+
 C/C++:
 ```
 void ncprt_write(int address, int value);

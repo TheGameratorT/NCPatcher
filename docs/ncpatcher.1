@@ -555,6 +555,61 @@ is not the archive
 and why a ROM that genuinely holds a directory named
 .B *_narc
 simply works. Only the outermost matching directory is read as an archive.
+.SH RUNTIME MODULES
+A region whose
+.B dest
+is
+.BI rt: name
+is linked into a relocatable image of its own, which the game loads and
+unloads while it runs, instead of into the binary or an overlay. Its patches
+are written when the game attaches it and reverted when it detaches it, with
+.B ncprt_attach
+and
+.B ncprt_detach
+from
+.BR ncprt.c ,
+which is compiled into the target's main region whenever code uses it.
+.PP
+The image is written to every NitroFS path in the region's
+.B file:
+and every host path in its
+.BR output: ,
+and kept as
+.IR <build>/rt/<name>/<name>.ncrt .
+A
+.B file:
+gets its id with the other NitroFS files, before anything is compiled, and the
+file manifest marks it with
+.BR runtime\-module .
+.BR mode ,
+.BR address ,
+.BR maxsize ,
+.B compress
+and
+.B overwrites
+are refused for such a region.
+.PP
+A module puts code in one with a target of
+.BI arm9(rt: name )\fR,
+and may create one the project does not declare, writing it to the
+.B file
+it gives under
+.BR runtime: .
+A project region with the same
+.B dest
+takes the module's code, and its own
+.B file
+or
+.BR output ,
+when it gives one, replaces the module's.
+.PP
+Patches written as
+.BI ncprt_jump( group ", " address )
+and the other grouped forms are linked into the binary but written only when
+the code calls
+.BI ncprt_apply( group )\fR,
+and reverted by
+.BI ncprt_revert( group )\fR.
 .SH FILE MANIFEST
 .B files\-dump
 names a path to write the ROM's file table to, as
@@ -725,6 +780,10 @@ is read as the older version 1 schema, which stays supported.
 .TP
 .I <buildDir>/ncpatcher.log
 The log of the last build.
+.TP
+.I <buildDir>/rt/<name>/<name>.ncrt
+The image of a runtime module, with the maps and ELF files of its two links
+beside it.
 .TP
 .I <dataDir>/ncp.h
 Force-included into every translation unit. Looked for in

@@ -15,7 +15,7 @@ description: Adds co-op multiplayer support to the game.
 authors: [TheGameratorT, Shadey21]
 repo: https://github.com/ShaneDoyle/nsmb-coop/
 
-targets:                 # arm7, arm9, arm7(N), arm9(N)
+targets:                 # arm7, arm9, arm7(N), arm9(N), arm9(rt:NAME)
   - arm9:
       includes: include
       sources: "source9/**"
@@ -77,6 +77,46 @@ the end of its overlay into the next one.
 
 Declaring one region per overlay a module might ever reach is not the answer
 either. That is what `region-catalog` is for.
+
+## Runtime modules
+
+A target of `arm9(rt:<name>)` puts code in a [runtime module](runtime.md), an
+image the game loads and unloads while it runs, instead of in the binary or an
+overlay. Unlike an overlay, a runtime module has no size the game gives it, so a
+module may create one the project never declared. The module that creates it
+says where the image is written:
+
+```yaml
+id: Bosses
+
+runtime:
+  bosses:
+    file: z_new/ncprt/bosses.ncrt    # a NitroFS path, or a list of them
+
+targets:
+  - arm9(rt:bosses):
+      sources: "rt/**"
+
+components:
+  - Petey:
+      target: arm9(rt:bosses)
+      sources: "petey/**"
+```
+
+Other modules can put code in `rt:bosses` too, with the same target; only one
+may declare it under `runtime:`. A runtime module whose code all belongs to
+components that are switched off is not built, and its file is not added.
+
+A project region with the same `dest`, `rt:bosses`, is the same runtime module:
+the modules' code goes into it, and its own `defines` and `flags` apply. If it
+gives a `file` or an `output`, the image goes there instead of to the module's
+`file`. A runtime module that neither a module nor the project says where to
+write is an error.
+
+The file id each image gets is in the [file manifest](file-manifest.md), under
+`runtime-module`, so a generator reading the dump finds which runtime module
+holds a component's code (its `target.runtime`) and the manifest says which
+file that is.
 
 ## Region catalogs
 
