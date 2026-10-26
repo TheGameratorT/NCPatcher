@@ -806,6 +806,14 @@ that is already DSi-enhanced with ARM9i/ARM7i binaries of its own.
 header. nds-bootstrap treats any DSi unit code as a DSi-SDK title, so that is
 the file to give it, with the game set to run in DSi mode.
 
+### Trimming the ROM
+
+`rom.trim: true` writes the ROM without the padding past its used size, the
+way ndspy builds it. A dumped cartridge is padded with 0xFF up to its chip
+size; trimmed, it ends at the header's total used size, followed by the
+download play signature when the ROM has one. On a DSi ROM the TWL area is
+kept as well. It needs `rom.file`.
+
 ## NitroFS trees
 
 `files:` is one line per file, which stops scaling around the point a project

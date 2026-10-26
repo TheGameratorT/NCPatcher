@@ -710,6 +710,55 @@ static void testDsiEnhanced()
 	check(threw, "dsi: refuses a ROM with real DSi binaries");
 }
 
+static void testTrim()
+{
+	const SyntheticRom source = makeRom();
+
+	// A dump padded out to its chip size loses the padding.
+	std::vector<u8> padded = source.bytes;
+	padded.resize(0x20000, 0xFF);
+	NdsRom rom;
+	rom.parse(padded);
+	rom.trim();
+	check(rom.bytes() == source.bytes, "trim: padding past the used size goes");
+
+	// The download play signature after the used size stays.
+	std::vector<u8> signedRom = source.bytes;
+	signedRom.push_back('a');
+	signedRom.push_back('c');
+	signedRom.resize(source.bytes.size() + 0x88, 0x5A);
+	std::vector<u8> signedPadded = signedRom;
+	signedPadded.resize(0x20000, 0xFF);
+	NdsRom withSignature;
+	withSignature.parse(signedPadded);
+	withSignature.trim();
+	check(withSignature.bytes() == signedRom, "trim: the RSA signature is kept");
+
+	// A DSi ROM keeps its TWL area.
+	NdsRom dsi;
+	dsi.parse(makeRom(0, 0x4000).bytes);
+	dsi.makeDsiEnhanced();
+	const std::vector<u8> enhanced = dsi.bytes();
+	std::vector<u8> dsiPadded = enhanced;
+	dsiPadded.resize(0x100000, 0xFF);
+	NdsRom dsiAgain;
+	dsiAgain.parse(dsiPadded);
+	dsiAgain.trim();
+	check(dsiAgain.bytes() == enhanced, "trim: a DSi ROM keeps its TWL area");
+
+	// A rebuild rounds the total up past the last file; the image must reach it.
+	NdsRom rebuilt;
+	rebuilt.parse(source.bytes);
+	rebuilt.trim();
+	rebuilt.setFile(1, std::vector<u8>(0x41, 0xEE));
+	rebuilt.setArm(true, std::vector<u8>(source.arm9Size + 0x200, 0x11));
+	rebuilt.commit(0);
+	rebuilt.trim();
+	check(rebuilt.lastCommitRebuilt(), "trim: the arm9 growth rebuilt the ROM");
+	check(rebuilt.bytes().size() == rebuilt.header().totalUsedRomSize(),
+		"trim: a rebuilt image ends exactly at its used size");
+}
+
 static void testTruncatedRom()
 {
 	const SyntheticRom source = makeRom();
@@ -945,6 +994,7 @@ int main()
 	testOverlayRelocated();
 	testArm9GrowthRebuilds();
 	testDsiEnhanced();
+	testTrim();
 	testTruncatedRom();
 	testFntGrowthRebuilds();
 	testExtractWritesAWholeRom();

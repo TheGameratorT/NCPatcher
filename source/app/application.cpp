@@ -1954,6 +1954,7 @@ std::unique_ptr<rom::RomAccessor> Application::openRom()
 		accessor->loadRom();
 		accessor->setDsiEnhanced(m_config.romDsiEnhanced.value,
 			m_config.romDsCopy.configured() ? m_ctx.paths.work(m_config.romDsCopy.value) : fs::path());
+		accessor->setTrim(m_config.romTrim.value);
 		return accessor;
 	}
 

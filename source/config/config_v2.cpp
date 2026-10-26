@@ -863,6 +863,7 @@ bool projectDoesSomething(const ProjectConfig& config)
 		|| config.modules.present
 		|| config.romBanner.configured()
 		|| config.romDsiEnhanced.value
+		|| config.romTrim.value
 		|| config.filesReserve.configured()
 		|| variantWork;
 }
@@ -923,7 +924,7 @@ ProjectConfig loadV2(const fs::path& projectFile, const fs::path& projectRoot,
 	const cfg::Node rom = root.require("rom");
 	if (!rom.isMap())
 		rom.failType("a mapping");
-	checkKeys(rom, "rom", { "file", "dir", "output", "backup", "layout", "arm9-slack", "banner", "dsi-enhanced", "ds-copy" });
+	checkKeys(rom, "rom", { "file", "dir", "output", "backup", "layout", "arm9-slack", "banner", "dsi-enhanced", "ds-copy", "trim" });
 
 	const bool hasFile = rom.has("file");
 	const bool hasDir = rom.has("dir");
@@ -1002,6 +1003,13 @@ ProjectConfig loadV2(const fs::path& projectFile, const fs::path& projectRoot,
 		config.romDsiEnhanced.set(rom["dsi-enhanced"].asBool(), Source::ProjectFile);
 		if (config.romDsiEnhanced.value && !patchesFile)
 			rom["dsi-enhanced"].fail("Only a project that patches a .nds can make it DSi-enhanced; give " ANSI_bCYAN "rom.file" ANSI_RESET " as well.");
+	}
+
+	if (rom.has("trim"))
+	{
+		config.romTrim.set(rom["trim"].asBool(), Source::ProjectFile);
+		if (config.romTrim.value && !patchesFile)
+			rom["trim"].fail("Only a project that patches a .nds can trim it; give " ANSI_bCYAN "rom.file" ANSI_RESET " as well.");
 	}
 
 	if (rom.has("ds-copy"))

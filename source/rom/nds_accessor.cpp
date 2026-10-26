@@ -189,7 +189,12 @@ std::string NdsRomAccessor::nitroFilePath(u32 fileId) const
 
 void NdsRomAccessor::commit()
 {
-	if (!m_rom.dirty() && !m_dsiEnhanced)
+	// A ROM with nothing staged still has to be written if trimming changed it.
+	const std::size_t loadedSize = m_rom.bytes().size();
+	if (m_trim)
+		m_rom.trim();
+
+	if (!m_rom.dirty() && !m_dsiEnhanced && m_rom.bytes().size() == loadedSize)
 	{
 		// Nothing was staged, so there is nothing to write, and writing the
 		// file anyway would change its timestamp for no reason. An explicit
@@ -204,6 +209,10 @@ void NdsRomAccessor::commit()
 	const uintmax_t previousSize = fs::file_size(m_file, sizeError);
 
 	m_rom.commit(m_arm9Slack);
+
+	// Again, for a rebuild that came out shorter than the image it replaced.
+	if (m_trim)
+		m_rom.trim();
 
 	if (m_rom.lastCommitRebuilt())
 	{

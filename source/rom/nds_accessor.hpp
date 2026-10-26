@@ -37,6 +37,9 @@ public:
 		m_dsCopy = std::move(dsCopy);
 	}
 
+	// Trims the written ROM to its used size; see NdsRom::trim.
+	void setTrim(bool enabled) { m_trim = enabled; }
+
 	[[nodiscard]] const std::filesystem::path& location() const override { return m_file; }
 	[[nodiscard]] const NdsRom& rom() const { return m_rom; }
 
@@ -84,6 +87,7 @@ private:
 	NdsRom m_rom;
 	bool m_dsiEnhanced = false;
 	std::filesystem::path m_dsCopy;
+	bool m_trim = false;
 
 	// The table as the build is editing it, per processor. Held here rather
 	// than read back from the ROM each time because a write is staged: reading

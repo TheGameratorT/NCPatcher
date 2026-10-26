@@ -13,7 +13,7 @@
 // It also means the bytes this tool does not model (the secure area, the
 // banner, every level and texture, and whatever a dumper left in the padding
 // past the end) survive untouched, because nothing ever rebuilds them from a
-// parsed representation.
+// parsed representation. The padding goes only when trim() is asked for.
 
 #include <cstddef>
 #include <filesystem>
@@ -97,6 +97,12 @@ public:
 	// Throws when the image cannot take it (see the implementation).
 	void makeDsiEnhanced();
 
+	// Drops everything past the used size: the header's total, the 0x88-byte
+	// download play signature when one follows it, and on a DSi ROM the TWL
+	// total at 0x210. What is left is what a cartridge builder that does not
+	// pad (ndspy, for one) would write.
+	void trim();
+
 	// Applies every staged write. `arm9Slack` is how many spare bytes to leave
 	// after the ARM9 binary when the ROM has to be laid out again; see the
 	// comment on rebuildLayout in the implementation for why that matters.
@@ -109,6 +115,7 @@ public:
 
 private:
 	[[nodiscard]] bool hasOwnTwlStubs() const;
+	[[nodiscard]] std::size_t usedImageSize() const;
 
 	std::vector<u8> m_bytes;
 	Header m_header;

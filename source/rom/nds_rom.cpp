@@ -606,6 +606,31 @@ void NdsRom::makeDsiEnhanced()
 	m_header.parse(std::vector<u8>(m_bytes.begin(), m_bytes.begin() + std::ptrdiff_t(Header::SIZE)));
 }
 
+namespace {
+
+// GBATEK: a cartridge that supports download play has an RSA signature right
+// after the used region, starting with "ac".
+constexpr u32 RSA_SIGNATURE_SIZE = 0x88;
+
+} // namespace
+
+std::size_t NdsRom::usedImageSize() const
+{
+	std::size_t used = m_header.totalUsedRomSize();
+	if (used + RSA_SIGNATURE_SIZE <= m_bytes.size() && m_bytes[used] == 'a' && m_bytes[used + 1] == 'c')
+		used += RSA_SIGNATURE_SIZE;
+
+	if (m_header.isDsi() && m_bytes.size() >= 0x214)
+		used = std::max<std::size_t>(used, le::readU32(m_bytes, 0x210));
+
+	return std::min(used, m_bytes.size());
+}
+
+void NdsRom::trim()
+{
+	m_bytes.resize(usedImageSize());
+}
+
 // Lays the whole ROM out again, in the order a cartridge is normally built.
 //
 // This is what happens when the ARM9 binary outgrows the gap before the overlay
@@ -747,6 +772,11 @@ void NdsRom::rebuildLayout(u32 arm9Slack)
 	if (!bannerData.empty())
 		m_header.setBannerOffset(bannerOffset);
 	m_header.setTotalUsedRomSize(cursor);
+
+	// The total is rounded up past the last file, and the image has to reach
+	// it even when no padding follows.
+	if (out.size() < cursor)
+		out.resize(cursor, 0xFF);
 
 	if (cursor > m_header.deviceCapacityBytes())
 	{

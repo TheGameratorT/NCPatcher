@@ -481,6 +481,9 @@ struct ProjectConfig
 	Setting<bool> romDsiEnhanced;
 	Setting<std::filesystem::path> romDsCopy;
 
+	// Write the ROM without the padding past its used size.
+	Setting<bool> romTrim;
+
 	Setting<std::string> toolchain;
 	Setting<int> threadCount;
 

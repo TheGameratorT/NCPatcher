@@ -379,6 +379,10 @@
           "description": "Also save the ROM with its original DS header here, for loaders such as nds-bootstrap that only run plain DS ROMs in DSi mode. Needs dsi-enhanced and output.",
           "type": "string"
         },
+        "trim": {
+          "description": "Write the ROM without the padding past its used size, the way ndspy does. The download play signature and, on a DSi ROM, the TWL area are kept. Only applies to a .nds (rom.file).",
+          "type": "boolean"
+        },
         "layout": {
           "description": "Naming convention of the extracted ROM directory. A preset name, or a mapping of file names, optionally with `preset:` naming the one to start from.",
           "oneOf": [
