@@ -75,7 +75,6 @@ private:
 	{
 		const Elf32* elf;
 		const std::vector<std::unique_ptr<PatchInfo>>* patchInfo;
-		const std::vector<std::unique_ptr<PatchInfo>>* rtreplPatches;
 		const std::unordered_map<int, std::unique_ptr<NewcodeInfo>>* newcodeInfoForDest;
 		const std::unordered_map<int, std::unique_ptr<AutogenDataInfo>>* autogenDataInfoForDest;
 		const std::unordered_map<int, u32>* newcodeAddrForDest;
@@ -84,14 +83,12 @@ private:
 		PatchOperationContext(
 			const Elf32& elfRef,
 			const std::vector<std::unique_ptr<PatchInfo>>& patches,
-			const std::vector<std::unique_ptr<PatchInfo>>& rtreplPatchesRef,
 			const std::unordered_map<int, std::unique_ptr<NewcodeInfo>>& newcode,
 			const std::unordered_map<int, std::unique_ptr<AutogenDataInfo>>& autogen,
 			const std::unordered_map<int, u32>& newcodeAddr,
 			const void* shTable
 		) : elf(&elfRef),
 			patchInfo(&patches),
-			rtreplPatches(&rtreplPatchesRef),
 			newcodeInfoForDest(&newcode),
 			autogenDataInfoForDest(&autogen),
 			newcodeAddrForDest(&newcodeAddr),

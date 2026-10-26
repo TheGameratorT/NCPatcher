@@ -43,29 +43,26 @@ void Linker::initialize(
 
 void Linker::createLinkerScript(
     const std::vector<std::unique_ptr<PatchInfo>>& patchInfo,
-    const std::vector<std::unique_ptr<PatchInfo>>& rtreplPatches,
     const std::vector<std::string>& externSymbols,
     const std::vector<std::unique_ptr<OverwriteRegionInfo>>& overwriteRegions
 )
 {
-    writeLinkerScript(ScriptMode::Final, patchInfo, rtreplPatches, externSymbols, overwriteRegions, nullptr);
+    writeLinkerScript(ScriptMode::Final, patchInfo, externSymbols, overwriteRegions, nullptr);
 }
 
 void Linker::createMeasurementScript(
     const std::vector<std::unique_ptr<PatchInfo>>& patchInfo,
-    const std::vector<std::unique_ptr<PatchInfo>>& rtreplPatches,
     const std::vector<std::string>& externSymbols,
     const std::vector<std::unique_ptr<OverwriteRegionInfo>>& overwriteRegions,
     const std::vector<std::unique_ptr<SectionInfo>>& candidateSections
 )
 {
-    writeLinkerScript(ScriptMode::Measurement, patchInfo, rtreplPatches, externSymbols, overwriteRegions, &candidateSections);
+    writeLinkerScript(ScriptMode::Measurement, patchInfo, externSymbols, overwriteRegions, &candidateSections);
 }
 
 void Linker::writeLinkerScript(
     ScriptMode mode,
     const std::vector<std::unique_ptr<PatchInfo>>& patchInfo,
-    const std::vector<std::unique_ptr<PatchInfo>>& rtreplPatches,
     const std::vector<std::string>& externSymbols,
     const std::vector<std::unique_ptr<OverwriteRegionInfo>>& overwriteRegions,
     const std::vector<std::unique_ptr<SectionInfo>>* candidateSections
@@ -415,22 +412,6 @@ void Linker::writeLinkerScript(
         for (auto& p : s->sectionPatches)
         {
             addSectionPatchInclude(o, p);
-        }
-        
-        for (auto& p : rtreplPatches)
-        {
-            if (p->unit->getTargetRegion() == s->region)
-            {
-                std::string_view stem = std::string_view(p->symbol).substr(1);
-                o += "\t\t";
-                o += stem;
-                o += "_start = .;\n\t\t";
-                o += "KEEP(* (";
-                o += p->symbol;
-                o += "))\n\t\t";
-                o += stem;
-                o += "_end = .;\n";
-            }
         }
         
         if (s->dest == -1)

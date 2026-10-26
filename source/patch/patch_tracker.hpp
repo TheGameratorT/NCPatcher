@@ -35,7 +35,6 @@ public:
 
     // Getters
     const std::vector<std::unique_ptr<PatchInfo>>& getPatchInfo() const { return m_patchInfo; }
-    const std::vector<std::unique_ptr<PatchInfo>>& getRtreplPatches() const { return m_rtreplPatches; }
     const std::vector<std::string>& getExternSymbols() const { return m_externSymbols; }
     std::vector<std::unique_ptr<SectionInfo>>& getOverwriteCandidateSections() { return m_overwriteCandidateSections; }
     const std::unordered_map<int, std::unique_ptr<NewcodeInfo>>& getNewcodeInfoForDest() const { return m_newcodeInfoForDest; }
@@ -61,7 +60,6 @@ private:
 	DependencyResolver* m_dependencyResolver;
 
     std::vector<std::unique_ptr<PatchInfo>> m_patchInfo;
-    std::vector<std::unique_ptr<PatchInfo>> m_rtreplPatches;
     std::vector<std::string> m_externSymbols;
     std::vector<std::unique_ptr<SectionInfo>> m_overwriteCandidateSections;
     std::unordered_map<int, std::unique_ptr<NewcodeInfo>> m_newcodeInfoForDest;
@@ -114,9 +112,6 @@ private:
     void parseNcpSetSection(const Elf32& elf, const Elf32_Ehdr& eh, const Elf32_Shdr* sh_tbl,
                            const char* str_tbl, std::string_view sectionName, int sectionIdx, int sectionSize,
                            core::CompilationUnit* unit, std::vector<PatchInfo*>& objPatchInfo);
-
-    // Special handling methods
-    void handleRtReplPatch(std::string_view symbolName, core::CompilationUnit* unit, bool isSection);
 
 	void fetchNewcodeInfo(const Elf32& elf, const Elf32_Ehdr& eh, const Elf32_Shdr* sh_tbl, const char* str_tbl);
 

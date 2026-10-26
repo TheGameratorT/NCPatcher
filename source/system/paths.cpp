@@ -36,7 +36,7 @@
 // cannot drift apart in the source tree, only on a machine where an old copy
 // is still installed, which is exactly the case this exists to catch.
 #ifndef NCP_SDK_VERSION
-#define NCP_SDK_VERSION 1
+#define NCP_SDK_VERSION 2
 #endif
 
 namespace fs = std::filesystem;

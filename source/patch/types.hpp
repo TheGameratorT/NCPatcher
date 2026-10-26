@@ -9,7 +9,7 @@
 
 namespace ncp::patch {
 
-constexpr size_t PatchTypeCount = 14;
+constexpr size_t PatchTypeCount = 13;
 
 // Adjust patchTypeNames and PatchTypeCount if changed
 enum class PatchType : u32 {
@@ -18,7 +18,6 @@ enum class PatchType : u32 {
 	TJump, TCall, THook,
 	SetTJump, SetTCall, SetTHook,
 	Over,
-	RtRepl,
 
 	Invalid = 0xFFFFFFFF
 };

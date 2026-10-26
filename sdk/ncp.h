@@ -3,7 +3,7 @@
 // Contract version between this header and ncpatcher, which refuses to build
 // against a copy whose number is not the one it expects. Keep NCP_SDK_VERSION
 // in CMakeLists.txt in step.
-#define __ncp_sdk_version 1
+#define __ncp_sdk_version 2
 
 // NCP Common
 
@@ -118,23 +118,13 @@ __ncp_extern_var const char __##sym##_end[];
 #define ncprt_arm_opcode_bl 0xEB000000
 #define ncprt_arm_opcode_nop 0xE1A00000
 
-static inline void __ncprt_set(int address, int value) { *(int*)address = value; }
-static inline void __ncprt_set_jump(int address, void* function) { *(int*)address = (ncprt_arm_opcode_b | (((((int)function - address) >> 2) - 2) & 0xFFFFFF)); }
-static inline void __ncprt_set_call(int address, void* function) { *(int*)address = (ncprt_arm_opcode_bl | (((((int)function - address) >> 2) - 2) & 0xFFFFFF)); }
+static inline void __ncprt_write(int address, int value) { *(int*)address = value; }
+static inline void __ncprt_write_jump(int address, void* function) { *(int*)address = (ncprt_arm_opcode_b | (((((int)function - address) >> 2) - 2) & 0xFFFFFF)); }
+static inline void __ncprt_write_call(int address, void* function) { *(int*)address = (ncprt_arm_opcode_bl | (((((int)function - address) >> 2) - 2) & 0xFFFFFF)); }
 
-#define ncprt_set(address, value) __ncprt_set(address, value)
-#define ncprt_set_jump(address, function) __ncprt_set_jump(address, (void*)(function))
-#define ncprt_set_call(address, function) __ncprt_set_call(address, (void*)(function))
-
-#define ncprt_repl_type(name) __attribute__((section(".ncp_rtrepl_" #name)))
-
-__ncp_extern void __ncp_ncprt_repl(void* dest, void* start, void* end);
-
-#define ncprt_repl(address, name) { \
-extern char ncp_rtrepl_##name##_start[]; \
-extern char ncp_rtrepl_##name##_end[]; \
-__ncp_ncprt_repl((void*)address, ncp_rtrepl_##name##_start, ncp_rtrepl_##name##_end); \
-}
+#define ncprt_write(address, value) __ncprt_write(address, value)
+#define ncprt_write_jump(address, function) __ncprt_write_jump(address, (void*)(function))
+#define ncprt_write_call(address, function) __ncprt_write_call(address, (void*)(function))
 
 #elif defined __ncp_lang_asm
 

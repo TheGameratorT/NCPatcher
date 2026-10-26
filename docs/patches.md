@@ -129,20 +129,20 @@ while the ROM is running.
 
 C/C++:
 ```
-void ncprt_set(int address, int value);
-void ncprt_set_jump(int address, void* function);
-void ncprt_set_call(int address, void* function);
-void ncprt_repl(int address, char name[]);
-
-ncprt_repl_type(name)
+void ncprt_write(int address, int value);
+void ncprt_write_jump(int address, void* function);
+void ncprt_write_call(int address, void* function);
 ```
-	
+
+Both branch helpers encode an ARM instruction, so `address` must hold ARM code.
+They write memory and nothing else: the caller is responsible for the caches.
+
 Example:
 ```
 class MyClass
 {
 public:
-    void MyFunction(); // -Wno-pmf-conversions flag must be set to be used in ncprt_set_jump/call/hook
+    void MyFunction(); // -Wno-pmf-conversions flag must be set to be used in ncprt_write_jump/call
     static void MyStaticFunction();
 };
 
@@ -150,22 +150,12 @@ void MyFunction() {}
 void MyClass::MyFunction() {}
 void MyClass::MyStaticFunction() {}
 
-ncprt_repl_type(patch0) // Must be a unique name for each patch
-void MyPatch()
-{
-asm(R"(
-    MOV     R0, #0
-    BX      LR
-)");
-}
-
 void MyPatcher()
 {
-    ncprt_set(0x02000000, 0);                              // Sets the value at 0x02000000 to 0
-    ncprt_set_jump(0x02000004, MyFunction);                // Sets the value at 0x02000004 to a jump to MyFunction
-    ncprt_set_call(0x02000008, &MyClass::MyFunction);      // Sets the value at 0x02000008 to a jump to MyClass::MyFunction
-    ncprt_set_call(0x0200000C, MyClass::MyStaticFunction); // Sets the value at 0x0200000C to a jump to MyClass::MyStaticFunction
-    ncprt_repl(0x02000010, patch0);                        // Writes the contents of patch0 (MyPatch) to 0x02000010
+    ncprt_write(0x02000000, 0);                              // Sets the value at 0x02000000 to 0
+    ncprt_write_jump(0x02000004, MyFunction);                // Sets the value at 0x02000004 to a jump to MyFunction
+    ncprt_write_call(0x02000008, &MyClass::MyFunction);      // Sets the value at 0x02000008 to a call to MyClass::MyFunction
+    ncprt_write_call(0x0200000C, MyClass::MyStaticFunction); // Sets the value at 0x0200000C to a call to MyClass::MyStaticFunction
 }
 ```
 

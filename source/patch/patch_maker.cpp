@@ -214,7 +214,6 @@ void PatchMaker::generateElfFile()
 		// re-implementing.
 		m_linker->createMeasurementScript(
 			m_patchTracker->getPatchInfo(),
-			m_patchTracker->getRtreplPatches(),
 			m_patchTracker->getExternSymbols(),
 			m_overwriteRegionManager->getOverwriteRegions(),
 			candidateSections
@@ -229,7 +228,6 @@ void PatchMaker::generateElfFile()
 	// Generate the final ELF with properly filtered sections
 	m_linker->createLinkerScript(
 		m_patchTracker->getPatchInfo(),
-		m_patchTracker->getRtreplPatches(),
 		m_patchTracker->getExternSymbols(),
 		m_overwriteRegionManager->getOverwriteRegions()
 	);
@@ -254,7 +252,6 @@ void PatchMaker::processPatches()
 	PatchOperationContext context(
 		elf,
 		m_patchTracker->getPatchInfo(),
-		m_patchTracker->getRtreplPatches(),
 		m_patchTracker->getNewcodeInfoForDest(),
 		m_patchTracker->getAutogenDataInfoForDest(),
 		m_newcodeAddrForDest,

@@ -9,7 +9,7 @@ include(GNUInstallDirs)
 # left behind by a previous install. The failure mode that makes this worth
 # checking is silent, since a stale header compiles fine and simply stops
 # emitting the sections the patcher looks for.
-set(NCP_SDK_VERSION 1)
+set(NCP_SDK_VERSION 2)
 
 file(STRINGS "${PROJECT_SOURCE_DIR}/sdk/ncp.h" _ncp_stamp
 	REGEX "^#define[ \t]+__ncp_sdk_version[ \t]+")

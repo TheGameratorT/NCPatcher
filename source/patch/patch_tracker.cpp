@@ -500,12 +500,6 @@ void PatchTracker::parseSymverSymbol(std::string_view symbolName, int sectionIdx
     if (!parsedInfo.isValid)
         return;
 
-    if (parsedInfo.type == patch::PatchType::RtRepl)
-    {
-        Log::out << OWARN << "RtRepl patches are not supported for symver patches: " << symbolName << std::endl;
-        return;
-    }
-
     if (parsedInfo.type == patch::PatchType::Over)
     {
         Log::out << OWARN << "\"over\" patch must be a section type patch, not symver: " << symbolName << std::endl;
@@ -537,12 +531,6 @@ void PatchTracker::parseRegularSymbol(std::string_view symbolName, int sectionId
     if (!parsedInfo.isValid)
         return;
 
-    if (parsedInfo.type == patch::PatchType::RtRepl)
-    {
-        handleRtReplPatch(symbolName, unit, false);
-        return;
-    }
-
     if (parsedInfo.type == patch::PatchType::Over)
     {
         Log::out << OWARN << "\"over\" patch must be a section type patch: " << stemless << std::endl;
@@ -564,12 +552,6 @@ void PatchTracker::parseSectionSymbol(std::string_view symbolName, int sectionId
     ParsedPatchInfo parsedInfo = parsePatchTypeAndAddress(labelName);
     if (!parsedInfo.isValid)
         return;
-
-    if (parsedInfo.type == patch::PatchType::RtRepl)
-    {
-        handleRtReplPatch(symbolName, unit, true);
-        return;
-    }
 
     if (parsedInfo.type == patch::PatchType::Over && sectionIdx == -1)
     {
@@ -605,12 +587,6 @@ void PatchTracker::parseNcpSetSection(const Elf32& elf, const Elf32_Ehdr& eh, co
 
     // Force this to be an ncp_set patch
     parsedInfo.isNcpSet = true;
-
-    if (parsedInfo.type == patch::PatchType::RtRepl)
-    {
-        Log::out << OWARN << "\"rtrepl\" patch type is not supported for ncp_set sections: " << labelName << std::endl;
-        return;
-    }
 
     validatePatchForRegion(parsedInfo, sectionName, unit);
 
@@ -682,17 +658,6 @@ void PatchTracker::parseNcpSetSection(const Elf32& elf, const Elf32_Ehdr& eh, co
     patchInfoEntry->srcThumb = srcThumb;
     objPatchInfo.push_back(patchInfoEntry.get());
     m_patchInfo.push_back(std::move(patchInfoEntry));
-}
-
-void PatchTracker::handleRtReplPatch(std::string_view symbolName, core::CompilationUnit* unit, bool isSection)
-{
-    if (isSection) // we do not want the labels, those are placeholders
-    {
-        auto rtreplPatch = std::make_unique<PatchInfo>();
-        rtreplPatch->unit = unit;
-        rtreplPatch->symbol = std::string(symbolName);
-        m_rtreplPatches.push_back(std::move(rtreplPatch));
-    }
 }
 
 void PatchTracker::finalizePatchesWithElfData(const Elf32& elf)

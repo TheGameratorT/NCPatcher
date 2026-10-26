@@ -9,8 +9,7 @@ const char* patchTypeNames[] = {
 	"setjump", "setcall", "sethook",
 	"tjump", "tcall", "thook",
 	"settjump", "settcall", "setthook",
-	"over",
-	"rtrepl"
+	"over"
 };
 
 const char* patchOriginNames[] = {

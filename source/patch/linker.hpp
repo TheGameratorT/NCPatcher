@@ -52,7 +52,6 @@ public:
 
     void createLinkerScript(
         const std::vector<std::unique_ptr<PatchInfo>>& patchInfo,
-        const std::vector<std::unique_ptr<PatchInfo>>& rtreplPatches,
         const std::vector<std::string>& externSymbols,
         const std::vector<std::unique_ptr<OverwriteRegionInfo>>& overwriteRegions
     );
@@ -64,7 +63,6 @@ public:
     // tells us the real post-GC, post-merge size of each candidate.
     void createMeasurementScript(
         const std::vector<std::unique_ptr<PatchInfo>>& patchInfo,
-        const std::vector<std::unique_ptr<PatchInfo>>& rtreplPatches,
         const std::vector<std::string>& externSymbols,
         const std::vector<std::unique_ptr<OverwriteRegionInfo>>& overwriteRegions,
         const std::vector<std::unique_ptr<SectionInfo>>& candidateSections
@@ -101,7 +99,6 @@ private:
     void writeLinkerScript(
         ScriptMode mode,
         const std::vector<std::unique_ptr<PatchInfo>>& patchInfo,
-        const std::vector<std::unique_ptr<PatchInfo>>& rtreplPatches,
         const std::vector<std::string>& externSymbols,
         const std::vector<std::unique_ptr<OverwriteRegionInfo>>& overwriteRegions,
         const std::vector<std::unique_ptr<SectionInfo>>* candidateSections
