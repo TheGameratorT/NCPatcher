@@ -282,6 +282,25 @@ endif()
 
 include(CPack)
 
+# The Windows installer is built from a portable install staged in the build
+# dir, so it ships exactly what the release zip does.
+if (WIN32 AND NCP_PORTABLE_LAYOUT)
+	set(NCP_INSTALLER_STAGE "${CMAKE_BINARY_DIR}/installer-stage")
+	add_custom_target(installer
+		COMMAND ${CMAKE_COMMAND} -E rm -rf "${NCP_INSTALLER_STAGE}"
+		COMMAND ${CMAKE_COMMAND} --install "${CMAKE_BINARY_DIR}"
+			--config $<CONFIG> --prefix "${NCP_INSTALLER_STAGE}"
+		COMMAND ${CMAKE_COMMAND}
+			-DBINARY_DIR=${CMAKE_BINARY_DIR}
+			-DSOURCE_DIR=${PROJECT_SOURCE_DIR}
+			-DSTAGE_DIR=${NCP_INSTALLER_STAGE}
+			-DAPP_VERSION=${PROJECT_VERSION}
+			-P "${PROJECT_SOURCE_DIR}/installer/build_installer.cmake"
+		DEPENDS ${PROJECT_NAME}
+		COMMENT "Building Windows installer with NSIS"
+		VERBATIM)
+endif()
+
 # Tests =====================================================================
 
 if (NCP_BUILD_TESTS)

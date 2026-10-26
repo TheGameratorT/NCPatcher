@@ -6,9 +6,10 @@ It was created because of the need to have more flexible patching features that 
 
 ## Quick start
 
-Install a release (on Windows, the installer or `scoop install ncpatcher`), or
-build from source as described in [Installing](docs/installing.md). Then create
-a project and build it:
+Install a release (on Windows, the installer from the
+[Releases](https://github.com/TheGameratorT/NCPatcher/releases) page), or build
+from source as described in [Installing](docs/installing.md). Then create a
+project and build it:
 
 ```sh
 ncpatcher -C my-project init                  # or: init --template nsmb

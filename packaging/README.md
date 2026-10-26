@@ -22,19 +22,43 @@ cd build && cpack -G "DEB;RPM;TGZ"
 
 ## Windows installer
 
-Built from a staged portable install, so the installer and the zip ship the
-same bytes:
+An NSIS setup exe, built by the `installer` target from a portable install it
+stages in the build dir, so the installer and the zip ship the same files:
 
 ```
-cmake -B build -G "Visual Studio 17 2022" -A x64 -DNCP_PORTABLE_LAYOUT=ON
-cmake --build build --config Release
-cmake --install build --config Release --prefix stage
-iscc /DStageDir=..\stage /DAppVersion=1.0.4 installer\ncpatcher.iss
+cmake -B build -A x64
+cmake --build build --config Release --target installer
+# -> build/ncpatcher-<version>-setup.exe
 ```
 
-The add-to-PATH checkbox is the point of it: adding the directory by hand and
-rebooting for it to take is the step the project templates used to have to
-spell out.
+Install NSIS from <https://nsis.sourceforge.io/> (or `choco install nsis`);
+`installer/build_installer.cmake` looks in its default install directory and
+then on `PATH`. Don't use MSYS2's NSIS package: its plugins are installed
+under `share/nsis/Plugins/unicode`, which makensis 3.13 doesn't search.
+
+What it does:
+
+- installs into `Program Files\NCPatcher`, adds that directory to the machine
+  `PATH` and sets `NCPATCHER_ROOT` to it. Both are broadcast to the shell, so a
+  newly opened terminal sees them without signing out;
+- optionally downloads the Arm GNU Toolchain (`arm-none-eabi-gcc`, 276 MB),
+  checks it against the SHA-256 pinned in `installer/ncpatcher.nsi`, unpacks it
+  into `NCPatcher\arm-none-eabi` and adds its `bin` to `PATH`. The component is
+  unticked when an `arm-none-eabi-gcc` is already on `PATH`, and an upgrade that
+  finds the same toolchain version installed does not download it again. The
+  download uses the `curl.exe` and `tar.exe` that ship with Windows 10 1803 and
+  later, so no NSIS plugins are needed;
+- the uninstaller reverses all of that and removes exactly the staged files
+  (the list is generated from the stage at build time), leaving anything else
+  in the directory alone.
+
+`PATH` is edited by `installer/path.ps1` rather than by NSIS itself, because a
+stock NSIS build holds strings of at most 1024 characters and would truncate a
+longer `PATH` when writing it back.
+
+To move to a newer toolchain, update `TOOLCHAIN_VERSION`, `TOOLCHAIN_URL` and
+`TOOLCHAIN_SHA256` at the top of `ncpatcher.nsi` (Arm publishes the hash beside
+each zip as `<zip>.sha256asc`), and the sizes in the messages if they changed.
 
 ## Scoop
 

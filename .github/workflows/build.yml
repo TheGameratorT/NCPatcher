@@ -165,25 +165,30 @@ jobs:
       with:
         path: ${{ env.package_name }}
         name: ${{ env.package_name }}
-    # One installer, from the 64-bit build, staged from exactly what the zip
-    # contains so the two cannot disagree about what shipped.
+    # One installer, from the 64-bit build. The installer target stages its own
+    # `cmake --install` from the same install rules as the zip, so the two
+    # cannot disagree about what shipped.
     - name: Build the installer
       if: ${{ matrix.arch-name == '64bit' }}
       shell: pwsh
       run: |
-        $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-        if (-not (Test-Path $iscc)) {
-          choco install innosetup -y --no-progress
-          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+        if (-not (Get-Command makensis -ErrorAction SilentlyContinue) -and
+            -not (Test-Path "${env:ProgramFiles(x86)}\NSIS\makensis.exe")) {
+          choco install nsis -y --no-progress
         }
-        $version = (Select-String -Path CMakeLists.txt -Pattern 'project\(ncpatcher VERSION ([0-9.]+)').Matches[0].Groups[1].Value
-        & $iscc "/DStageDir=${{ github.workspace }}\${{ env.package_name }}" "/DAppVersion=$version" installer\ncpatcher.iss
+        cmake --build build --config Release --target installer
     - name: Upload the installer
       if: ${{ matrix.arch-name == '64bit' }}
       uses: actions/upload-artifact@v7
       with:
-        path: dist/*.exe
+        path: build/ncpatcher-*-setup.exe
         name: ncpatcher-setup
+    - name: Upload the installer to release
+      if: ${{ success() && matrix.arch-name == '64bit' && startsWith(github.ref, 'refs/tags') }}
+      uses: AButler/upload-release-assets@v3.0
+      with:
+        files: build/ncpatcher-*-setup.exe
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Compress package
       if: ${{ success() && startsWith(github.ref, 'refs/tags') }}
       shell: powershell

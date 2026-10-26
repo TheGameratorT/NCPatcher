@@ -4,9 +4,13 @@ Grab a release, or build from source. Either way the binary can live anywhere:
 it locates `ncp.h` and its companions relative to itself, so there is no longer
 anything to add to `PATH` beyond the binary, and nothing to reboot for.
 
-**Windows**: run the installer and tick *Add NCPatcher to the system PATH*, or
-unzip the portable archive anywhere and put that directory on `PATH` yourself.
-With [Scoop](https://scoop.sh): `scoop install ncpatcher`.
+**Windows**: the recommended way is the installer
+(`ncpatcher-<version>-setup.exe`) from the
+[Releases](https://github.com/TheGameratorT/NCPatcher/releases) page. It adds
+NCPatcher to `PATH`, sets `NCPATCHER_ROOT` to the install directory, and can
+also download the Arm GNU Toolchain (`arm-none-eabi-gcc`) and put it on `PATH`.
+Alternatively, unzip the portable archive anywhere and put that directory on
+`PATH` yourself, or use [Scoop](https://scoop.sh): `scoop install ncpatcher`.
 
 **Linux and macOS**: unpack the release archive, or install from source:
 
