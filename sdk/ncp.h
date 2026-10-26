@@ -174,6 +174,80 @@ static inline void __ncprt_write_call(int address, void* function) { *(int*)(__U
 #define ncprt_write_jump(address, function) __ncprt_write_jump(address, (void*)(function))
 #define ncprt_write_call(address, function) __ncprt_write_call(address, (void*)(function))
 
+// Patch groups: the ncp_ patches tagged with a group name, which ncprt_apply
+// writes and ncprt_revert undoes while the game runs. The group comes first,
+// as in ncprt_call(group, address[, overlay]).
+
+#define __ncp_get_macro4(_1, _2, _3, _4, NAME, ...) NAME
+
+#define __ncprt_main_section(opcode, group, address) __attribute__((section(".ncp_" #opcode "_" #address "_g" #group), used))
+#define __ncprt_ovxx_section(opcode, group, address, overlay) __attribute__((section(".ncp_" #opcode "_" #address "_ov" #overlay "_g" #group), used))
+
+#define __ncprt_main_symver_impl(opcode, group, address, counter, line, file) __attribute__((__symver__("__ncp_" #opcode "_" #address "_g" #group "_" #counter "_" #line "_" #file "@0"), used))
+#define __ncprt_main_symver(opcode, group, address, counter, line, file) __ncprt_main_symver_impl(opcode, group, address, counter, line, file)
+#define __ncprt_ovxx_symver_impl(opcode, group, address, overlay, counter, line, file) __attribute__((__symver__("__ncp_" #opcode "_" #address "_ov" #overlay "_g" #group "_" #counter "_" #line "_" #file "@0"), used))
+#define __ncprt_ovxx_symver(opcode, group, address, overlay, counter, line, file) __ncprt_ovxx_symver_impl(opcode, group, address, overlay, counter, line, file)
+
+#define __ncprt_main_patch(opcode, group, address) __ncprt_main_symver(opcode, group, address, __COUNTER__, __LINE__, __ncp_src_base32)
+#define __ncprt_ovxx_patch(opcode, group, address, overlay) __ncprt_ovxx_symver(opcode, group, address, overlay, __COUNTER__, __LINE__, __ncp_src_base32)
+
+#define __ncprt_main_jump(group, address) __ncprt_main_patch(jump, group, address)
+#define __ncprt_main_call(group, address) __ncprt_main_patch(call, group, address)
+#define __ncprt_main_hook(group, address) __ncprt_main_patch(hook, group, address)
+#define __ncprt_main_tjump(group, address) __ncprt_main_patch(tjump, group, address)
+#define __ncprt_main_tcall(group, address) __ncprt_main_patch(tcall, group, address)
+#define __ncprt_main_thook(group, address) __ncprt_main_patch(thook, group, address)
+#define __ncprt_ovxx_jump(group, address, overlay) __ncprt_ovxx_patch(jump, group, address, overlay)
+#define __ncprt_ovxx_call(group, address, overlay) __ncprt_ovxx_patch(call, group, address, overlay)
+#define __ncprt_ovxx_hook(group, address, overlay) __ncprt_ovxx_patch(hook, group, address, overlay)
+#define __ncprt_ovxx_tjump(group, address, overlay) __ncprt_ovxx_patch(tjump, group, address, overlay)
+#define __ncprt_ovxx_tcall(group, address, overlay) __ncprt_ovxx_patch(tcall, group, address, overlay)
+#define __ncprt_ovxx_thook(group, address, overlay) __ncprt_ovxx_patch(thook, group, address, overlay)
+#define __ncprt_main_over(group, address) __ncprt_main_section(over, group, address)
+#define __ncprt_ovxx_over(group, address, overlay) __ncprt_ovxx_section(over, group, address, overlay)
+
+#define ncprt_jump(...) __ncp_get_macro(__VA_ARGS__, __ncprt_ovxx_jump, __ncprt_main_jump, )(__VA_ARGS__)
+#define ncprt_call(...) __ncp_get_macro(__VA_ARGS__, __ncprt_ovxx_call, __ncprt_main_call, )(__VA_ARGS__)
+#define ncprt_hook(...) __ncp_get_macro(__VA_ARGS__, __ncprt_ovxx_hook, __ncprt_main_hook, )(__VA_ARGS__)
+#define ncprt_tjump(...) __ncp_get_macro(__VA_ARGS__, __ncprt_ovxx_tjump, __ncprt_main_tjump, )(__VA_ARGS__)
+#define ncprt_tcall(...) __ncp_get_macro(__VA_ARGS__, __ncprt_ovxx_tcall, __ncprt_main_tcall, )(__VA_ARGS__)
+#define ncprt_thook(...) __ncp_get_macro(__VA_ARGS__, __ncprt_ovxx_thook, __ncprt_main_thook, )(__VA_ARGS__)
+#define ncprt_over(...) __ncp_get_macro(__VA_ARGS__, __ncprt_ovxx_over, __ncprt_main_over, )(__VA_ARGS__)
+
+#define __ncprt_main_set(opcode, group, address, function) void* ncp_set##opcode##_##address##_g##group __attribute__((section(".ncp_set" #opcode "_" #address "_g" #group), used)) = (void*)function;
+#define __ncprt_ovxx_set(opcode, group, address, overlay, function) void* ncp_set##opcode##_##address##_ov##overlay##_g##group __attribute__((section(".ncp_set" #opcode "_" #address "_ov" #overlay "_g" #group), used)) = (void*)function;
+
+#define __ncprt_main_set_jump(group, address, function) __ncprt_main_set(jump, group, address, function)
+#define __ncprt_main_set_call(group, address, function) __ncprt_main_set(call, group, address, function)
+#define __ncprt_main_set_hook(group, address, function) __ncprt_main_set(hook, group, address, function)
+#define __ncprt_main_set_tjump(group, address, function) __ncprt_main_set(tjump, group, address, function)
+#define __ncprt_main_set_tcall(group, address, function) __ncprt_main_set(tcall, group, address, function)
+#define __ncprt_main_set_thook(group, address, function) __ncprt_main_set(thook, group, address, function)
+#define __ncprt_ovxx_set_jump(group, address, overlay, function) __ncprt_ovxx_set(jump, group, address, overlay, function)
+#define __ncprt_ovxx_set_call(group, address, overlay, function) __ncprt_ovxx_set(call, group, address, overlay, function)
+#define __ncprt_ovxx_set_hook(group, address, overlay, function) __ncprt_ovxx_set(hook, group, address, overlay, function)
+#define __ncprt_ovxx_set_tjump(group, address, overlay, function) __ncprt_ovxx_set(tjump, group, address, overlay, function)
+#define __ncprt_ovxx_set_tcall(group, address, overlay, function) __ncprt_ovxx_set(tcall, group, address, overlay, function)
+#define __ncprt_ovxx_set_thook(group, address, overlay, function) __ncprt_ovxx_set(thook, group, address, overlay, function)
+
+#define ncprt_set_jump(...) __ncp_get_macro4(__VA_ARGS__, __ncprt_ovxx_set_jump, __ncprt_main_set_jump, )(__VA_ARGS__)
+#define ncprt_set_call(...) __ncp_get_macro4(__VA_ARGS__, __ncprt_ovxx_set_call, __ncprt_main_set_call, )(__VA_ARGS__)
+#define ncprt_set_hook(...) __ncp_get_macro4(__VA_ARGS__, __ncprt_ovxx_set_hook, __ncprt_main_set_hook, )(__VA_ARGS__)
+#define ncprt_set_tjump(...) __ncp_get_macro4(__VA_ARGS__, __ncprt_ovxx_set_tjump, __ncprt_main_set_tjump, )(__VA_ARGS__)
+#define ncprt_set_tcall(...) __ncp_get_macro4(__VA_ARGS__, __ncprt_ovxx_set_tcall, __ncprt_main_set_tcall, )(__VA_ARGS__)
+#define ncprt_set_thook(...) __ncp_get_macro4(__VA_ARGS__, __ncprt_ovxx_set_thook, __ncprt_main_set_thook, )(__VA_ARGS__)
+
+#define __ncprt_main_repl(group, address, assembly) __attribute__((naked)) void __ncprt_repl_##group##_##address() { asm( ".pushsection .ncp_over_" #address "_g" #group "\n" assembly "\n.popsection" ); }
+#define __ncprt_ovxx_repl(group, address, overlay, assembly) __attribute__((naked)) void __ncprt_repl_##group##_##address##_ov##overlay() { asm( ".pushsection .ncp_over_" #address "_ov" #overlay "_g" #group "\n" assembly "\n.popsection" ); }
+#define ncprt_repl(...) __ncp_get_macro4(__VA_ARGS__, __ncprt_ovxx_repl, __ncprt_main_repl, )(__VA_ARGS__)
+
+// The table ncpatcher generates for a group, which needs no declaration.
+#define ncprt_get_group(group) ({ extern ncprt_group __ncprt_group_##group __asm__("ncprt_group_" #group); &__ncprt_group_##group; })
+
+#define ncprt_apply(group) __ncprt_apply(ncprt_get_group(group))
+#define ncprt_revert(group) __ncprt_revert(ncprt_get_group(group))
+#define ncprt_is_applied(group) (ncprt_get_group(group)->applied != 0)
+
 #elif defined __ncp_lang_asm
 
 #define __ncp_get_macro(_1, _2, _3, NAME, ...) NAME
@@ -218,6 +292,37 @@ static inline void __ncprt_write_call(int address, void* function) { *(int*)(__U
 
 #define ncp_over(...) __ncp_get_macro(__VA_ARGS__, , __ncp_ovxx_over, __ncp_main_over)(__VA_ARGS__)
 #define ncp_endover() .popsection
+
+// RUNTIME GROUPS
+
+#define __ncprt_main_label(opcode, group, address) .global ncp_ ##opcode## _ ##address## _g ##group; .type ncp_ ##opcode## _ ##address## _g ##group,%function; ncp_ ##opcode## _ ##address## _g ##group## : __ncp_dest_set(address)
+#define __ncprt_ovxx_label(opcode, group, address, overlay) .global ncp_ ##opcode## _ ##address## _ov ##overlay## _g ##group; .type ncp_ ##opcode## _ ##address## _ov ##overlay## _g ##group,%function; ncp_ ##opcode## _ ##address## _ov ##overlay## _g ##group## : __ncp_dest_set(address)
+#define __ncprt_main_section(opcode, group, address) .pushsection .ncp_ ##opcode## _ ##address## _g ##group; __ncp_dest_set(address)
+#define __ncprt_ovxx_section(opcode, group, address, overlay) .pushsection .ncp_ ##opcode## _ ##address## _ov ##overlay## _g ##group; __ncp_dest_set(address)
+
+#define __ncprt_main_jump(group, address) __ncprt_main_label(jump, group, address)
+#define __ncprt_main_call(group, address) __ncprt_main_label(call, group, address)
+#define __ncprt_main_hook(group, address) __ncprt_main_label(hook, group, address)
+#define __ncprt_main_tjump(group, address) __ncprt_main_label(tjump, group, address)
+#define __ncprt_main_tcall(group, address) __ncprt_main_label(tcall, group, address)
+#define __ncprt_main_thook(group, address) __ncprt_main_label(thook, group, address)
+#define __ncprt_ovxx_jump(group, address, overlay) __ncprt_ovxx_label(jump, group, address, overlay)
+#define __ncprt_ovxx_call(group, address, overlay) __ncprt_ovxx_label(call, group, address, overlay)
+#define __ncprt_ovxx_hook(group, address, overlay) __ncprt_ovxx_label(hook, group, address, overlay)
+#define __ncprt_ovxx_tjump(group, address, overlay) __ncprt_ovxx_label(tjump, group, address, overlay)
+#define __ncprt_ovxx_tcall(group, address, overlay) __ncprt_ovxx_label(tcall, group, address, overlay)
+#define __ncprt_ovxx_thook(group, address, overlay) __ncprt_ovxx_label(thook, group, address, overlay)
+#define __ncprt_main_over(group, address) __ncprt_main_section(over, group, address)
+#define __ncprt_ovxx_over(group, address, overlay) __ncprt_ovxx_section(over, group, address, overlay)
+
+#define ncprt_jump(...) __ncp_get_macro(__VA_ARGS__, __ncprt_ovxx_jump, __ncprt_main_jump, )(__VA_ARGS__)
+#define ncprt_call(...) __ncp_get_macro(__VA_ARGS__, __ncprt_ovxx_call, __ncprt_main_call, )(__VA_ARGS__)
+#define ncprt_hook(...) __ncp_get_macro(__VA_ARGS__, __ncprt_ovxx_hook, __ncprt_main_hook, )(__VA_ARGS__)
+#define ncprt_tjump(...) __ncp_get_macro(__VA_ARGS__, __ncprt_ovxx_tjump, __ncprt_main_tjump, )(__VA_ARGS__)
+#define ncprt_tcall(...) __ncp_get_macro(__VA_ARGS__, __ncprt_ovxx_tcall, __ncprt_main_tcall, )(__VA_ARGS__)
+#define ncprt_thook(...) __ncp_get_macro(__VA_ARGS__, __ncprt_ovxx_thook, __ncprt_main_thook, )(__VA_ARGS__)
+#define ncprt_over(...) __ncp_get_macro(__VA_ARGS__, __ncprt_ovxx_over, __ncprt_main_over, )(__VA_ARGS__)
+#define ncprt_endover() .popsection
 
 #else
 	

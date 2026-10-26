@@ -12,6 +12,7 @@
 #include "../app/context.hpp"
 #include "dependency_resolver.hpp"
 #include "types.hpp"
+#include "patch_name.hpp"
 
 namespace ncp::patch {
 
@@ -48,7 +49,8 @@ private:
         bool isNcpSet;
         bool forceThumb;
         bool isValid;
-        
+        std::string group;
+
         ParsedPatchInfo() : type(PatchType::Jump), destAddress(0), destAddressOv(-1), 
                            isNcpSet(false), forceThumb(false), isValid(false) {}
     };
@@ -66,10 +68,7 @@ private:
     std::unordered_map<int, std::unique_ptr<AutogenDataInfo>> m_autogenDataInfoForDest;
 
     // Patch parsing helpers
-    ParsedPatchInfo parsePatchTypeAndAddress(std::string_view labelName);
-    ParsedPatchInfo parseSymverPatchTypeAndAddress(std::string_view labelName);
-    u32 parseAddress(std::string_view addressStr) const;
-    int parseOverlay(std::string_view overlayStr) const;
+    ParsedPatchInfo parsePatchName(std::string_view labelName, PatchNameForm form) const;
     void normalizePatchType(ParsedPatchInfo& info) const;
 
     // Patch creation helpers

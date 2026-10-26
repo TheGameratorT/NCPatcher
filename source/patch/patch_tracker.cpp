@@ -9,6 +9,7 @@
 #include "../utils/util.hpp"
 #include "../utils/endian.hpp"
 #include "../formats/archive.hpp"
+#include "patch_name.hpp"
 
 namespace ncp::patch {
 
@@ -96,137 +97,27 @@ void PatchTracker::processObjectFile(core::CompilationUnit* unit)
     printObjectPatchInfo(objPatchInfo, unit);
 }
 
-PatchTracker::ParsedPatchInfo PatchTracker::parsePatchTypeAndAddress(std::string_view labelName)
+PatchTracker::ParsedPatchInfo PatchTracker::parsePatchName(std::string_view labelName, PatchNameForm form) const
 {
     ParsedPatchInfo info;
-    
-    std::size_t patchTypeNameEnd = labelName.find('_');
-    if (patchTypeNameEnd == std::string::npos)
-        return info;
 
-    std::string_view patchTypeName = labelName.substr(0, patchTypeNameEnd);
-    PatchType patchType = patchTypeFromString(patchTypeName);
-    if (patchType == PatchType::Invalid)
+    PatchName name;
+    std::string error;
+    if (!patch::parsePatchName(labelName, form, name, error))
     {
-        Log::out << OWARN << "Found invalid patch type: " << patchTypeName << std::endl;
+        if (!error.empty())
+            Log::out << OWARN << error << std::endl;
         return info;
     }
 
-    info.type = patchType;
-
-    bool expectingOverlay = true;
-    std::size_t addressNameStart = patchTypeNameEnd + 1;
-    std::size_t addressNameEnd = labelName.find('_', addressNameStart);
-    if (addressNameEnd == std::string::npos)
-    {
-        addressNameEnd = labelName.length();
-        expectingOverlay = false;
-    }
-
-    std::string_view addressName = labelName.substr(addressNameStart, addressNameEnd - addressNameStart);
-    try {
-        info.destAddress = parseAddress(addressName);
-    } catch (std::exception& e) {
-        Log::out << OWARN << "Found invalid address for patch: " << labelName << std::endl;
-        return info;
-    }
-
-    info.destAddressOv = -1;
-    if (expectingOverlay)
-    {
-        std::size_t overlayNameStart = addressNameEnd + 1;
-        std::size_t overlayNameEnd = labelName.length();
-        std::string_view overlayName = labelName.substr(overlayNameStart, overlayNameEnd - overlayNameStart);
-        if (!overlayName.starts_with("ov"))
-        {
-            Log::out << OWARN << "Expected overlay definition in patch for: " << labelName << std::endl;
-            return info;
-        }
-        try {
-            info.destAddressOv = parseOverlay(overlayName.substr(2));
-        } catch (std::exception& e) {
-            Log::out << OWARN << "Found invalid overlay for patch: " << labelName << std::endl;
-            return info;
-        }
-    }
+    info.type = name.type;
+    info.destAddress = name.destAddress;
+    info.destAddressOv = name.destAddressOv;
+    info.group = std::move(name.group);
 
     normalizePatchType(info);
     info.isValid = true;
     return info;
-}
-
-PatchTracker::ParsedPatchInfo PatchTracker::parseSymverPatchTypeAndAddress(std::string_view labelName)
-{
-    ParsedPatchInfo info;
-    
-    std::size_t patchTypeNameEnd = labelName.find('_');
-    if (patchTypeNameEnd == std::string::npos)
-        return info;
-
-    std::string_view patchTypeName = labelName.substr(0, patchTypeNameEnd);
-    PatchType patchType = patchTypeFromString(patchTypeName);
-    if (patchType == PatchType::Invalid)
-    {
-        Log::out << OWARN << "Found invalid patch type: " << patchTypeName << std::endl;
-        return info;
-    }
-
-    info.type = patchType;
-
-    // For symver patches, find the address (second component)
-    std::size_t addressNameStart = patchTypeNameEnd + 1;
-    std::size_t addressNameEnd = labelName.find('_', addressNameStart);
-    if (addressNameEnd == std::string::npos)
-    {
-        addressNameEnd = labelName.length();
-    }
-
-    std::string_view addressName = labelName.substr(addressNameStart, addressNameEnd - addressNameStart);
-    try {
-        info.destAddress = parseAddress(addressName);
-    } catch (std::exception& e) {
-        Log::out << OWARN << "Found invalid address for patch: " << labelName << std::endl;
-        return info;
-    }
-
-    info.destAddressOv = -1;
-    
-    // For symver patches, check if there's an overlay specification after the address
-    // Format: <type>_<address>[_ov<overlay>]_<unique ids...>
-    if (addressNameEnd < labelName.length())
-    {
-        std::size_t overlayNameStart = addressNameEnd + 1;
-        std::size_t overlayNameEnd = labelName.find('_', overlayNameStart);
-        if (overlayNameEnd == std::string::npos)
-        {
-            overlayNameEnd = labelName.length();
-        }
-        
-        std::string_view potentialOverlay = labelName.substr(overlayNameStart, overlayNameEnd - overlayNameStart);
-        if (potentialOverlay.starts_with("ov"))
-        {
-            try {
-                info.destAddressOv = parseOverlay(potentialOverlay.substr(2));
-            } catch (std::exception& e) {
-                Log::out << OWARN << "Found invalid overlay for symver patch: " << labelName << std::endl;
-                return info;
-            }
-        }
-    }
-
-    normalizePatchType(info);
-    info.isValid = true;
-    return info;
-}
-
-u32 PatchTracker::parseAddress(std::string_view addressStr) const
-{
-    return Util::addrToInt(std::string(addressStr));
-}
-
-int PatchTracker::parseOverlay(std::string_view overlayStr) const
-{
-    return Util::addrToInt(std::string(overlayStr));
 }
 
 void PatchTracker::normalizePatchType(ParsedPatchInfo& info) const
@@ -301,6 +192,7 @@ std::unique_ptr<PatchInfo> PatchTracker::createPatchInfo(
     patchInfoEntry->sectionIdx = sectionIdx;
     patchInfoEntry->sectionSize = sectionSize;
     patchInfoEntry->isNcpSet = parsedInfo.isNcpSet;
+    patchInfoEntry->group = parsedInfo.group;
     patchInfoEntry->srcThumb = bool(symbolAddr & 1);
     patchInfoEntry->destThumb = bool(parsedInfo.destAddress & 1);
     patchInfoEntry->symbol = std::string(symbolName);
@@ -312,6 +204,14 @@ std::unique_ptr<PatchInfo> PatchTracker::createPatchInfo(
 
 void PatchTracker::validatePatchForRegion(const ParsedPatchInfo& parsedInfo, std::string_view symbolName, core::CompilationUnit* unit) const
 {
+    if (!parsedInfo.group.empty())
+    {
+        std::ostringstream oss;
+        oss << OSTRa(symbolName) << " (" << OSTR(unit->getSourcePath().string())
+            << ") belongs to the runtime group " << OSTRa(parsedInfo.group) << ", and runtime groups are not yet supported.";
+        throw ncp::exception(oss.str());
+    }
+
     const auto* targetRegion = m_target->getRegionByDestination(parsedInfo.destAddressOv);
     if (targetRegion && targetRegion->mode != BuildTarget::Mode::Append)
     {
@@ -496,7 +396,7 @@ void PatchTracker::parseSymverSymbol(std::string_view symbolName, int sectionIdx
     // Parse symver symbol: __ncp_<type>_<address>[_ov<overlay>]_<unique ids to ignore>
     std::string_view stemless = symbolName.substr(6); // Skip "__ncp_"
     
-    ParsedPatchInfo parsedInfo = parseSymverPatchTypeAndAddress(stemless);
+    ParsedPatchInfo parsedInfo = parsePatchName(stemless, PatchNameForm::Symver);
     if (!parsedInfo.isValid)
         return;
 
@@ -527,7 +427,7 @@ void PatchTracker::parseRegularSymbol(std::string_view symbolName, int sectionId
 
     u32 addr = symbolAddr;
 
-    ParsedPatchInfo parsedInfo = parsePatchTypeAndAddress(stemless);
+    ParsedPatchInfo parsedInfo = parsePatchName(stemless, PatchNameForm::Label);
     if (!parsedInfo.isValid)
         return;
 
@@ -549,7 +449,7 @@ void PatchTracker::parseSectionSymbol(std::string_view symbolName, int sectionId
 {
     std::string_view labelName = symbolName.substr(5); // Remove ".ncp_"
 
-    ParsedPatchInfo parsedInfo = parsePatchTypeAndAddress(labelName);
+    ParsedPatchInfo parsedInfo = parsePatchName(labelName, PatchNameForm::Label);
     if (!parsedInfo.isValid)
         return;
 
@@ -581,7 +481,7 @@ void PatchTracker::parseNcpSetSection(const Elf32& elf, const Elf32_Ehdr& eh, co
     // Parse section name: .ncp_set<opcode>_<address>[_ov<overlay>]
     std::string_view labelName = sectionName.substr(5); // Remove ".ncp_"
 
-    ParsedPatchInfo parsedInfo = parsePatchTypeAndAddress(labelName);
+    ParsedPatchInfo parsedInfo = parsePatchName(labelName, PatchNameForm::Label);
     if (!parsedInfo.isValid)
         return;
 

@@ -40,7 +40,7 @@ PatchType patchTypeFromString(std::string_view patchTypeName)
 
 std::string PatchInfo::getPrettyName() const
 {
-    std::string result = "ncp_";
+    std::string result = group.empty() ? "ncp_" : "ncprt_";
 
 	if (isNcpSet)
 		result += "set_";
@@ -51,6 +51,12 @@ std::string PatchInfo::getPrettyName() const
     // Add the patch type name
     result += toString(type);
     result += "(";
+
+    if (!group.empty())
+    {
+        result += group;
+        result += ", ";
+    }
 
     // Add the destination address
     result += Util::intToAddr(destAddress, 8);

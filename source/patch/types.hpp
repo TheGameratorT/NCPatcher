@@ -43,6 +43,10 @@ struct PatchInfo {
 	u32 sectionSize;
 	bool isNcpSet;
 
+	// The runtime group the patch is applied by, empty for a patch written at
+	// build time.
+	std::string group;
+
 	std::string getPrettyName() const;
 
 	// Returns how many bytes this patch will write to the destination
