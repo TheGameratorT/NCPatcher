@@ -88,6 +88,10 @@ struct ManifestEntry
 	std::string component;
 	std::string fromVariant;
 
+	// The runtime module whose image this file is. The manifest is written
+	// before the module is linked, so its size is the empty placeholder's.
+	std::string runtimeModule;
+
 	// Planning only: the source this entry names was not on disk to be
 	// measured, because a hook has not generated it yet. The destination, the
 	// id and the provenance are still right; the size is not.

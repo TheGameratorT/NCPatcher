@@ -224,7 +224,9 @@ bool ObjMaker::addRuntimeIfUsed()
 {
 	// The functions ncprt.c defines.
 	static constexpr std::string_view RuntimeSymbols[] = {
-		"__ncprt_apply", "__ncprt_revert", "__ncprt_encode", "ncprt_sync_code"
+		"__ncprt_apply", "__ncprt_revert", "__ncprt_encode", "ncprt_sync_code",
+		"ncprt_attach", "ncprt_detach", "ncprt_exports_of",
+		"ncprt_set_fs_provider", "ncprt_load", "ncprt_load_id", "ncprt_unload"
 	};
 
 	// A module that calls the runtime links against the main binary's copy,
@@ -237,6 +239,13 @@ bool ObjMaker::addRuntimeIfUsed()
 		Elf32* elf = ncp::cache::CacheManager::getInstance().getOrLoadElf(unit->getObjectPath());
 		Elf32::forEachSymbol(*elf, elf->getHeader(), elf->getSectionHeaderTable(),
 		[&](const Elf32_Sym& symbol, std::string_view symbolName) -> bool {
+			// A module's destructors of C++ static objects register with the
+			// runtime, through its linker script.
+			if (inModule && symbolName == "__aeabi_atexit" && symbol.st_shndx == SHN_UNDEF)
+			{
+				referenced = true;
+				return false;
+			}
 			if (std::find(std::begin(RuntimeSymbols), std::end(RuntimeSymbols), symbolName) == std::end(RuntimeSymbols))
 				return false;
 			if (symbol.st_shndx == SHN_UNDEF)

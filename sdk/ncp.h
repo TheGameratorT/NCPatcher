@@ -252,6 +252,88 @@ static inline void __ncprt_write_call(int address, void* function) { *(int*)(__U
 // module, as in ncprt_exports(const struct my_api) = { my_function };
 #define ncprt_exports(type) __attribute__((section(".ncprt_exports"), used)) static type __ncprt_module_exports_object
 
+// The header at the start of a module image (.ncrt). Every address in it is
+// one for `base`, which ncprt_attach moves to wherever the image is.
+typedef struct ncprt_module {
+	unsigned int magic;      // NCPRT_MODULE_MAGIC
+	unsigned short version;  // NCPRT_MODULE_VERSION
+	unsigned char flags;     // NCPRT_MODULE_ATTACHED while attached
+	unsigned char align;     // the image must start on a 1 << align boundary
+	unsigned int base;       // the address the image is relocated for
+	unsigned int size;       // bytes of code, data and zeroed bss
+	unsigned int exports;    // the ncprt_exports object, or 0
+	ncprt_group patches;     // applied by ncprt_attach, reverted by ncprt_detach
+	unsigned int relocs;     // u32 offsets of the words that hold module addresses
+	unsigned int relocCount;
+	unsigned int init;       // constructors, run in order by ncprt_attach
+	unsigned int initCount;
+	unsigned int fini;       // destructors, run in reverse by ncprt_detach
+	unsigned int finiCount;
+	unsigned int atexit;     // object and destructor pairs of the C++ static objects
+	unsigned short atexitCapacity;
+	unsigned short atexitCount;
+} ncprt_module;
+
+#define NCPRT_MODULE_MAGIC 0x5452434E // "NCRT"
+#define NCPRT_MODULE_VERSION 1
+#define NCPRT_MODULE_ATTACHED 1
+
+// The most any module needs its image aligned to, which is what a provider
+// should allocate on. Most need only 4 or 8: `align` in the header says.
+#define NCPRT_MODULE_ALIGN 32
+
+enum {
+	NCPRT_OK = 0,
+	NCPRT_ERROR_NOT_MODULE = -1, // the magic is wrong
+	NCPRT_ERROR_VERSION = -2,    // made by an ncpatcher this runtime does not read
+	NCPRT_ERROR_ALIGN = -3,      // not on the boundary the module needs
+	NCPRT_ERROR_ATTACHED = -4,   // already attached
+};
+
+// Prepares a module image that is in memory for running, from the start of
+// its file: relocates it if it is not at the address it was relocated for,
+// makes its code visible to the CPU, runs its constructors and applies its
+// patches. The image must stay where it is until ncprt_detach. Returns
+// NCPRT_OK or one of the NCPRT_ERROR_ values.
+__ncp_extern int ncprt_attach(void* image);
+
+// Reverts the patches of an attached module and runs its destructors. The
+// image can then be freed, or attached again where it is or after moving it.
+// Its static data keeps the values it had. Does nothing if it is not attached.
+__ncp_extern void ncprt_detach(void* image);
+
+// The object a module gave with ncprt_exports, or 0 if it has none.
+__ncp_extern void* ncprt_exports_of(const void* image);
+
+// How ncprt_load and ncprt_load_id read a module file, which only the game
+// knows. `load` takes a NitroFS path and `load_id` a file id, numbered however
+// the game numbers its files; a game sets whichever it can, and 0 for the
+// other. Both return the whole file in memory
+// on an NCPRT_MODULE_ALIGN boundary, or 0 if they cannot, and `unload` frees
+// what they returned.
+typedef struct ncprt_fs_provider {
+	void* (*load)(const char* path);
+	void* (*load_id)(unsigned int id);
+	void (*unload)(void* image);
+} ncprt_fs_provider;
+
+// Sets the provider the loading functions use. It must outlive them.
+__ncp_extern void ncprt_set_fs_provider(const ncprt_fs_provider* provider);
+
+// Loads a module file with the provider and attaches it. Returns the image,
+// or 0 if the provider cannot load files that way, the file could not be
+// loaded or the image could not be attached, in which case nothing stays
+// loaded.
+__ncp_extern void* ncprt_load(const char* path);
+
+// ncprt_load, for the file with this id, as the provider's `load_id` reads it.
+__ncp_extern void* ncprt_load_id(unsigned int id);
+
+// Detaches an image returned by ncprt_load and frees it with the provider.
+__ncp_extern void ncprt_unload(void* image);
+
+#define ncprt_exports_as(type, image) ((type*)ncprt_exports_of(image))
+
 #elif defined __ncp_lang_asm
 
 #define __ncp_get_macro(_1, _2, _3, NAME, ...) NAME

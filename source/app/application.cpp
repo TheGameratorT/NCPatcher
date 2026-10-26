@@ -783,6 +783,19 @@ void Application::runConfiguredBuild()
 		processTarget(*rom, true);  // ARM9
 	}
 
+	// A runtime module whose region matched no sources was never linked, and
+	// its placeholder would ship as an empty file, or as an emptied one.
+	for (const config::FileConfig& file : inserted.files)
+	{
+		if (file.runtimeModule.empty() || !rom->readNitroFile(file.path).empty())
+			continue;
+		ScopedContext ctx(Diag::NitroFsInsert, "Could not insert the NitroFS files.");
+		std::ostringstream oss;
+		oss << OSTR("rt:" + file.runtimeModule) << " was not built, so there is nothing to write to "
+		    << OSTR(file.path) << "." << OREASONNL << "Its region has no sources.";
+		throw ncp::exception(oss.str());
+	}
+
 	// The last one. Past here the ROM is written, and a build that has produced
 	// its output has finished whatever anyone asked of it since.
 	cancel::checkpoint();
@@ -910,14 +923,6 @@ void Application::processTarget(rom::RomAccessor& rom, bool isArm9)
 	ScopedContext ctx(Diag::TargetCompile, isArm9 ?
 		"Could not compile the ARM9 target." :
 		"Could not compile the ARM7 target.");
-
-	for (const BuildTarget::Region& region : buildTarget.runtimeRegions)
-	{
-		if (region.files.empty())
-			continue;
-		Log::out << OWARN << "This NCPatcher does not write runtime modules into the ROM yet, so the "
-		         << OSTR("file") << " of " << OSTR("rt:" + region.runtimeName) << " is not written." << std::endl;
-	}
 
 	core::CompilationUnitManager compilationUnitsMgr;
 	std::vector<std::unique_ptr<core::CompilationUnitManager>> runtimeUnitMgrs;
@@ -1175,6 +1180,42 @@ std::vector<config::FileConfig> Application::resolveNitroFiles(rom::RomAccessor&
 			*existing = file;
 	}
 
+	// The images of the runtime modules. They are linked after every file is
+	// placed, so a file nothing else writes holds their place until then.
+	for (bool arm9 : { false, true })
+	{
+		const config::TargetConfig& target = m_config.target(arm9);
+		if (!target.enabled)
+			continue;
+
+		for (const config::RegionConfig& region : target.regions)
+		{
+			for (const std::string& path : region.files)
+			{
+				const auto existing = std::find_if(files.begin(), files.end(),
+					[&](const config::FileConfig& other) { return other.path == path; });
+				if (existing != files.end())
+				{
+					std::ostringstream oss;
+					oss << "NitroFS file " << OSTR(path) << " is the " << OSTR("file") << " of "
+					    << OSTR("rt:" + region.runtimeName) << ", and is also written by ";
+					if (!existing->runtimeModule.empty())
+						oss << OSTR("rt:" + existing->runtimeModule) << ".";
+					else if (!existing->module.empty())
+						oss << "module " << OSTR(existing->module) << ".";
+					else
+						oss << OSTR(pathToUtf8(existing->source)) << ".";
+					throw ncp::exception(oss.str());
+				}
+
+				config::FileConfig file;
+				file.path = path;
+				file.runtimeModule = region.runtimeName;
+				files.push_back(std::move(file));
+			}
+		}
+	}
+
 	return files;
 }
 
@@ -1218,8 +1259,9 @@ rom::InsertionRecord Application::insertFiles(rom::RomAccessor& rom, bool planni
 	// otherwise leave the earlier files changed.
 	for (const config::FileConfig& file : files)
 	{
-		const fs::path source = m_ctx.paths.work(file.source);
-		const bool present = fs::exists(source) && fs::is_regular_file(source);
+		const bool runtime = !file.runtimeModule.empty();
+		const fs::path source = runtime ? fs::path() : m_ctx.paths.work(file.source);
+		const bool present = runtime || (fs::exists(source) && fs::is_regular_file(source));
 
 		// A build needs the bytes. A plan needs the destination, and a project
 		// whose NitroFS sources are written by a pre-build hook has none of
@@ -1238,7 +1280,7 @@ rom::InsertionRecord Application::insertFiles(rom::RomAccessor& rom, bool planni
 		prepared.config = &file;
 		prepared.missing = !present;
 
-		if (present)
+		if (present && !runtime)
 		{
 			const std::uintmax_t size = fs::file_size(source);
 			if (size > std::numeric_limits<u32>::max())
@@ -1258,6 +1300,16 @@ rom::InsertionRecord Application::insertFiles(rom::RomAccessor& rom, bool planni
 
 		const config::NitroDestination destination = config::splitNitroDestination(file.path);
 		prepared.existingId = rom.findNitroFile(destination.path);
+
+		if (destination.inArchive && runtime)
+		{
+			std::ostringstream oss;
+			oss << "Cannot write " << OSTR("rt:" + file.runtimeModule) << " to " << OSTR(file.path)
+			    << ", which is in the archive " << OSTR(destination.path) << "." << OREASONNL
+			    << "A runtime module is written as a file of its own. Use " << OSTR("output")
+			    << " to write it where the archive is packed from.";
+			throw ncp::exception(oss.str());
+		}
 
 		if (destination.inArchive)
 		{
@@ -1534,7 +1586,8 @@ rom::InsertionRecord Application::insertFiles(rom::RomAccessor& rom, bool planni
 	std::size_t replacedCount = 0;
 
 	auto report = [planning, &addedCount, &replacedCount](const PreparedFile& file, u32 fileId, const char* action) {
-		if (planning)
+		// A runtime module's image is reported when it is written.
+		if (planning || !file.config->runtimeModule.empty())
 			return;
 		if (std::string_view(action) == "created")
 			addedCount++;

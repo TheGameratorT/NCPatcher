@@ -361,6 +361,11 @@ struct FileConfig
 	std::string module;
 	std::string component;
 	std::string fromVariant;
+
+	// The name of the `rt:<name>` region whose image this file is, which has
+	// no `source`. Until the module is linked the file is an empty placeholder,
+	// so its id is settled with every other file's.
+	std::string runtimeModule;
 };
 
 // One directory swept wholesale into NitroFS, so that adding a file to a

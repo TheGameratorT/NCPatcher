@@ -46,6 +46,12 @@ Ids are raw, exactly as the FAT stores them. A game that offsets file ids at run
 time (NSMB subtracts its overlay count) applies that itself; it is a property
 of that game, not of the ROM, and NCPatcher does not know about it.
 
+A file a runtime module is written to (a region's `file:`) carries
+`"runtime-module": "<name>"`. Its id is settled with every other file's, so a
+generator can name it like any other, but the module is linked after the
+manifest is written: until then the file is an empty placeholder, and its `size`
+is 0.
+
 Those last four fields are also what makes an editor possible: every entry is
 vanilla, replaced by a module, or added by one, and grouping by path across
 variants answers which languages translate a file. The schema is

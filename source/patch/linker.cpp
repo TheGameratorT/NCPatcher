@@ -604,11 +604,19 @@ void Linker::runLinker(const std::filesystem::path& scriptPath, const std::strin
     ccmd += "gcc -nostartfiles -Wl,--gc-sections,-T\"";
     ccmd += ncp::pathToUtf8(Util::relativeIfSubpath(scriptPath, m_paths->workDir));
     ccmd += '\"';
-    ccmd += extraFlags;
     std::string targetFlags = ldFlagsToGccFlags(m_target->ldFlags);
     if (!targetFlags.empty())
         ccmd += ',';
     ccmd += targetFlags;
+
+    // Last, so that a module's own -Map wins over one in the project's flags,
+    // which names the main link's map, and in an argument of their own, since
+    // the project's flags may end in a word that is not an option.
+    if (!extraFlags.empty())
+    {
+        ccmd += " -Wl";
+        ccmd += extraFlags;
+    }
 
     if (m_ctx->isVerbose(ncp::VerboseTag::Linking))
     {
@@ -642,6 +650,7 @@ void Linker::linkRuntimeModule(
     const core::CompilationUnitManager& units,
     const std::vector<std::unique_ptr<PatchInfo>>& patchInfo,
     const std::vector<std::string>& externSymbols,
+    u32 atexitCapacity,
     const std::filesystem::path& scriptPath,
     const std::filesystem::path& elfPath
 )
@@ -745,8 +754,13 @@ void Linker::linkRuntimeModule(
          "\t\t* (.bss.*)\n"
          "\t\t* (COMMON)\n"
          "\t\t. = ALIGN(4);\n"
+         "\t\t__ncprt_module_atexit = .;\n"
+         "\t\t. += ";
+    o += std::to_string(8 * atexitCapacity);
+    o += ";\n"
          "\t\t__ncprt_module_end = .;\n"
          "\t} > rt\n\n";
+
 
     for (const auto& info : patchInfo)
     {
@@ -763,6 +777,15 @@ void Linker::linkRuntimeModule(
 
     o += "\n\t/DISCARD/ : {*(.*)}\n"
          "}\n";
+
+    // The destructors of C++ static objects go to the module's own list, which
+    // ncprt_detach runs, not to the main binary's, which nothing ever runs.
+    // The calls are wrapped rather than __aeabi_atexit defined here: ld looks
+    // in the libraries before it defines what a script assigns, and would link
+    // the C library's version and the exit code it needs.
+    o += "\n__dso_handle = __ncprt_module;\n";
+    if (atexitCapacity != 0)
+        o += "__wrap___aeabi_atexit = __ncprt_atexit;\n";
 
     if (!externSymbols.empty())
     {
@@ -787,7 +810,11 @@ void Linker::linkRuntimeModule(
     // error rather than a second copy.
     std::string extraFlags = ",--just-symbols=\"";
     extraFlags += relative(m_elfPath);
+    extraFlags += "\",-Map=\"";
+    extraFlags += relative(mapPathOf(elfPath));
     extraFlags += '"';
+    if (atexitCapacity != 0)
+        extraFlags += ",--wrap=__aeabi_atexit";
 
     std::string failure = "Could not link the runtime module rt:" + region.runtimeName + ".";
     runLinker(scriptPath, extraFlags, failure.c_str());

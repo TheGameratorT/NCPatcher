@@ -107,6 +107,7 @@ std::vector<ManifestEntry> buildManifest(
 			entry.module = found->second->module;
 			entry.component = found->second->component;
 			entry.fromVariant = found->second->fromVariant;
+			entry.runtimeModule = found->second->runtimeModule;
 			entry.sourceMissing = missing.contains(file.path);
 		}
 		else if (created.contains(file.id))
@@ -171,6 +172,8 @@ void writeManifest(std::ostream& out,
 			writer.field("component", entry.component);
 		if (!entry.fromVariant.empty())
 			writer.field("from-variant", entry.fromVariant);
+		if (!entry.runtimeModule.empty())
+			writer.field("runtime-module", entry.runtimeModule);
 		if (entry.sourceMissing)
 			writer.field("source-missing", true);
 

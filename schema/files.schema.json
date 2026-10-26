@@ -70,6 +70,10 @@
           "type": "string",
           "description": "Which layer of a layered tree supplied the file: the built variant, or the base variant underneath it. Grouping by path across manifests answers which variants translate a file."
         },
+        "runtime-module": {
+          "type": "string",
+          "description": "The name of the rt:<name> region whose image this file is. The manifest is written before the module is linked, so `size` is that of the empty placeholder holding the file's id."
+        },
         "source-missing": {
           "type": "boolean",
           "description": "Planning only, and present only when true: the source named above was not on disk to be measured, because a hook generates it. The destination, the id and the provenance still hold; the size does not. A build never reports this, because it refuses to start without the file."

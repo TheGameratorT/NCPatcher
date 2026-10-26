@@ -92,6 +92,7 @@ static void testHeader()
 	using namespace runtime;
 
 	ModuleHeader header;
+	header.alignLog2 = 3;
 	header.base = LinkBaseA;
 	header.size = 0x100;
 	header.exports = LinkBaseA + 0x40;
@@ -102,25 +103,32 @@ static void testHeader()
 	header.initCount = 2;
 	header.fini = LinkBaseA + 0x68;
 	header.finiCount = 1;
+	header.atexit = LinkBaseA + 0xC0;
+	header.atexitCapacity = 5;
 
 	std::vector<u8> image(0x100, 0);
 	writeModuleHeader(image, header);
 	check(read32(image.data()) == ModuleMagic, "magic");
 	check(image[4] == ModuleVersion && image[5] == 0, "version");
+	check(image[6] == 0 && image[7] == 3, "flags and alignment");
 	check(read32(image.data() + 20) == LinkBaseA + 0x80, "patch table at offset 20");
 	check(image[24] == 3 && image[25] == 0 && image[26] == 0 && image[27] == 0, "patch count, applied and flags");
 	check(read32(image.data() + 48) == 1, "fini count at offset 48");
+	check(read32(image.data() + 52) == LinkBaseA + 0xC0, "destructor table at offset 52");
+	check(read32(image.data() + 56) == 5, "destructor capacity and count");
 
 	appendRelocations(image, { 8, 16, 20 });
 	check(image.size() == 0x100 + 12, "relocation table appended");
 	check(read32(image.data() + 0x100 + 4) == 16, "relocation table contents");
 
 	ModuleHeader back = readModuleHeader(image);
+	check(back.alignLog2 == 3, "alignment read back");
 	check(back.relocCount == 3, "relocation count written");
 	check(back.base == header.base && back.size == header.size && back.exports == header.exports &&
 	      back.patches == header.patches && back.patchCount == header.patchCount &&
 	      back.relocs == header.relocs && back.init == header.init && back.initCount == header.initCount &&
-	      back.fini == header.fini && back.finiCount == header.finiCount, "header round trip");
+	      back.fini == header.fini && back.finiCount == header.finiCount &&
+	      back.atexit == header.atexit && back.atexitCapacity == header.atexitCapacity, "header round trip");
 }
 
 // The words of a bridge built for the instruction `op` at `og`, with the

@@ -8,7 +8,8 @@ void writeModuleHeader(std::span<u8> image, const ModuleHeader& header)
 {
 	le::writeU32(image, 0, ModuleMagic);
 	le::writeU16(image, 4, ModuleVersion);
-	le::writeU16(image, 6, 0);
+	image[6] = 0; // flags
+	image[7] = header.alignLog2;
 	le::writeU32(image, 8, header.base);
 	le::writeU32(image, 12, header.size);
 	le::writeU32(image, 16, header.exports);
@@ -22,11 +23,15 @@ void writeModuleHeader(std::span<u8> image, const ModuleHeader& header)
 	le::writeU32(image, 40, header.initCount);
 	le::writeU32(image, 44, header.fini);
 	le::writeU32(image, 48, header.finiCount);
+	le::writeU32(image, 52, header.atexit);
+	le::writeU16(image, 56, header.atexitCapacity);
+	le::writeU16(image, 58, 0); // atexitCount
 }
 
 ModuleHeader readModuleHeader(std::span<const u8> image)
 {
 	ModuleHeader header;
+	header.alignLog2 = image[7];
 	header.base = le::readU32(image, 8);
 	header.size = le::readU32(image, 12);
 	header.exports = le::readU32(image, 16);
@@ -38,6 +43,8 @@ ModuleHeader readModuleHeader(std::span<const u8> image)
 	header.initCount = le::readU32(image, 40);
 	header.fini = le::readU32(image, 44);
 	header.finiCount = le::readU32(image, 48);
+	header.atexit = le::readU32(image, 52);
+	header.atexitCapacity = le::readU16(image, 56);
 	return header;
 }
 

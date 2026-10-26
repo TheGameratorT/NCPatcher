@@ -166,9 +166,15 @@ A module links on its own, after the target's main link. It can call the
 game's functions and the project's own code, and the main link keeps whatever
 project code a module uses even when the main binary never calls it. A symbol
 that both the module and the project define is a link error. The image is
-written to every `output` path, and a copy is kept as
-`<build>/rt/<name>/<name>.ncrt`. This version does not write `file` paths into
-the ROM yet: a build warns about them.
+written to every `file` in NitroFS and every `output` path, and a copy is kept
+as `<build>/rt/<name>/<name>.ncrt`.
+
+A `file` gets its id when the other NitroFS files do, before anything is
+compiled, so the [file manifest](file-manifest.md) lists it, marked with
+`runtime-module`, and code can refer to the module by id. It cannot be a member
+of an archive. A game that keeps modules inside its archives, as Mario Kart DS
+keeps one per course, writes them to `output` paths and packs the archives with
+its own tools.
 
 A target may also take its overlay regions from a shared table; see
 [Region catalogs](modules.md#region-catalogs).

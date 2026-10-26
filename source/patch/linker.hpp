@@ -81,16 +81,25 @@ public:
     // Links the runtime module `region` on its own at `base`, against the
     // symbols of the main link, so a module can call into the project's own
     // code. Everything it keeps goes into one section, .rt, which starts with
-    // the module header and ends with its zeroed bss.
+    // the module header and ends with its zeroed bss. `atexitCapacity` is the
+    // number of destructors of C++ static objects the module can register.
     void linkRuntimeModule(
         const BuildTarget::Region& region,
         u32 base,
         const core::CompilationUnitManager& units,
         const std::vector<std::unique_ptr<PatchInfo>>& patchInfo,
         const std::vector<std::string>& externSymbols,
+        u32 atexitCapacity,
         const std::filesystem::path& scriptPath,
         const std::filesystem::path& elfPath
     );
+
+    // The map file a runtime module link writes beside its ELF.
+    static std::filesystem::path mapPathOf(const std::filesystem::path& elfPath)
+    {
+        std::filesystem::path map = elfPath;
+        return map.replace_extension(".map");
+    }
 
     const Elf32* getElf() const { return m_elf.get(); }
 

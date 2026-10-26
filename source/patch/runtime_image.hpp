@@ -18,7 +18,8 @@
 //
 //    0  u32 magic        'NCRT'
 //    4  u16 version      ModuleVersion
-//    6  u16 flags        0
+//    6  u8  flags        0
+//    7  u8  align        log2 of the alignment the image must be loaded at
 //    8  u32 base         the address the image is relocated for
 //   12  u32 size         bytes of code, data and zeroed bss
 //   16  u32 exports      the ncprt_exports object, or 0
@@ -29,6 +30,9 @@
 //   40  u32 initCount
 //   44  u32 fini         .fini_array
 //   48  u32 finiCount
+//   52  u32 atexit       room for the destructors of C++ static objects
+//   56  u16 atexitCapacity
+//   58  u16 atexitCount  0, counts the destructors registered while attached
 //
 // Every pointer in the header is an address for `base`, and is itself in the
 // relocation table, so after relocation the header describes the image where
@@ -38,18 +42,20 @@ namespace ncp::patch::runtime {
 
 constexpr u32 ModuleMagic = 0x5452434E; // "NCRT"
 constexpr u16 ModuleVersion = 1;
-constexpr u32 SizeOfModuleHeader = 52;
+constexpr u32 SizeOfModuleHeader = 60;
 
 // The bases the two links use. Both are far out of branch range of everything
 // the DS maps, so the linker makes the same choices at either.
 constexpr u32 LinkBaseA = 0x10000000;
 constexpr u32 LinkBaseB = 0x20000000;
 
-// The loader places images on this boundary, which is also a cache line.
+// The most a module can need its image aligned to. Providers allocate on this
+// boundary, which is also a cache line.
 constexpr u32 MaxModuleAlign = 32;
 
 struct ModuleHeader
 {
+	u8 alignLog2 = 2;
 	u32 base = 0;
 	u32 size = 0;
 	u32 exports = 0;
@@ -61,6 +67,8 @@ struct ModuleHeader
 	u32 initCount = 0;
 	u32 fini = 0;
 	u32 finiCount = 0;
+	u32 atexit = 0;
+	u16 atexitCapacity = 0;
 };
 
 void writeModuleHeader(std::span<u8> image, const ModuleHeader& header);
