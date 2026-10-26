@@ -911,6 +911,16 @@ void Application::processTarget(rom::RomAccessor& rom, bool isArm9)
 		"Could not compile the ARM9 target." :
 		"Could not compile the ARM7 target.");
 
+	if (!buildTarget.runtimeRegions.empty())
+	{
+		std::ostringstream oss;
+		oss << "This NCPatcher does not build runtime modules yet, so ";
+		for (std::size_t i = 0; i < buildTarget.runtimeRegions.size(); i++)
+			oss << (i == 0 ? "" : ", ") << OSTR("rt:" + buildTarget.runtimeRegions[i].runtimeName);
+		oss << " will be skipped.";
+		Log::out << OWARN << oss.str() << std::endl;
+	}
+
 	core::CompilationUnitManager compilationUnitsMgr;
 
 	ObjMaker objMaker;

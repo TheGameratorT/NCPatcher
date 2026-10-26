@@ -44,11 +44,22 @@ public:
 		std::string cppFlags;
 		std::string asmFlags;
 		std::vector<Overwrites> overwrites;
+
+		// Only set for a runtime module: its name, and the NitroFS and host
+		// paths its image is written to.
+		std::string runtimeName;
+		std::vector<std::string> files;
+		std::vector<std::filesystem::path> outputs;
 	};
 
 	int arenaLo{};
 	std::vector<std::filesystem::path> includes;
 	std::vector<Region> regions;
+
+	// The `rt:<name>` regions. They are kept apart from `regions` because each
+	// links into its own relocatable image, and nothing that lays out the
+	// binary or the overlays has any business seeing them.
+	std::vector<Region> runtimeRegions;
 	std::filesystem::path symbols;
 	std::string cFlags;
 	std::string cppFlags;

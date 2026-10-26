@@ -213,14 +213,21 @@ void foldModuleSources(BuildTarget& out, const modules::TargetContribution& cont
 void pruneEmptyRegions(BuildTarget& out, const TargetConfig& target,
                        bool usingModules, const TargetResolver::Options& options)
 {
-	const std::size_t before = out.regions.size();
+	// out.regions is built one-for-one, in order, from the target's regions
+	// that are not runtime modules.
+	std::vector<bool> fromCatalogs;
+	for (const RegionConfig& regionConfig : target.regions)
+	{
+		if (regionConfig.destination != RuntimeDestination)
+			fromCatalogs.push_back(regionConfig.fromCatalog);
+	}
+
+	const std::size_t before = out.regions.size() + out.runtimeRegions.size();
 	std::size_t index = 0;
 
 	out.regions.erase(std::remove_if(out.regions.begin(), out.regions.end(),
 		[&](const BuildTarget::Region& region) {
-			// out.regions is built one-for-one from target.regions, in order.
-			const bool fromCatalog = index < target.regions.size()
-				&& target.regions[index].fromCatalog;
+			const bool fromCatalog = index < fromCatalogs.size() && fromCatalogs[index];
 			index++;
 
 			return region.sources.empty()
@@ -229,10 +236,16 @@ void pruneEmptyRegions(BuildTarget& out, const TargetConfig& target,
 				&& (fromCatalog || usingModules);
 		}), out.regions.end());
 
-	if (!options.quiet && out.regions.size() != before)
+	// A runtime module with no code would be an image that patches nothing.
+	out.runtimeRegions.erase(std::remove_if(out.runtimeRegions.begin(), out.runtimeRegions.end(),
+		[](const BuildTarget::Region& region) { return region.sources.empty(); }),
+		out.runtimeRegions.end());
+
+	const std::size_t after = out.regions.size() + out.runtimeRegions.size();
+	if (!options.quiet && after != before)
 	{
 		Log::FileOnly fileOnly;
-		Log::out << OINFO << "Skipped " << (before - out.regions.size())
+		Log::out << OINFO << "Skipped " << (before - after)
 		         << " empty region(s)." << std::endl;
 	}
 }
@@ -320,6 +333,7 @@ BuildTarget TargetResolver::resolve(const ProjectConfig& config, const TargetCon
 	{
 		BuildTarget::Region region;
 		region.destination = regionConfig.destination;
+		region.runtimeName = regionConfig.runtimeName;
 		region.mode = BuildTarget::Mode(regionConfig.mode);
 		region.compress = regionConfig.compress;
 		region.address = regionConfig.address.value;
@@ -341,6 +355,21 @@ BuildTarget TargetResolver::resolve(const ProjectConfig& config, const TargetCon
 
 		region.sources = expandPatterns(regionConfig.sources.applyTo({}), paths.targetWorkDir, false, options.quiet);
 
+		if (region.destination == RuntimeDestination)
+		{
+			region.files = regionConfig.files;
+			for (const std::string& output : regionConfig.outputs)
+			{
+				fs::path path = fs::path(output);
+				if (path.is_relative())
+					path = paths.targetWorkDir / path;
+				region.outputs.push_back(path.lexically_normal());
+			}
+
+			out.runtimeRegions.push_back(std::move(region));
+			continue;
+		}
+
 		if (region.compress && region.destination < 0)
 		{
 			// Only overlays are compressible: the ARM9 binary's compression is
@@ -358,6 +387,19 @@ BuildTarget TargetResolver::resolve(const ProjectConfig& config, const TargetCon
 		foldModuleSources(out, *contribution, target, paths);
 
 	pruneEmptyRegions(out, target, contribution != nullptr, options);
+
+	for (const BuildTarget::Region& region : out.runtimeRegions)
+	{
+		if (region.files.empty() && region.outputs.empty())
+		{
+			std::ostringstream oss;
+			oss << "The runtime module " << OSTR("rt:" + region.runtimeName)
+			    << " is not written anywhere."
+			    << OREASONNL "Give it a " << OSTRa("file") << " in NitroFS, an "
+			    << OSTRa("output") << " path on disk, or both.";
+			throw ncp::exception(oss.str());
+		}
+	}
 
 	return out;
 }
@@ -393,6 +435,16 @@ std::string TargetResolver::describe(const ProjectConfig& config, const BuildTar
 		oss << "  asm=" << region.asmFlags << '\n';
 		for (const BuildTarget::Overwrites& overwrite : region.overwrites)
 			oss << "  overwrite=" << overwrite.startAddress << ':' << overwrite.endAddress << '\n';
+	}
+
+	// Only written when there is something to write, so that the hash of every
+	// target without runtime modules stays what it was.
+	for (const BuildTarget::Region& region : resolved.runtimeRegions)
+	{
+		oss << "runtime " << region.runtimeName << '\n';
+		oss << "  c=" << region.cFlags << '\n';
+		oss << "  cpp=" << region.cppFlags << '\n';
+		oss << "  asm=" << region.asmFlags << '\n';
 	}
 
 	return oss.str();

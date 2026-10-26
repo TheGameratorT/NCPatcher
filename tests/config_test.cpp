@@ -665,6 +665,96 @@ static void testV2Reader(const fs::path& root)
 		"a !pattern excludes from what the other patterns matched");
 }
 
+static std::string withRuntimeRegion(const std::string& region)
+{
+	std::string text = V2_PROJECT;
+	const std::string anchor = "          cpp: { remove: [-Os], append: [-O2] }\n";
+	text.insert(text.find(anchor) + anchor.size(), region);
+	return text;
+}
+
+static void testV2RuntimeRegions(const fs::path& root)
+{
+	write(root / "runtime.yaml", withRuntimeRegion(
+		"      - dest: rt:water4C\n"
+		"        sources: [source/ov9]\n"
+		"        defines: [RT_MODULE]\n"
+		"        file: z_new/ncprt/water.ncrt\n"
+		"        output: [../out/water.rcm, ../out/water2.rcm]\n"
+		"      - dest: rt:empty\n"
+		"        file: z_new/ncprt/empty.ncrt\n"));
+	const ProjectConfig config = loadV2(root / "runtime.yaml", root);
+
+	check(config.arm9.regions.size() == 4, "runtime regions are read alongside the others");
+	const RegionConfig& water = config.arm9.regions[2];
+	check(water.destination == RuntimeDestination, "rt: reads as a runtime destination");
+	checkEqual(water.runtimeName, "water4C", "a runtime region keeps its name");
+	check(water.files == std::vector<std::string>({ "z_new/ncprt/water.ncrt" }),
+		"a scalar file becomes a one-entry list");
+	check(water.outputs.size() == 2, "output accepts a list");
+
+	PathContext paths;
+	paths.workDir = root;
+	paths.targetWorkDir = root / "code";
+	TargetResolver::Options quiet;
+	quiet.quiet = true;
+	const BuildTarget resolved = TargetResolver::resolve(config, config.arm9, paths, nullptr, quiet);
+
+	check(resolved.regions.size() == 2, "a runtime region is not one of the binary's regions");
+	check(resolved.runtimeRegions.size() == 1, "an empty runtime region is dropped");
+	if (resolved.runtimeRegions.size() == 1)
+	{
+		const BuildTarget::Region& region = resolved.runtimeRegions[0];
+		checkEqual(region.runtimeName, "water4C", "the resolved runtime region keeps its name");
+		check(region.sources.size() == 1, "a runtime region expands its sources");
+		check(contains(region.cppFlags, "-DRT_MODULE"), "a runtime region applies its own defines");
+		checkEqual(region.outputs[0].generic_string(), (root / "out/water.rcm").generic_string(),
+			"an output path starts at the target's workdir");
+	}
+
+	check(contains(TargetResolver::describe(config, resolved), "runtime water4C"),
+		"a runtime region is part of the config hash");
+	const ProjectConfig plainConfig = loadV2(root / "ncpatcher.yaml", root);
+	const BuildTarget plain = TargetResolver::resolve(plainConfig, plainConfig.arm9, paths, nullptr, quiet);
+	check(!contains(TargetResolver::describe(plainConfig, plain), "\nruntime "),
+		"a target without runtime regions describes itself as before");
+
+	auto refused = [&](const std::string& name, const std::string& region) {
+		write(root / name, withRuntimeRegion(region));
+		return errorFrom([&] { (void)loadV2(root / name, root); });
+	};
+
+	check(contains(refused("rt-address.yaml",
+		"      - dest: rt:x\n        address: 0x02000000\n        file: a.bin\n"), "does not apply"),
+		"a runtime region refuses an address");
+	check(contains(refused("rt-mode.yaml",
+		"      - dest: rt:x\n        mode: replace\n        file: a.bin\n"), "does not apply"),
+		"a runtime region refuses a mode");
+	check(contains(refused("ov-file.yaml",
+		"      - dest: ov10\n        file: a.bin\n"), "only applies"),
+		"an overlay refuses a file");
+	check(contains(refused("rt-name.yaml",
+		"      - dest: rt:a-b\n        file: a.bin\n"), "runtime module name"),
+		"a runtime module name is limited to identifier characters");
+	check(contains(refused("rt-empty-name.yaml",
+		"      - dest: \"rt:\"\n        file: a.bin\n"), "runtime module name"),
+		"a runtime module needs a name");
+	check(contains(refused("rt-twice.yaml",
+		"      - dest: rt:x\n        file: a.bin\n      - dest: rt:x\n        file: b.bin\n"), "more than once"),
+		"a runtime region cannot be declared twice");
+	check(contains(refused("rt-bad-file.yaml",
+		"      - dest: rt:x\n        file: ../a.bin\n"), "cannot contain"),
+		"a runtime module file is a checked NitroFS path");
+
+	write(root / "rt-nowhere.yaml", withRuntimeRegion(
+		"      - dest: rt:nowhere\n        sources: [source/ov9]\n"));
+	const ProjectConfig nowhere = loadV2(root / "rt-nowhere.yaml", root);
+	const std::string unwritten = errorFrom([&] {
+		(void)TargetResolver::resolve(nowhere, nowhere.arm9, paths, nullptr, quiet);
+	});
+	check(contains(unwritten, "not written anywhere"), "a runtime module needs a file or an output");
+}
+
 // What `config dump --json` has to carry for a consumer to resolve the same
 // module trees the build does. Big Star Editor hand-parsed ncpatcher.yaml for
 // these three because the dump omitted them, which is precisely how a second
@@ -986,6 +1076,7 @@ int main()
 	testV2AllowsAProjectWithNoCode(root / "v1");
 	testV2LeavesTheRomToTheCommandLine(root / "v1");
 	testV2RejectsTypos(root / "v1");
+	testV2RuntimeRegions(root / "v1");
 	testV2DumpCarriesResolutionInputs(root / "v1");
 	testMigrationPreservesTheBuild(root / "migrate");
 	testRebuildStore(root / "rebuild");

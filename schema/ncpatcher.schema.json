@@ -511,9 +511,17 @@
       "additionalProperties": false,
       "properties": {
         "dest": {
-          "description": "Where this region's code goes: `main` for the ARM binary itself, or `ovNN` for overlay NN.",
+          "description": "Where this region's code goes: `main` for the ARM binary itself, `ovNN` for overlay NN, or `rt:<name>` for a runtime module, an image of its own that the game loads and unloads while it runs.",
           "type": "string",
-          "pattern": "^(main|ov[0-9]+)$"
+          "pattern": "^(main|ov[0-9]+|rt:[A-Za-z0-9_]+)$"
+        },
+        "file": {
+          "description": "Runtime modules only: the NitroFS path or paths the module's image is written to.",
+          "oneOf": [ { "type": "string" }, { "type": "array", "items": { "type": "string" } } ]
+        },
+        "output": {
+          "description": "Runtime modules only: host path or paths the module's image is written to, relative to the target's workdir. For games that pack their own archives.",
+          "oneOf": [ { "type": "string" }, { "type": "array", "items": { "type": "string" } } ]
         },
         "mode": {
           "description": "append adds code after the existing binary; replace overwrites it; create makes a new overlay.",

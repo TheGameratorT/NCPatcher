@@ -407,6 +407,23 @@ void readDestination(RegionConfig& region, const cfg::Node& node)
 		return;
 	}
 
+	if (dest.starts_with("rt:"))
+	{
+		// The name ends up in symbol and file names, so it is held to the
+		// characters those accept everywhere.
+		const std::string name = dest.substr(3);
+		if (!name.empty() && name.find_first_not_of(
+			"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_") == std::string::npos)
+		{
+			region.destination = RuntimeDestination;
+			region.runtimeName = name;
+			return;
+		}
+
+		node.fail("Invalid runtime module name; use only letters, digits and "
+			ANSI_bCYAN "_" ANSI_RESET ", as in " ANSI_bCYAN "rt:water4C" ANSI_RESET ".");
+	}
+
 	if (dest.starts_with("ov"))
 	{
 		const std::string digits = dest.substr(2);
@@ -419,8 +436,8 @@ void readDestination(RegionConfig& region, const cfg::Node& node)
 		}
 	}
 
-	node.fail("Invalid destination, use either " ANSI_bCYAN "main" ANSI_RESET
-		" or " ANSI_bCYAN "ovXX" ANSI_RESET ".");
+	node.fail("Invalid destination, use " ANSI_bCYAN "main" ANSI_RESET ", "
+		ANSI_bCYAN "ovXX" ANSI_RESET " or " ANSI_bCYAN "rt:<name>" ANSI_RESET ".");
 }
 
 void readMode(RegionConfig& region, const cfg::Node& regionNode)
@@ -472,6 +489,42 @@ void readOverwrites(RegionConfig& region, const cfg::Node& regionNode)
 	}
 }
 
+// A runtime module links into an image of its own, which is placed wherever the
+// game loads it, so the settings that place or size code in the binary mean
+// nothing for it. They are refused rather than ignored, because a project that
+// writes them expects them to do something.
+void readRuntimeRegion(RegionConfig& region, const cfg::Node& node, const Expander& expander)
+{
+	for (const char* key : { "mode", "address", "maxsize", "compress", "overwrites" })
+	{
+		if (node.has(key))
+		{
+			std::ostringstream oss;
+			oss << OSTRa(key) << " does not apply to a runtime module, which is "
+			    << "relocated to wherever the game loads it.";
+			node[key].fail(oss.str());
+		}
+	}
+
+	region.sources = readListOp(node["sources"], expander);
+	region.defines = readListOp(node["defines"], expander);
+	region.flags = readFlagOps(node["flags"], expander);
+
+	region.files = readStrings(node["file"], expander);
+	for (const std::string& path : region.files)
+	{
+		if (const std::string problem = nitroPathProblem(path); !problem.empty())
+			node["file"].fail(problem);
+	}
+
+	region.outputs = readStrings(node["output"], expander);
+	for (const std::string& path : region.outputs)
+	{
+		if (path.empty())
+			node["output"].fail("An output path cannot be empty.");
+	}
+}
+
 void readRegion(RegionConfig& region, const cfg::Node& node, const Expander& expander)
 {
 	if (!node.isMap())
@@ -479,10 +532,28 @@ void readRegion(RegionConfig& region, const cfg::Node& node, const Expander& exp
 
 	checkKeys(node, "a region", {
 		"dest", "mode", "address", "maxsize", "compress",
-		"sources", "defines", "flags", "overwrites" });
+		"sources", "defines", "flags", "overwrites", "file", "output" });
 
 	region.mark = node.mark();
 	readDestination(region, node.require("dest"));
+
+	if (region.destination == RuntimeDestination)
+	{
+		readRuntimeRegion(region, node, expander);
+		return;
+	}
+
+	for (const char* key : { "file", "output" })
+	{
+		if (node.has(key))
+		{
+			std::ostringstream oss;
+			oss << OSTRa(key) << " only applies to a runtime module, a region whose "
+			    << OSTRa("dest") << " is " << OSTRa("rt:<name>") << ".";
+			node[key].fail(oss.str());
+		}
+	}
+
 	readMode(region, node);
 
 	region.sources = readListOp(node["sources"], expander);
@@ -561,6 +632,9 @@ std::vector<RegionConfig> readRegionCatalog(const fs::path& file, const cfg::Nod
 		region.fromCatalog = true;
 		region.mark = regionNode.mark();
 		readDestination(region, regionNode.require("dest"));
+		if (region.destination == RuntimeDestination)
+			regionNode["dest"].fail("A region catalog lists what the game has, and a runtime "
+				"module is part of the project, so it cannot be listed here.");
 
 		if (!seen.insert(region.destination).second)
 		{
@@ -590,7 +664,10 @@ std::vector<RegionConfig> readRegionCatalog(const fs::path& file, const cfg::Nod
 void mergeRegion(TargetConfig& target, RegionConfig&& region, const cfg::Node& node)
 {
 	const auto existing = std::find_if(target.regions.begin(), target.regions.end(),
-		[&](const RegionConfig& candidate) { return candidate.destination == region.destination; });
+		[&](const RegionConfig& candidate) {
+			return candidate.destination == region.destination
+				&& candidate.runtimeName == region.runtimeName;
+		});
 
 	if (existing != target.regions.end())
 	{

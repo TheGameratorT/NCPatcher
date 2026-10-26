@@ -126,6 +126,40 @@ void writeTargetJson(Json::Writer& writer, const ResolvedTarget& entry, bool exp
 	}
 	writer.endArray();
 
+	// Apart from "regions", which consumers read as the binary and its
+	// overlays, each with a numeric destination.
+	writer.key("runtime-regions").beginArray();
+	for (const BuildTarget::Region& region : target.runtimeRegions)
+	{
+		writer.beginObject();
+		writer.field("dest", "rt:" + region.runtimeName);
+		writer.field("name", region.runtimeName);
+
+		writer.key("flags").beginObject();
+		writer.field("c", tokenize(region.cFlags));
+		writer.field("cpp", tokenize(region.cppFlags));
+		writer.field("asm", tokenize(region.asmFlags));
+		writer.endObject();
+
+		writer.key("files").beginArray();
+		for (const std::string& file : region.files)
+			writer.value(file);
+		writer.endArray();
+
+		writer.key("outputs").beginArray();
+		for (const fs::path& output : region.outputs)
+			writer.value(output.string());
+		writer.endArray();
+
+		writer.key("sources").beginArray();
+		for (const fs::path& source : region.sources)
+			writer.value(source.string());
+		writer.endArray();
+
+		writer.endObject();
+	}
+	writer.endArray();
+
 	if (explain)
 	{
 		writer.key("origins").beginObject();
@@ -388,6 +422,23 @@ void dumpHuman(std::ostream& out,
 				out << "    overwrite " << hex(overwrite.startAddress)
 				    << " .. " << hex(overwrite.endAddress) << '\n';
 			}
+
+			writeList(out, "c", tokenize(region.cFlags));
+			writeList(out, "cpp", tokenize(region.cppFlags));
+			writeList(out, "asm", tokenize(region.asmFlags));
+
+			out << "    sources: " << region.sources.size() << '\n';
+			for (const fs::path& source : region.sources)
+				out << "      " << source.string() << '\n';
+		}
+
+		for (const BuildTarget::Region& region : target.runtimeRegions)
+		{
+			out << "  region " << ANSI_bYELLOW << "rt:" << region.runtimeName << ANSI_RESET << '\n';
+			for (const std::string& file : region.files)
+				out << "    file " << file << '\n';
+			for (const fs::path& output : region.outputs)
+				out << "    output " << output.string() << '\n';
 
 			writeList(out, "c", tokenize(region.cFlags));
 			writeList(out, "cpp", tokenize(region.cppFlags));

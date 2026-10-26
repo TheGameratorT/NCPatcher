@@ -124,7 +124,7 @@ ROM and wrote it back unchanged would be reporting success for doing nothing.
 
 | Key | Meaning |
 |---|---|
-| `dest` | Required: `main` or `ovNN`. |
+| `dest` | Required: `main`, `ovNN`, or `rt:<name>` for a runtime module. |
 | `mode` | `append` (default), `replace`, or `create`. `replace` and `create` apply to overlays. |
 | `address` | Required for `create`; optional for `replace` when relocating the overlay. |
 | `maxsize` | Refuse a region that grows beyond this size. The default is 1 MiB. |
@@ -132,11 +132,38 @@ ROM and wrote it back unchanged would be reporting success for doing nothing.
 | `sources` | Source paths and globs. `*`, `?`, character classes, `{a,b}`, whole-segment `**`, and leading `!` exclusions are supported. |
 | `defines`, `flags` | Compile settings inherited from the target and optionally adjusted here. |
 | `overwrites` | Original-binary address ranges this region may reuse, written as `[start, end]` pairs. |
+| `file` | Runtime modules only: NitroFS path, or list of paths, to write the module's image to. |
+| `output` | Runtime modules only: host path, or list of paths, to write the module's image to. Relative paths start at the target's workdir. |
 
 ARM7 and ARM9 normally locate their ArenaLo pointer automatically. Set the
 target's `arena-lo` only when using a game or binary whose initialization code
 the finder does not recognize. A `create` region must use the next contiguous
 overlay ID and provide its load address.
+
+### Runtime modules
+
+A region whose `dest` is `rt:<name>` links into a relocatable image of its own
+instead of into the binary or an overlay. The game loads and unloads that image
+while it runs, and the module's patches apply when it loads and revert when it
+unloads. The name may contain only letters, digits and `_`.
+
+```yaml
+regions:
+  - dest: rt:water4C
+    sources: rcm/Course/4C/**
+    output: ../rom/root/data/Course/4C_arc/code.rcm
+  - dest: rt:nwav
+    sources: modules/nwav/rt/**
+    file: z_new/ncprt/nwav.ncrt
+```
+
+A runtime module needs at least one `file` or `output`. `mode`, `address`,
+`maxsize`, `compress` and `overwrites` are refused, since the image is relocated
+to wherever the game loads it. `sources`, `defines` and `flags` work as they do
+for any other region. A runtime module cannot be listed in a region catalog.
+
+This version reads runtime regions but does not build them yet: a build warns
+and skips them.
 
 A target may also take its overlay regions from a shared table; see
 [Region catalogs](modules.md#region-catalogs).

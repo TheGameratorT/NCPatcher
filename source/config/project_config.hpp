@@ -161,14 +161,28 @@ struct Overwrite
 	u32 endAddress = 0;
 };
 
+// The destination of a region that links into a runtime module rather than
+// into the binary or an overlay.
+constexpr int RuntimeDestination = -2;
+
 struct RegionConfig
 {
-	// As written ("main" or "ovNN"), kept for diagnostics that should echo
-	// the user's own spelling.
+	// As written ("main", "ovNN" or "rt:<name>"), kept for diagnostics that
+	// should echo the user's own spelling.
 	std::string dest;
 
-	// Parsed: -1 for main, otherwise the overlay id.
+	// Parsed: -1 for main, RuntimeDestination for a runtime module, otherwise
+	// the overlay id.
 	int destination = -1;
+
+	// The module name of an `rt:<name>` region, empty for any other region.
+	std::string runtimeName;
+
+	// Where a runtime module's image is written: NitroFS paths, and host paths
+	// as written, which the resolver makes absolute against the target's
+	// workdir. Both are empty for any other region.
+	std::vector<std::string> files;
+	std::vector<std::string> outputs;
 
 	RegionMode mode = RegionMode::Append;
 	bool compress = false;
