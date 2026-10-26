@@ -347,6 +347,8 @@ if (NCP_BUILD_TESTS)
 	ncp_add_test(project_init_test tests/project_init_test.cpp source/app/project_init.cpp)
 	ncp_add_test(overwrite_packing_test tests/overwrite_packing_test.cpp
 		source/patch/overwrite_packing.cpp)
+	ncp_add_test(runtime_encode_test tests/runtime_encode_test.cpp
+		source/patch/asm_generator.cpp source/system/except.cpp)
 
 	# The ROM tests reach into the container, which reports failures the same
 	# way the rest of the program does, so they need the diagnostics and log
