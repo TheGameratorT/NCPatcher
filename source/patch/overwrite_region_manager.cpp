@@ -71,6 +71,14 @@ void OverwriteRegionManager::assignMeasuredSections(
     for (std::size_t i = 0; i < candidateSections.size(); i++)
     {
         u32 size = i < measuredSizes.size() ? measuredSizes[i] : 0;
+
+        // Measuring more than the section holds means ld put branch stubs
+        // after it. Their 8-aligned section makes the fill before them depend
+        // on where the candidate starts, and the size was measured from an
+        // 8-byte boundary, so the candidate must start on one here too.
+        if (size > candidateSections[i]->size)
+            candidateSections[i]->alignment = std::max<u32>(candidateSections[i]->alignment, 8);
+
         items.push_back({
             size,
             candidateSections[i]->alignment,
@@ -113,7 +121,7 @@ void OverwriteRegionManager::assignMeasuredSections(
         {
             auto& overwrite = m_overwriteRegions[r];
             u32 capacity = overwrite->endAddress - overwrite->startAddress;
-            Log::out << OINFO << "Overwrite region " << OSTR(overwrite->name) << ": "
+            Log::out << OINFO << "Overwrite region " << OSTR(overwrite->name) << ": " << std::dec
                 << result.usedSize[r] << "/" << capacity << " bytes used ("
                 << sectionCount[r] << " section(s)";
             if (bssBytes[r] != 0)

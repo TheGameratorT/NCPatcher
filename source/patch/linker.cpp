@@ -387,8 +387,11 @@ void Linker::writeLinkerScript(
 
 				std::string objPath = ncp::pathToUtf8(Util::relativeIfSubpath(section->unit->getObjectPath(), m_paths->workDir));
 
+				// Measured from an 8-byte boundary, the alignment of ld's
+				// stub sections, so a candidate that turns out to carry
+				// stubs was measured with the fill the packer will give it.
 				o += "\t\t. = ALIGN(";
-				o += std::to_string(section->alignment);
+				o += std::to_string(std::max<u32>(section->alignment, 8));
 				o += ");\n\t\t__ncpm_";
 				o += std::to_string(idx);
 				o += "_s = .;\n\t\t";
@@ -609,6 +612,15 @@ void Linker::runLinker(
     ccmd += "gcc -nostartfiles -Wl,--gc-sections,-T\"";
     ccmd += ncp::pathToUtf8(Util::relativeIfSubpath(scriptPath, m_paths->workDir));
     ccmd += '\"';
+
+    // ld puts the stubs a branch needs (an ARM b to a Thumb function, say)
+    // after the last code section of the branch's stub group, and by default
+    // a group spans the whole output section, so which section the stubs
+    // follow depends on the layout, and the measurement link would charge
+    // them to the wrong candidate. A group smaller than a branch instruction
+    // gives every section holding one a group of its own, so its stubs always
+    // follow it. ld reads 1 as "the default", hence 4.
+    ccmd += ",--stub-group-size=4";
 
     // Before the project's flags, so before the libraries they name: ld only
     // takes a member out of an archive for a symbol still undefined when it
