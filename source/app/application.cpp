@@ -750,6 +750,11 @@ void Application::runConfiguredBuild()
 {
 	openDefaultLogFile();
 
+	// The ELF cache is keyed by object path, and every variant compiles to the
+	// same paths: a cache left over from the previous variant would hand the
+	// patcher that variant's objects instead of the ones just rebuilt.
+	ncp::cache::CacheManager::getInstance().clearCaches();
+
 	// Only when there is something to compile. An assets-only project has no
 	// use for a cross compiler, and demanding one is how "I just want to
 	// replace a texture" turns into installing a toolchain.
