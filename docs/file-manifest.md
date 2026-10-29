@@ -157,6 +157,26 @@ still planned -- with its id, its action and its provenance -- and its entry
 carries `"source-missing": true`, because the one thing that cannot be known is
 its size.
 
+### Planning from one module down
+
+An editor that writes files into one module needs two more answers: what the ROM
+holds as that module and the ones after it in `modules.enabled` see it, and what
+the layers beneath the module's own write layer supply, so that a file edited
+back to what lies below can be dropped rather than kept as an identical copy.
+
+```sh
+ncpatcher --variant fr files plan --from-module message --json
+ncpatcher --variant fr files plan --below-module message --json
+```
+
+Both leave out the project's own `nitrofs:` trees and its `files:` entries, which
+sit above every module, and every module before the one named. `--below-module`
+also leaves out the layer of that module a write would land in: the whole tree
+when it is unlayered, or when the variant reads its base layer; otherwise only the
+variant's (or mapped) layer, so that its `base-variant` still counts as below.
+Runtime-module placeholders are left out of both. The module must be enabled, and
+the two options exclude each other.
+
 ## The invariant a consumer can rely on
 
 **Existing file ids are never renumbered. Only `z_new/` additions may move.**

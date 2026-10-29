@@ -55,7 +55,7 @@ _ncpatcher()
 			COMPREPLY=($(compgen -W 'build section elf patch library linking symbols nolib all' -- "$cur"))
 			return
 			;;
-		--variant)
+		--variant|--from-module|--below-module)
 			return
 			;;
 		-j|--jobs|-D|--define|--var|--toolchain)
@@ -132,7 +132,7 @@ _ncpatcher()
 				COMPREPLY=($(compgen -W 'plan' -- "$cur"))
 				return
 			fi
-			extra='--json -o --output --variant'
+			extra='--json -o --output --variant --from-module --below-module'
 			;;
 	esac
 

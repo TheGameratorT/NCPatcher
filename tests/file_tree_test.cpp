@@ -254,6 +254,34 @@ static void testMappingDoesNotDisturbTheBaseLayer()
 		"and the module's own base layer still fills the gaps");
 }
 
+static void testBaseOnlyLeavesOutTheVariantLayer()
+{
+	const fs::path root = buildFixture();
+
+	// What `files plan --below-module` asks of the module a write lands in:
+	// its variant layer is the write layer and goes, its base stays below.
+	rom::FileTree tree;
+	tree.dir = root / "coop" / "nitrofs";
+	tree.layered = true;
+	tree.baseVariant = "en";
+	tree.module = "coop";
+	tree.origin = "module coop";
+	tree.baseOnly = true;
+
+	const auto files = rom::sweepFileTrees({ tree }, "fr");
+	check(sourceOf(files, root, "uiStudio/title.bin") == "coop/nitrofs/en/uiStudio/title.bin",
+		"a base-only tree answers from its base layer, not the variant's");
+	check(sourceOf(files, root, "z_new/coop/sound.nwav") == "coop/nitrofs/en/z_new/coop/sound.nwav",
+		"and keeps everything else the base supplies");
+
+	// A mapped layer it no longer contributes is not required to exist either.
+	tree.variantLayer = "nowhere";
+	bool threw = false;
+	try { (void)rom::sweepFileTrees({ tree }, "fr"); }
+	catch (const std::exception&) { threw = true; }
+	check(!threw, "a base-only tree does not insist on a mapped layer it leaves out");
+}
+
 // --- components ------------------------------------------------------------
 
 static void testDisabledComponentSubtractsItsFiles()
@@ -473,6 +501,7 @@ int main()
 	testAModuleThatNamesItsLayersDifferently();
 	testAMappedLayerMustExist();
 	testMappingDoesNotDisturbTheBaseLayer();
+	testBaseOnlyLeavesOutTheVariantLayer();
 	testLayerOutranksModuleOrder();
 	testDisabledComponentSubtractsItsFiles();
 	testDisablingOneModuleLetsAnotherThrough();

@@ -109,6 +109,10 @@ struct CommandLine
 
 	// files plan -o
 	std::filesystem::path filesOutPath;
+	// files plan --from-module and --below-module: the module key the plan starts
+	// from, and whether that module's own write layer is left out too
+	std::string fromModule;
+	std::string belowModule;
 
 	// rom extract
 	bool extractCodeOnly = false;
@@ -123,7 +127,7 @@ struct CommandLine
 // nothing when the parsed result in `out` should be acted on.
 [[nodiscard]] std::optional<int> parseCommandLine(int argc, char* argv[], CommandLine& out);
 
-// "1.0.4". Shared by `version` and --version.
+// "2.1.0". Shared by `version` and --version.
 [[nodiscard]] const char* versionString();
 
 } // namespace ncp
