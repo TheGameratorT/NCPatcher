@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(ncpatcher VERSION 2.1.0 LANGUAGES CXX)
+project(ncpatcher VERSION 2.0.0 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 
@@ -9,7 +9,7 @@ include(GNUInstallDirs)
 # left behind by a previous install. The failure mode that makes this worth
 # checking is silent, since a stale header compiles fine and simply stops
 # emitting the sections the patcher looks for.
-set(NCP_SDK_VERSION 3)
+set(NCP_SDK_VERSION 2)
 
 file(STRINGS "${PROJECT_SOURCE_DIR}/sdk/ncp.h" _ncp_stamp
 	REGEX "^#define[ \t]+__ncp_sdk_version[ \t]+")

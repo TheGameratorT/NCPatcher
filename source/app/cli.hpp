@@ -127,7 +127,7 @@ struct CommandLine
 // nothing when the parsed result in `out` should be acted on.
 [[nodiscard]] std::optional<int> parseCommandLine(int argc, char* argv[], CommandLine& out);
 
-// "2.1.0". Shared by `version` and --version.
+// "2.0.0". Shared by `version` and --version.
 [[nodiscard]] const char* versionString();
 
 } // namespace ncp

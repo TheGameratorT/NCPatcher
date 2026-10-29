@@ -3,7 +3,7 @@
 // Contract version between this header and ncpatcher, which refuses to build
 // against a copy whose number is not the one it expects. Keep NCP_SDK_VERSION
 // in CMakeLists.txt in step.
-#define __ncp_sdk_version 3
+#define __ncp_sdk_version 2
 
 // NCP Common
 
