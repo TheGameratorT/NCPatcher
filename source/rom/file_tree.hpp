@@ -70,6 +70,11 @@ struct FileTree
 	// build ships without its translations.
 	std::optional<std::string> variantLayer;
 
+	// Only the base layer contributes, never the variant's or the mapped one.
+	// `files plan --below-module` sets it on the module whose own layer it
+	// leaves out, so the base that layer sits on still counts as below.
+	bool baseOnly = false;
+
 	// What a diagnostic calls this tree.
 	std::string origin;
 

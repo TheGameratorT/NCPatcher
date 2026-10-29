@@ -257,6 +257,17 @@ std::optional<int> parseCommandLine(int argc, char* argv[], CommandLine& out)
 	filesPlan->add_option("-o,--output", out.filesOutPath,
 		"Write it to this file instead of standard output")
 		->type_name("PATH");
+	// What an editor layering files onto one module needs: the ROM as that
+	// module and the ones after it see it, and as the layers beneath its own
+	// write layer supply it.
+	CLI::Option* fromModule = filesPlan->add_option("--from-module", out.fromModule,
+		"Plan as though only this module and the ones after it were enabled")
+		->type_name("KEY");
+	CLI::Option* belowModule = filesPlan->add_option("--below-module", out.belowModule,
+		"As --from-module, without the layer of this module a write would land in")
+		->type_name("KEY");
+	fromModule->excludes(belowModule);
+	belowModule->excludes(fromModule);
 
 	CLI::App* version = app.add_subcommand("version", "Show the version and exit");
 

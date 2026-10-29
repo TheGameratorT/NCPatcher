@@ -173,7 +173,7 @@ in the directory is read for the form each overlay was stored in, so an overlay
 the extraction unpacked is compressed again and gets its flags back. That round
 trip is faithful rather than byte-identical.
 .TP
-.BR "files plan" " [" \-\-json "] [" \-o " " \fIPATH\fP ]
+.BR "files plan" " [" \-\-json "] [" \-o " " \fIPATH\fP "] [" \-\-from\-module " " \fIKEY\fP " | " \-\-below\-module " " \fIKEY\fP ]
 Report what a build would place in the ROM's file table, without building.
 Nothing is written to the ROM or to an extracted directory, and no toolchain is
 needed.
@@ -199,6 +199,20 @@ hook, which a plan does not run; such a destination is still planned, with its
 id and provenance, and its entry carries
 .B "source\-missing: true"
 because its size is the one thing that cannot be known.
+.IP
+.BI \-\-from\-module " KEY"
+plans as though only module
+.I KEY
+and the modules after it in
+.B modules.enabled
+existed, without the project's own trees and
+.B files:
+entries.
+.BI \-\-below\-module " KEY"
+does the same and also leaves out the layer of
+.I KEY
+a write would land in: the whole tree, or for a layered tree read through a
+variant, only that variant's layer, so its base still counts.
 .TP
 .B version
 Print the version.

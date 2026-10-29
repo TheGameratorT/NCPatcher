@@ -175,7 +175,7 @@ std::vector<config::FileConfig> sweepFileTrees(
 
 			if (tree.layered && layer.empty())
 				continue;
-			if (rank == RANK_VARIANT && layer == tree.baseVariant)
+			if (rank == RANK_VARIANT && (layer == tree.baseVariant || tree.baseOnly))
 				continue;
 
 			const fs::path root = tree.layered ? tree.dir / layer : tree.dir;

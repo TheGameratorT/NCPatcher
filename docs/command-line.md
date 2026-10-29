@@ -21,7 +21,7 @@ ncpatcher build [--variant NAME | --all-variants]
           rom extract DIR [--code-only] [--decompress-overlays]
                                      write the ROM into DIR
           rom pack DIR               fold an extracted directory back into the ROM
-          files plan [--json] [-o PATH]
+          files plan [--json] [-o PATH] [--from-module KEY | --below-module KEY]
                                      report what a build would place, without building
           version
 ```

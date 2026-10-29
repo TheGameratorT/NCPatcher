@@ -75,6 +75,38 @@ int main()
 		g_failures++;
 	}
 
+	// An editor layering files onto one module asks for the ROM from that
+	// module down, and for what lies beneath its own write layer.
+	const CommandLine from = parse({ "ncpatcher", "files", "plan", "--from-module", "coop", "--json" });
+	if (from.command != Command::FilesPlan || from.fromModule != "coop" || !from.belowModule.empty())
+	{
+		std::cout << "FAIL: files plan takes --from-module\n";
+		g_failures++;
+	}
+
+	const CommandLine below = parse({ "ncpatcher", "--variant", "fr", "files", "plan", "--below-module", "message" });
+	if (below.command != Command::FilesPlan || below.belowModule != "message" || below.variant != "fr")
+	{
+		std::cout << "FAIL: files plan takes --below-module\n";
+		g_failures++;
+	}
+
+	// The two answer different questions, so asking both is a usage error
+	// rather than one silently winning.
+	{
+		std::vector<std::string> arguments = { "ncpatcher", "files", "plan", "--from-module", "a", "--below-module", "b" };
+		std::vector<char*> argv;
+		for (std::string& argument : arguments)
+			argv.push_back(argument.data());
+		CommandLine out;
+		const std::optional<int> stopped = parseCommandLine(int(argv.size()), argv.data(), out);
+		if (!stopped || *stopped == 0)
+		{
+			std::cout << "FAIL: --from-module and --below-module exclude each other\n";
+			g_failures++;
+		}
+	}
+
 	if (g_failures == 0)
 		std::cout << "cli_test: all checks passed\n";
 	return g_failures == 0 ? 0 : 1;

@@ -303,6 +303,29 @@ int Application::runFilesPlan()
 	// the module listing is for a person.
 	loadModules(true);
 
+	// A plan scoped to one module names a module the project enables, or it
+	// would quietly answer for the whole project instead.
+	const std::string& scope = m_cli.fromModule.empty() ? m_cli.belowModule : m_cli.fromModule;
+	if (!scope.empty())
+	{
+		ScopedContext scopeCtx(Diag::ModuleResolve, "Could not scope the plan to a module.");
+		const modules::ResolvedModule* module = m_modules.find(scope);
+		if (module == nullptr || module->def == nullptr)
+		{
+			std::ostringstream oss;
+			oss << "No module called " << OSTR(scope) << " is enabled in this project.";
+			std::string enabled;
+			for (const modules::ResolvedModule& candidate : m_modules.modules())
+			{
+				if (candidate.def != nullptr)
+					enabled += (enabled.empty() ? "" : ", ") + candidate.key;
+			}
+			if (!enabled.empty())
+				oss << OREASONNL "Enabled modules: " << enabled;
+			throw ncp::exception(oss.str());
+		}
+	}
+
 	rom::PlanRomAccessor plan(*base);
 	const rom::InsertionRecord inserted = insertFiles(plan, true);
 	const std::vector<rom::ManifestEntry> entries =
@@ -1042,7 +1065,20 @@ std::vector<config::FileConfig> Application::resolveNitroFiles(rom::RomAccessor&
 {
 	std::vector<rom::FileTree> trees;
 
-	for (const config::FileTreeConfig& declared : m_config.fileTrees)
+	// `files plan --from-module KEY` answers as though only KEY and the modules
+	// after it were there, and `--below-module KEY` also leaves out the layer of
+	// KEY a write would land in. The project's own trees and files sit above
+	// every module, so neither keeps them. A build never scopes.
+	const bool planning = m_cli.command == Command::FilesPlan;
+	const bool below = planning && !m_cli.belowModule.empty();
+	const std::string scope = !planning ? std::string()
+		: below ? m_cli.belowModule : m_cli.fromModule;
+	const modules::ResolvedModule* scoped = scope.empty() ? nullptr : m_modules.find(scope);
+	bool reached = scoped == nullptr;
+	const std::vector<config::FileTreeConfig> noTrees;
+	const std::vector<config::FileConfig> noFiles;
+
+	for (const config::FileTreeConfig& declared : scope.empty() ? m_config.fileTrees : noTrees)
 	{
 		rom::FileTree tree;
 		tree.dir = m_ctx.paths.work(declared.dir);
@@ -1068,6 +1104,11 @@ std::vector<config::FileConfig> Application::resolveNitroFiles(rom::RomAccessor&
 	// project lists them.
 	for (const modules::ResolvedModule& module : m_modules.modules())
 	{
+		const bool isScoped = scoped != nullptr && module.key == scoped->key;
+		reached = reached || isScoped;
+		if (!reached)
+			continue;
+
 		if (module.def == nullptr || !module.def->nitrofs.declared)
 			continue;
 
@@ -1096,6 +1137,17 @@ std::vector<config::FileConfig> Application::resolveNitroFiles(rom::RomAccessor&
 				}
 				tree.variantLayer = found->second;
 			}
+		}
+
+		// The layer a write lands in: the whole tree when it is not layered, or
+		// when the layer the variant reads is the base itself; otherwise only the
+		// variant's (or mapped) layer, and the base stays below.
+		if (below && isScoped)
+		{
+			const std::string layer = tree.variantLayer.value_or(m_variant);
+			if (!tree.layered || layer.empty() || layer == tree.baseVariant)
+				continue;
+			tree.baseOnly = true;
 		}
 
 		// A disabled component subtracts its own patterns; an enabled one only
@@ -1170,7 +1222,7 @@ std::vector<config::FileConfig> Application::resolveNitroFiles(rom::RomAccessor&
 
 	// An explicit `files:` entry is the project overruling the sweep, so it
 	// replaces rather than collides.
-	for (const config::FileConfig& file : m_config.files)
+	for (const config::FileConfig& file : scope.empty() ? m_config.files : noFiles)
 	{
 		const auto existing = std::find_if(files.begin(), files.end(),
 			[&](const config::FileConfig& swept) { return swept.path == file.path; });
@@ -1181,9 +1233,14 @@ std::vector<config::FileConfig> Application::resolveNitroFiles(rom::RomAccessor&
 	}
 
 	// The images of the runtime modules. They are linked after every file is
-	// placed, so a file nothing else writes holds their place until then.
+	// placed, so a file nothing else writes holds their place until then. A
+	// scoped plan is about the files modules layer, and has no build to link
+	// them, so it leaves the placeholders out.
 	for (bool arm9 : { false, true })
 	{
+		if (!scope.empty())
+			break;
+
 		const config::TargetConfig& target = m_config.target(arm9);
 		if (!target.enabled)
 			continue;
